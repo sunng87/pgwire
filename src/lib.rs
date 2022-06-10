@@ -1,4 +1,4 @@
-mod packet;
+mod messages;
 mod types;
 
 #[macro_use]

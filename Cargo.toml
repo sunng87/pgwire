@@ -7,3 +7,5 @@ edition = "2021"
 
 [dependencies]
 getset = "0.1.2"
+tokio-util = { version = "0.7.3", features = ["codec"] }
+bytes = "1.1.0"
