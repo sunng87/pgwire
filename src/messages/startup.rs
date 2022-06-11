@@ -55,6 +55,7 @@ impl Codec for Startup {
             codec::put_cstring(buf, &k);
             codec::put_cstring(buf, &v);
         }
+        // ends with empty cstring, a \0
         codec::put_cstring(buf, "");
 
         Ok(())

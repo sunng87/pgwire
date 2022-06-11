@@ -2,6 +2,11 @@ use std::str;
 
 use bytes::{Buf, BufMut, BytesMut};
 
+/// Get null-terminated string, returns None when empty cstring read.
+///
+/// Note that this implementation will also advance cursor by 1 after reading
+/// empty cstring. This behaviour works for how postgres wire protocol handling
+/// key-value pairs, which is ended by a single `\0`
 pub(crate) fn get_cstring(buf: &mut BytesMut) -> Option<String> {
     let mut i = 0;
 
@@ -22,7 +27,10 @@ pub(crate) fn get_cstring(buf: &mut BytesMut) -> Option<String> {
     }
 }
 
-pub(crate) fn put_cstring(buf: &mut BytesMut, s: &str) {
-    buf.put_slice(s.as_bytes());
+/// Put null-termianted string
+///
+/// You can put empty string by giving `""` as input.
+pub(crate) fn put_cstring(buf: &mut BytesMut, input: &str) {
+    buf.put_slice(input.as_bytes());
     buf.put_u8(b'\0');
 }
