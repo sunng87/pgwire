@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 
 use bytes::{Buf, BufMut, BytesMut};
 
-use super::{get_cstring, Codec, MessageLength, MessageType};
+use super::codec;
+use super::{Codec, MessageLength, MessageType};
 
 /// postgresql wire protocol startup message, sent by frontend
 /// the strings are null-ternimated string, which is a string
@@ -51,12 +52,10 @@ impl Codec for Startup {
 
         // parameters
         for (k, v) in self.parameters.iter() {
-            buf.put_slice(k.as_bytes());
-            buf.put_u8(b'\0');
-            buf.put_slice(v.as_bytes());
-            buf.put_u8(b'\0');
+            codec::put_cstring(buf, &k);
+            codec::put_cstring(buf, &v);
         }
-        buf.put_u8(b'\0');
+        codec::put_cstring(buf, "");
 
         Ok(())
     }
@@ -73,8 +72,9 @@ impl Codec for Startup {
                 msg.set_protocol_number_major(buf.get_u16());
                 msg.set_protocol_number_minor(buf.get_u16());
 
-                while let Some(key) = get_cstring(buf) {
-                    let value = get_cstring(buf).unwrap_or_else(|| "".to_owned());
+                // end by reading the last \0
+                while let Some(key) = codec::get_cstring(buf) {
+                    let value = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
                     msg.parameters_mut().insert(key, value);
                 }
 

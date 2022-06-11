@@ -1,7 +1,6 @@
 use std::io;
-use std::str;
 
-use bytes::{Buf, BytesMut};
+use bytes::BytesMut;
 
 pub(crate) trait MessageType {
     #[inline]
@@ -19,26 +18,7 @@ pub(crate) trait Codec: Sized + MessageType + MessageLength {
     fn decode(buf: &mut BytesMut) -> io::Result<Option<Self>>;
 }
 
-pub(crate) fn get_cstring(buf: &mut BytesMut) -> Option<String> {
-    let mut i = 0;
-
-    // with bound check to prevent invalid format
-    while i < buf.remaining() && buf[i] != b'\0' {
-        i += 1;
-    }
-
-    // i+1: include the '\0'
-    // move cursor to the end of cstring
-    let string_buf = buf.split_to(i + 1);
-
-    if i == 0 {
-        None
-    } else {
-        // TODO: unwrap
-        Some(str::from_utf8(&string_buf[..i]).unwrap().to_owned())
-    }
-}
-
+mod codec;
 mod startup;
 
 pub enum Message {
