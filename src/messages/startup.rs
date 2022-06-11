@@ -9,14 +9,12 @@ use super::{get_cstring, Codec, MessageLength, MessageType};
 /// terminated by a zero byte.
 /// the key-value parameter pairs are terminated by a zero byte, too.
 ///
-#[derive(Getters, Setters, MutGetters)]
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct Startup {
-    #[getset(get, set)]
     protocol_number_major: u16,
-    #[getset(get, set)]
     protocol_number_minor: u16,
 
-    #[getset(get, set, get_mut)]
     parameters: BTreeMap<String, String>,
 }
 
@@ -39,7 +37,7 @@ impl MessageLength for Startup {
             .map(|(k, v)| k.len() + v.len() + 2)
             .sum::<usize>() as i32;
         // length:4 + protocol_number:4 + param.len + nullbyte:1
-        15 + param_length
+        9 + param_length
     }
 }
 
@@ -68,7 +66,7 @@ impl Codec for Startup {
             let msg_len = (&buf[..4]).get_i32() as usize;
             if buf.remaining() >= msg_len {
                 // skip msg_len
-                buf.advance(4);
+                let _ = buf.get_i32();
 
                 let mut msg = Startup::default();
                 // parse
