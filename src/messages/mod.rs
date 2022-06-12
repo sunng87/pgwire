@@ -29,7 +29,7 @@ pub enum Message {
 
 #[cfg(test)]
 mod test {
-    use super::startup::Startup;
+    use super::startup::{Authentication, Startup};
     use super::{Codec, Message};
     use bytes::{Buf, BytesMut};
 
@@ -48,11 +48,26 @@ mod test {
     }
 
     #[test]
-    fn test_roundtrip() {
+    fn test_startup() {
         let mut s = Startup::default();
         s.parameters_mut()
             .insert("user".to_owned(), "tomcat".to_owned());
 
         roundtrip!(s, Startup);
+    }
+
+    #[test]
+    fn test_authentication() {
+        let ss = vec![
+            Authentication::Ok,
+            Authentication::CleartextPassword,
+            Authentication::KerberosV5,
+        ];
+        for s in ss {
+            roundtrip!(s, Authentication);
+        }
+
+        let md5pass = Authentication::MD5Password(vec![b'p', b's', b't', b'g']);
+        roundtrip!(md5pass, Authentication);
     }
 }

@@ -62,36 +62,30 @@ impl Codec for Startup {
     }
 
     fn decode(buf: &mut BytesMut) -> std::io::Result<Option<Self>> {
-        if buf.remaining() > 4 {
-            let msg_len = (&buf[..4]).get_i32() as usize;
-            if buf.remaining() >= msg_len {
-                // skip msg_len
-                let _ = buf.get_i32();
+        codec::decode_packet(buf, |buf: &mut BytesMut, _| {
+            let mut msg = Startup::default();
+            // parse
+            msg.set_protocol_number_major(buf.get_u16());
+            msg.set_protocol_number_minor(buf.get_u16());
 
-                let mut msg = Startup::default();
-                // parse
-                msg.set_protocol_number_major(buf.get_u16());
-                msg.set_protocol_number_minor(buf.get_u16());
-
-                // end by reading the last \0
-                while let Some(key) = codec::get_cstring(buf) {
-                    let value = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
-                    msg.parameters_mut().insert(key, value);
-                }
-
-                return Ok(Some(msg));
+            // end by reading the last \0
+            while let Some(key) = codec::get_cstring(buf) {
+                let value = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
+                msg.parameters_mut().insert(key, value);
             }
-        }
-        Ok(None)
+
+            Ok(msg)
+        })
     }
 }
 
 /// authentication response family, sent by backend
+#[derive(PartialEq, Eq, Debug)]
 pub enum Authentication {
     Ok,                // code 0
     CleartextPassword, // code 3
     KerberosV5,        // code 2
-    MD5Password((u8, u8, u8, u8)), // code 5, with 4 bytes of md5 salt
+    MD5Password(Vec<u8>), // code 5, with 4 bytes of md5 salt
 
                        // TODO: more types
                        // AuthenticationSCMCredential
@@ -120,6 +114,51 @@ impl MessageLength for Authentication {
             }
             Authentication::MD5Password(_) => 12,
         }
+    }
+}
+
+impl Codec for Authentication {
+    fn encode(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+        buf.put_u8(self.message_type().unwrap());
+        buf.put_i32(self.message_length());
+
+        match self {
+            Authentication::Ok => buf.put_i32(0),
+            Authentication::CleartextPassword => buf.put_i32(3),
+            Authentication::KerberosV5 => buf.put_i32(2),
+            Authentication::MD5Password(salt) => {
+                buf.put_i32(5);
+                buf.put_slice(salt.as_ref());
+            }
+        }
+        Ok(())
+    }
+
+    fn decode(buf: &mut BytesMut) -> std::io::Result<Option<Self>> {
+        let msg_type = buf.get_u8();
+        // ensure the type is corrent
+        if msg_type != b'R' {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid message type",
+            ));
+        }
+
+        codec::decode_packet(buf, |buf, _| {
+            let code = buf.get_i32();
+            let msg = match code {
+                0 => Authentication::Ok,
+                2 => Authentication::KerberosV5,
+                3 => Authentication::CleartextPassword,
+                5 => {
+                    let salt = buf.split_to(4);
+                    Authentication::MD5Password(salt.to_vec())
+                }
+                _ => unreachable!(),
+            };
+
+            Ok(msg)
+        })
     }
 }
 
