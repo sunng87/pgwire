@@ -35,7 +35,7 @@ impl MessageLength for Startup {
         let param_length: i32 = self
             .parameters
             .iter()
-            .map(|(k, v)| k.len() + v.len() + 2)
+            .map(|(k, v)| k.as_bytes().len() + v.as_bytes().len() + 2)
             .sum::<usize>() as i32;
         // length:4 + protocol_number:4 + param.len + nullbyte:1
         9 + param_length
@@ -185,7 +185,7 @@ impl MessageType for Password {
 
 impl MessageLength for Password {
     fn message_length(&self) -> i32 {
-        (5 + self.password.len()) as i32
+        (5 + self.password.as_bytes().len()) as i32
     }
 }
 
