@@ -29,7 +29,7 @@ pub enum Message {
 
 #[cfg(test)]
 mod test {
-    use super::startup::{Authentication, Startup};
+    use super::startup::*;
     use super::{Codec, Message};
     use bytes::{Buf, BytesMut};
 
@@ -69,5 +69,11 @@ mod test {
 
         let md5pass = Authentication::MD5Password(vec![b'p', b's', b't', b'g']);
         roundtrip!(md5pass, Authentication);
+    }
+
+    #[test]
+    fn test_password() {
+        let s = Password::new("pgwire".to_owned());
+        roundtrip!(s, Password);
     }
 }

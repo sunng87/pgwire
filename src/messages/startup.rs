@@ -135,6 +135,7 @@ impl Codec for Authentication {
     }
 
     fn decode(buf: &mut BytesMut) -> std::io::Result<Option<Self>> {
+        // TODO: consider refactor this
         let msg_type = buf.get_u8();
         // ensure the type is corrent
         if msg_type != b'R' {
@@ -163,7 +164,8 @@ impl Codec for Authentication {
 }
 
 /// password packet sent from frontend
-#[derive(Getters, Setters, MutGetters)]
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct Password {
     password: String,
 }
@@ -184,5 +186,33 @@ impl MessageType for Password {
 impl MessageLength for Password {
     fn message_length(&self) -> i32 {
         (5 + self.password.len()) as i32
+    }
+}
+
+impl Codec for Password {
+    fn encode(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+        buf.put_u8(self.message_type().unwrap());
+        buf.put_i32(self.message_length());
+        codec::put_cstring(buf, &self.password);
+
+        Ok(())
+    }
+
+    fn decode(buf: &mut BytesMut) -> std::io::Result<Option<Self>> {
+        // TODO: consider refactor this
+        let msg_type = buf.get_u8();
+        // ensure the type is corrent
+        if msg_type != b'p' {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid message type",
+            ));
+        }
+
+        codec::decode_packet(buf, |buf, _| {
+            let pass = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
+
+            Ok(Password::new(pass))
+        })
     }
 }
