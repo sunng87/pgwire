@@ -216,3 +216,52 @@ impl Codec for Password {
         })
     }
 }
+
+/// parameter ack sent from backend after authentication success
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct ParameterStatus {
+    name: String,
+    value: String,
+}
+
+impl ParameterStatus {
+    pub fn new(name: String, value: String) -> ParameterStatus {
+        ParameterStatus { name, value }
+    }
+}
+
+impl MessageType for ParameterStatus {
+    fn message_type(&self) -> Option<u8> {
+        Some(b'S')
+    }
+}
+
+impl MessageLength for ParameterStatus {
+    fn message_length(&self) -> i32 {
+        (2 + self.name.as_bytes().len() + self.value.as_bytes().len()) as i32
+    }
+}
+
+impl Codec for ParameterStatus {
+    fn encode(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+        buf.put_u8(b'S');
+        buf.put_i32(self.message_length());
+
+        codec::put_cstring(buf, &self.name);
+        codec::put_cstring(buf, &self.value);
+
+        Ok(())
+    }
+
+    fn decode(buf: &mut BytesMut) -> std::io::Result<Option<Self>> {
+        codec::get_and_ensure_message_type(buf, b'S')?;
+
+        codec::decode_packet(buf, |buf, _| {
+            let name = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
+            let value = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
+
+            Ok(ParameterStatus::new(name, value))
+        })
+    }
+}
