@@ -61,3 +61,16 @@ where
 
     Ok(None)
 }
+
+pub(crate) fn get_and_ensure_message_type(buf: &mut BytesMut, t: u8) -> std::io::Result<()> {
+    let msg_type = buf.get_u8();
+    // ensure the type is corrent
+    if msg_type != t {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "invalid message type",
+        ));
+    }
+
+    Ok(())
+}

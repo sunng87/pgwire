@@ -19,6 +19,8 @@ pub(crate) trait Codec: Sized + MessageType + MessageLength {
 }
 
 mod codec;
+mod response;
+mod simplequery;
 mod startup;
 
 pub enum Message {
