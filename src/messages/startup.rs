@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use bytes::{Buf, BufMut, BytesMut};
 
 use super::codec;
-use super::{Codec, MessageLength, MessageType};
+use super::Message;
 
 /// postgresql wire protocol startup message, sent by frontend
 /// the strings are null-ternimated string, which is a string
@@ -29,8 +29,7 @@ impl Default for Startup {
     }
 }
 
-impl MessageType for Startup {}
-impl MessageLength for Startup {
+impl Message for Startup {
     fn message_length(&self) -> i32 {
         let param_length: i32 = self
             .parameters
@@ -40,12 +39,8 @@ impl MessageLength for Startup {
         // length:4 + protocol_number:4 + param.len + nullbyte:1
         9 + param_length
     }
-}
 
-impl Codec for Startup {
     fn encode(&self, buf: &mut BytesMut) -> std::io::Result<()> {
-        buf.put_i32(self.message_length());
-
         // version number
         buf.put_u16(self.protocol_number_major);
         buf.put_u16(self.protocol_number_minor);
@@ -61,21 +56,19 @@ impl Codec for Startup {
         Ok(())
     }
 
-    fn decode(buf: &mut BytesMut) -> std::io::Result<Option<Self>> {
-        codec::decode_packet(buf, |buf: &mut BytesMut, _| {
-            let mut msg = Startup::default();
-            // parse
-            msg.set_protocol_number_major(buf.get_u16());
-            msg.set_protocol_number_minor(buf.get_u16());
+    fn decode(buf: &mut BytesMut) -> std::io::Result<Self> {
+        let mut msg = Startup::default();
+        // parse
+        msg.set_protocol_number_major(buf.get_u16());
+        msg.set_protocol_number_minor(buf.get_u16());
 
-            // end by reading the last \0
-            while let Some(key) = codec::get_cstring(buf) {
-                let value = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
-                msg.parameters_mut().insert(key, value);
-            }
+        // end by reading the last \0
+        while let Some(key) = codec::get_cstring(buf) {
+            let value = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
+            msg.parameters_mut().insert(key, value);
+        }
 
-            Ok(msg)
-        })
+        Ok(msg)
     }
 }
 
@@ -98,14 +91,12 @@ pub enum Authentication {
                        // AuthenticationSASLFinal
 }
 
-impl MessageType for Authentication {
+impl Message for Authentication {
     #[inline]
-    fn message_type(&self) -> Option<u8> {
+    fn message_type() -> Option<u8> {
         Some(b'R')
     }
-}
 
-impl MessageLength for Authentication {
     #[inline]
     fn message_length(&self) -> i32 {
         match self {
@@ -115,13 +106,8 @@ impl MessageLength for Authentication {
             Authentication::MD5Password(_) => 12,
         }
     }
-}
 
-impl Codec for Authentication {
     fn encode(&self, buf: &mut BytesMut) -> std::io::Result<()> {
-        buf.put_u8(self.message_type().unwrap());
-        buf.put_i32(self.message_length());
-
         match self {
             Authentication::Ok => buf.put_i32(0),
             Authentication::CleartextPassword => buf.put_i32(3),
@@ -134,32 +120,20 @@ impl Codec for Authentication {
         Ok(())
     }
 
-    fn decode(buf: &mut BytesMut) -> std::io::Result<Option<Self>> {
-        // TODO: consider refactor this
-        let msg_type = buf.get_u8();
-        // ensure the type is corrent
-        if msg_type != b'R' {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "invalid message type",
-            ));
-        }
+    fn decode(buf: &mut BytesMut) -> std::io::Result<Self> {
+        let code = buf.get_i32();
+        let msg = match code {
+            0 => Authentication::Ok,
+            2 => Authentication::KerberosV5,
+            3 => Authentication::CleartextPassword,
+            5 => {
+                let salt = buf.split_to(4);
+                Authentication::MD5Password(salt.to_vec())
+            }
+            _ => unreachable!(),
+        };
 
-        codec::decode_packet(buf, |buf, _| {
-            let code = buf.get_i32();
-            let msg = match code {
-                0 => Authentication::Ok,
-                2 => Authentication::KerberosV5,
-                3 => Authentication::CleartextPassword,
-                5 => {
-                    let salt = buf.split_to(4);
-                    Authentication::MD5Password(salt.to_vec())
-                }
-                _ => unreachable!(),
-            };
-
-            Ok(msg)
-        })
+        Ok(msg)
     }
 }
 
@@ -176,44 +150,26 @@ impl Password {
     }
 }
 
-impl MessageType for Password {
+impl Message for Password {
     #[inline]
-    fn message_type(&self) -> Option<u8> {
+    fn message_type() -> Option<u8> {
         Some(b'p')
     }
-}
 
-impl MessageLength for Password {
     fn message_length(&self) -> i32 {
         (5 + self.password.as_bytes().len()) as i32
     }
-}
 
-impl Codec for Password {
     fn encode(&self, buf: &mut BytesMut) -> std::io::Result<()> {
-        buf.put_u8(self.message_type().unwrap());
-        buf.put_i32(self.message_length());
         codec::put_cstring(buf, &self.password);
 
         Ok(())
     }
 
-    fn decode(buf: &mut BytesMut) -> std::io::Result<Option<Self>> {
-        // TODO: consider refactor this
-        let msg_type = buf.get_u8();
-        // ensure the type is corrent
-        if msg_type != b'p' {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "invalid message type",
-            ));
-        }
+    fn decode(buf: &mut BytesMut) -> std::io::Result<Self> {
+        let pass = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
-        codec::decode_packet(buf, |buf, _| {
-            let pass = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
-
-            Ok(Password::new(pass))
-        })
+        Ok(Password::new(pass))
     }
 }
 
@@ -231,37 +187,27 @@ impl ParameterStatus {
     }
 }
 
-impl MessageType for ParameterStatus {
-    fn message_type(&self) -> Option<u8> {
+impl Message for ParameterStatus {
+    #[inline]
+    fn message_type() -> Option<u8> {
         Some(b'S')
     }
-}
 
-impl MessageLength for ParameterStatus {
     fn message_length(&self) -> i32 {
         (2 + self.name.as_bytes().len() + self.value.as_bytes().len()) as i32
     }
-}
 
-impl Codec for ParameterStatus {
     fn encode(&self, buf: &mut BytesMut) -> std::io::Result<()> {
-        buf.put_u8(b'S');
-        buf.put_i32(self.message_length());
-
         codec::put_cstring(buf, &self.name);
         codec::put_cstring(buf, &self.value);
 
         Ok(())
     }
 
-    fn decode(buf: &mut BytesMut) -> std::io::Result<Option<Self>> {
-        codec::get_and_ensure_message_type(buf, b'S')?;
+    fn decode(buf: &mut BytesMut) -> std::io::Result<Self> {
+        let name = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
+        let value = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
-        codec::decode_packet(buf, |buf, _| {
-            let name = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
-            let value = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
-
-            Ok(ParameterStatus::new(name, value))
-        })
+        Ok(ParameterStatus::new(name, value))
     }
 }

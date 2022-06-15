@@ -1,7 +1,7 @@
-use bytes::{BufMut, BytesMut};
+use bytes::BytesMut;
 
 use super::codec;
-use super::{Codec, MessageLength, MessageType};
+use super::Message;
 
 #[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
@@ -15,34 +15,25 @@ impl Query {
     }
 }
 
-impl MessageType for Query {
-    fn message_type(&self) -> Option<u8> {
+impl Message for Query {
+    #[inline]
+    fn message_type() -> Option<u8> {
         Some(b'Q')
     }
-}
 
-impl MessageLength for Query {
     fn message_length(&self) -> i32 {
         (5 + self.query.as_bytes().len()) as i32
     }
-}
 
-impl Codec for Query {
     fn encode(&self, buf: &mut BytesMut) -> std::io::Result<()> {
-        buf.put_u8(self.message_type().unwrap());
-        buf.put_i32(self.message_length());
         codec::put_cstring(buf, &self.query);
 
         Ok(())
     }
 
-    fn decode(buf: &mut BytesMut) -> std::io::Result<Option<Self>> {
-        codec::get_and_ensure_message_type(buf, b'Q')?;
+    fn decode(buf: &mut BytesMut) -> std::io::Result<Self> {
+        let query = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
-        codec::decode_packet(buf, |buf, _| {
-            let query = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
-
-            Ok(Query::new(query))
-        })
+        Ok(Query::new(query))
     }
 }
