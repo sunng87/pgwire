@@ -25,13 +25,13 @@ impl Message for Query {
         (5 + self.query.as_bytes().len()) as i32
     }
 
-    fn encode(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
         codec::put_cstring(buf, &self.query);
 
         Ok(())
     }
 
-    fn decode(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
         let query = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
         Ok(Query::new(query))

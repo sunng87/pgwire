@@ -12,24 +12,24 @@ pub(crate) trait Message: Sized {
 
     /// Return the length of the message, including the length integer itself.
     fn message_length(&self) -> i32;
-    fn encode(&self, buf: &mut BytesMut) -> io::Result<()>;
-    fn decode(buf: &mut BytesMut) -> io::Result<Self>;
+    fn encode_body(&self, buf: &mut BytesMut) -> io::Result<()>;
+    fn decode_body(buf: &mut BytesMut) -> io::Result<Self>;
 
-    fn encode_message(&self, buf: &mut BytesMut) -> io::Result<()> {
+    fn encode(&self, buf: &mut BytesMut) -> io::Result<()> {
         if let Some(mt) = Self::message_type() {
             buf.put_u8(mt);
         }
 
         buf.put_i32(self.message_length());
-        self.encode(buf)
+        self.encode_body(buf)
     }
 
-    fn decode_message(buf: &mut BytesMut) -> io::Result<Option<Self>> {
+    fn decode(buf: &mut BytesMut) -> io::Result<Option<Self>> {
         if let Some(mt) = Self::message_type() {
             codec::get_and_ensure_message_type(buf, mt)?;
         }
 
-        codec::decode_packet(buf, |buf, _| Self::decode(buf))
+        codec::decode_packet(buf, |buf, _| Self::decode_body(buf))
     }
 }
 
@@ -55,11 +55,11 @@ mod test {
     macro_rules! roundtrip {
         ($ins:ident, $st:ty) => {
             let mut buffer = BytesMut::new();
-            $ins.encode_message(&mut buffer).unwrap();
+            $ins.encode(&mut buffer).unwrap();
 
             assert!(buffer.remaining() > 0);
 
-            let item2 = <$st>::decode_message(&mut buffer).unwrap().unwrap();
+            let item2 = <$st>::decode(&mut buffer).unwrap().unwrap();
 
             assert_eq!(buffer.remaining(), 0);
             assert_eq!($ins, item2);

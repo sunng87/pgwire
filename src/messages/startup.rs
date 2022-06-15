@@ -40,7 +40,7 @@ impl Message for Startup {
         9 + param_length
     }
 
-    fn encode(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
         // version number
         buf.put_u16(self.protocol_number_major);
         buf.put_u16(self.protocol_number_minor);
@@ -56,7 +56,7 @@ impl Message for Startup {
         Ok(())
     }
 
-    fn decode(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
         let mut msg = Startup::default();
         // parse
         msg.set_protocol_number_major(buf.get_u16());
@@ -107,7 +107,7 @@ impl Message for Authentication {
         }
     }
 
-    fn encode(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
         match self {
             Authentication::Ok => buf.put_i32(0),
             Authentication::CleartextPassword => buf.put_i32(3),
@@ -120,7 +120,7 @@ impl Message for Authentication {
         Ok(())
     }
 
-    fn decode(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
         let code = buf.get_i32();
         let msg = match code {
             0 => Authentication::Ok,
@@ -160,13 +160,13 @@ impl Message for Password {
         (5 + self.password.as_bytes().len()) as i32
     }
 
-    fn encode(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
         codec::put_cstring(buf, &self.password);
 
         Ok(())
     }
 
-    fn decode(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
         let pass = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
         Ok(Password::new(pass))
@@ -197,14 +197,14 @@ impl Message for ParameterStatus {
         (2 + self.name.as_bytes().len() + self.value.as_bytes().len()) as i32
     }
 
-    fn encode(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
         codec::put_cstring(buf, &self.name);
         codec::put_cstring(buf, &self.value);
 
         Ok(())
     }
 
-    fn decode(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
         let name = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
         let value = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 

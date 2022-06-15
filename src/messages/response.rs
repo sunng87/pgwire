@@ -25,13 +25,13 @@ impl Message for CommandComplete {
         (5 + self.tag.as_bytes().len()) as i32
     }
 
-    fn encode(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
         codec::put_cstring(buf, &self.tag);
 
         Ok(())
     }
 
-    fn decode(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
         let tag = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
         Ok(CommandComplete::new(tag))
@@ -61,13 +61,13 @@ impl Message for ReadyForQuery {
         5
     }
 
-    fn encode(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
         buf.put_u8(self.status);
 
         Ok(())
     }
 
-    fn decode(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
         let status = buf.get_u8();
         Ok(ReadyForQuery::new(status))
     }
