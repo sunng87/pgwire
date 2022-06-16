@@ -35,6 +35,7 @@ pub(crate) trait Message: Sized {
 
 mod codec;
 mod response;
+mod result;
 mod simplequery;
 mod startup;
 
