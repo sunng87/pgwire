@@ -78,7 +78,7 @@ pub enum Authentication {
     Ok,                // code 0
     CleartextPassword, // code 3
     KerberosV5,        // code 2
-    MD5Password(Vec<u8>), // code 5, with 4 bytes of md5 salt
+    MD5Password([u8; 4]), // code 5, with 4 bytes of md5 salt
 
                        // TODO: more types
                        // AuthenticationSCMCredential
@@ -127,8 +127,10 @@ impl Message for Authentication {
             2 => Authentication::KerberosV5,
             3 => Authentication::CleartextPassword,
             5 => {
-                let salt = buf.split_to(4);
-                Authentication::MD5Password(salt.to_vec())
+                let mut salt = buf.split_to(4);
+                let mut salt_array = [0u8; 4];
+                salt.copy_to_slice(&mut salt_array);
+                Authentication::MD5Password(salt_array)
             }
             _ => unreachable!(),
         };
