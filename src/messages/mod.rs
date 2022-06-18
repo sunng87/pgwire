@@ -48,7 +48,7 @@ pub enum PgWireMessage {
 #[cfg(test)]
 mod test {
     use super::response::*;
-    use super::simplequery::Query;
+    use super::simplequery::*;
     use super::startup::*;
     use super::Message;
     use bytes::{Buf, BytesMut};
@@ -119,5 +119,14 @@ mod test {
     fn test_ready_for_query() {
         let r4q = ReadyForQuery::new(b'I');
         roundtrip!(r4q, ReadyForQuery);
+    }
+
+    #[test]
+    fn test_error_response() {
+        let mut error = ErrorResponse::default();
+        error.fields_mut().push((b'R', "ERROR".to_owned()));
+        error.fields_mut().push((b'K', "cli".to_owned()));
+
+        roundtrip!(error, ErrorResponse);
     }
 }
