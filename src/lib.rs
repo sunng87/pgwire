@@ -1,5 +1,5 @@
-mod messages;
-mod types;
+pub mod messages;
+pub mod types;
 
 #[macro_use]
 extern crate getset;
