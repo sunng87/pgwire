@@ -48,6 +48,7 @@ pub enum PgWireMessage {
 #[cfg(test)]
 mod test {
     use super::response::*;
+    use super::result::*;
     use super::simplequery::*;
     use super::startup::*;
     use super::Message;
@@ -128,5 +129,46 @@ mod test {
         error.fields_mut().push((b'K', "cli".to_owned()));
 
         roundtrip!(error, ErrorResponse);
+    }
+
+    #[test]
+    fn test_row_description() {
+        let mut row_description = RowDescription::default();
+
+        let mut f1 = FieldDescription::default();
+        f1.set_name("id".into());
+        f1.set_table_id(1001);
+        f1.set_column_id(10001);
+        f1.set_type_id(1083);
+        f1.set_type_size(4);
+        f1.set_type_modifier(-1);
+        f1.set_format_code(FORMAT_CODE_TEXT);
+        row_description.fields_mut().push(f1);
+
+        let mut f2 = FieldDescription::default();
+        f2.set_name("name".into());
+        f2.set_table_id(1001);
+        f2.set_column_id(10001);
+        f2.set_type_id(1099);
+        f2.set_type_size(-1);
+        f2.set_type_modifier(-1);
+        f2.set_format_code(FORMAT_CODE_TEXT);
+        row_description.fields_mut().push(f2);
+
+        roundtrip!(row_description, RowDescription);
+    }
+
+    #[test]
+    fn test_data_row() {
+        let mut row0 = DataRow::new();
+        row0.fields_mut().push(Some(vec![b'1']));
+        row0.fields_mut().push(None);
+
+        let mut row1 = DataRow::new();
+        row1.fields_mut().push(Some(vec![b'2']));
+        row1.fields_mut().push(Some(vec![b't', b'o', b'm']));
+
+        roundtrip!(row0, DataRow);
+        roundtrip!(row1, DataRow);
     }
 }

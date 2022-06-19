@@ -3,6 +3,9 @@ use bytes::{Buf, BufMut, BytesMut};
 use super::codec;
 use super::Message;
 
+pub const FORMAT_CODE_TEXT: i16 = 0;
+pub const FORMAT_CODE_BINARY: i16 = 1;
+
 #[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct FieldDescription {
@@ -46,7 +49,7 @@ impl Message for RowDescription {
         buf.put_i16(self.fields.len() as i16);
 
         for field in &self.fields {
-            buf.put_slice(field.name.as_bytes());
+            codec::put_cstring(buf, &field.name);
             buf.put_i32(field.table_id);
             buf.put_i16(field.column_id);
             buf.put_i32(field.type_id);
@@ -80,6 +83,10 @@ impl Message for RowDescription {
     }
 }
 
+/// Data structure for postgresql wire protocol `DataRow` message.
+///
+/// Data can be represented as text or binary format as specified by format
+/// codes from previous `RowDescription` message.
 #[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct DataRow {
@@ -87,7 +94,36 @@ pub struct DataRow {
     fields: Vec<Option<Vec<u8>>>,
 }
 
+impl DataRow {
+    /// create any `DataRow`
+    pub fn new() -> DataRow {
+        Self::default()
+    }
+
+    /// resolve data row content as text, return None if the field not exists or
+    /// the value is Null.
+    ///
+    /// FIXME: unwrap for utf8
+    pub fn as_text(&self, index: usize) -> Option<String> {
+        self.fields
+            .get(index)
+            .and_then(|f| f.as_ref().map(|bs| String::from_utf8(bs.clone()).unwrap()))
+    }
+
+    /// resolve data row content as binary, return None if the field not exists
+    /// or the value is Null
+    pub fn as_binary(&self, index: usize) -> Option<&Vec<u8>> {
+        self.fields.get(index).and_then(|f| f.as_ref())
+    }
+
+    /// count of fields
+    pub fn len(&self) -> usize {
+        self.fields.len()
+    }
+}
+
 impl Message for DataRow {
+    #[inline]
     fn message_type() -> Option<u8> {
         Some(b'D')
     }
