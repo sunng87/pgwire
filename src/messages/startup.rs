@@ -213,3 +213,38 @@ impl Message for ParameterStatus {
         Ok(ParameterStatus::new(name, value))
     }
 }
+
+/// `BackendKeyData` message, sent from backend to frontend for issuing
+/// `CancelRequestMessage`
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct BackendKeyData {
+    pid: i32,
+    secret_key: i32,
+}
+
+impl Message for BackendKeyData {
+    #[inline]
+    fn message_type() -> Option<u8> {
+        Some(b'K')
+    }
+
+    #[inline]
+    fn message_length(&self) -> i32 {
+        12
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+        buf.put_i32(self.pid);
+        buf.put_i32(self.secret_key);
+
+        Ok(())
+    }
+
+    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
+        let pid = buf.get_i32();
+        let secret_key = buf.get_i32();
+
+        Ok(BackendKeyData { pid, secret_key })
+    }
+}
