@@ -12,7 +12,9 @@ pub(crate) trait Message: Sized {
 
     /// Return the length of the message, including the length integer itself.
     fn message_length(&self) -> i32;
+
     fn encode_body(&self, buf: &mut BytesMut) -> io::Result<()>;
+
     fn decode_body(buf: &mut BytesMut) -> io::Result<Self>;
 
     fn encode(&self, buf: &mut BytesMut) -> io::Result<()> {
@@ -38,6 +40,7 @@ mod response;
 mod result;
 mod simplequery;
 mod startup;
+mod terminate;
 
 pub enum PgWireMessage {
     Startup(startup::Startup),
@@ -51,6 +54,7 @@ mod test {
     use super::result::*;
     use super::simplequery::*;
     use super::startup::*;
+    use super::terminate::*;
     use super::Message;
     use bytes::{Buf, BytesMut};
 
@@ -170,5 +174,11 @@ mod test {
 
         roundtrip!(row0, DataRow);
         roundtrip!(row1, DataRow);
+    }
+
+    #[test]
+    fn test_terminate() {
+        let terminate = Terminate::new();
+        roundtrip!(terminate, Terminate);
     }
 }
