@@ -36,13 +36,13 @@ impl Message for RowDescription {
         Some(b'T')
     }
 
-    fn message_length(&self) -> i32 {
+    fn message_length(&self) -> usize {
         4 + 2
             + self
                 .fields
                 .iter()
                 .map(|f| f.name.as_bytes().len() + 1 + 4 + 2 + 4 + 2 + 4 + 2)
-                .sum::<usize>() as i32
+                .sum::<usize>()
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
@@ -128,13 +128,13 @@ impl Message for DataRow {
         Some(b'D')
     }
 
-    fn message_length(&self) -> i32 {
+    fn message_length(&self) -> usize {
         4 + 2
             + self
                 .fields
                 .iter()
                 .map(|f| 4 + f.as_ref().map(|d| d.len()).unwrap_or(0))
-                .sum::<usize>() as i32
+                .sum::<usize>()
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {

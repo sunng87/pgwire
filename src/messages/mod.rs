@@ -11,7 +11,7 @@ pub(crate) trait Message: Sized {
     }
 
     /// Return the length of the message, including the length integer itself.
-    fn message_length(&self) -> i32;
+    fn message_length(&self) -> usize;
 
     fn encode_body(&self, buf: &mut BytesMut) -> io::Result<()>;
 
@@ -22,7 +22,7 @@ pub(crate) trait Message: Sized {
             buf.put_u8(mt);
         }
 
-        buf.put_i32(self.message_length());
+        buf.put_i32(self.message_length() as i32);
         self.encode_body(buf)
     }
 

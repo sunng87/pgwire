@@ -21,8 +21,8 @@ impl Message for CommandComplete {
         Some(b'C')
     }
 
-    fn message_length(&self) -> i32 {
-        (5 + self.tag.as_bytes().len()) as i32
+    fn message_length(&self) -> usize {
+        5 + self.tag.as_bytes().len()
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
@@ -57,7 +57,7 @@ impl Message for ReadyForQuery {
     }
 
     #[inline]
-    fn message_length(&self) -> i32 {
+    fn message_length(&self) -> usize {
         5
     }
 
@@ -73,6 +73,7 @@ impl Message for ReadyForQuery {
     }
 }
 
+/// postgres error response, sent from backend to frontend
 #[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct ErrorResponse {
@@ -85,12 +86,12 @@ impl Message for ErrorResponse {
         Some(b'E')
     }
 
-    fn message_length(&self) -> i32 {
+    fn message_length(&self) -> usize {
         4 + self
             .fields
             .iter()
             .map(|f| 1 + f.1.as_bytes().len() + 1)
-            .sum::<usize>() as i32
+            .sum::<usize>()
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
@@ -112,11 +113,8 @@ impl Message for ErrorResponse {
             if code == b'\0' {
                 return Ok(ErrorResponse { fields });
             } else {
-                if let Some(value) = codec::get_cstring(buf) {
-                    fields.push((code, value));
-                } else {
-                    // error
-                }
+                let value = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
+                fields.push((code, value));
             }
         }
     }

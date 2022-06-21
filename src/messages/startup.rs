@@ -30,12 +30,12 @@ impl Default for Startup {
 }
 
 impl Message for Startup {
-    fn message_length(&self) -> i32 {
-        let param_length: i32 = self
+    fn message_length(&self) -> usize {
+        let param_length = self
             .parameters
             .iter()
             .map(|(k, v)| k.as_bytes().len() + v.as_bytes().len() + 2)
-            .sum::<usize>() as i32;
+            .sum::<usize>();
         // length:4 + protocol_number:4 + param.len + nullbyte:1
         9 + param_length
     }
@@ -98,7 +98,7 @@ impl Message for Authentication {
     }
 
     #[inline]
-    fn message_length(&self) -> i32 {
+    fn message_length(&self) -> usize {
         match self {
             Authentication::Ok | Authentication::CleartextPassword | Authentication::KerberosV5 => {
                 8
@@ -158,8 +158,8 @@ impl Message for Password {
         Some(b'p')
     }
 
-    fn message_length(&self) -> i32 {
-        (5 + self.password.as_bytes().len()) as i32
+    fn message_length(&self) -> usize {
+        5 + self.password.as_bytes().len()
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
@@ -195,8 +195,8 @@ impl Message for ParameterStatus {
         Some(b'S')
     }
 
-    fn message_length(&self) -> i32 {
-        (2 + self.name.as_bytes().len() + self.value.as_bytes().len()) as i32
+    fn message_length(&self) -> usize {
+        4 + 2 + self.name.as_bytes().len() + self.value.as_bytes().len()
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
@@ -230,7 +230,7 @@ impl Message for BackendKeyData {
     }
 
     #[inline]
-    fn message_length(&self) -> i32 {
+    fn message_length(&self) -> usize {
         12
     }
 

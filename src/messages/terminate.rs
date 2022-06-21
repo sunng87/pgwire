@@ -10,7 +10,7 @@ impl Message for Terminate {
     }
 
     #[inline]
-    fn message_length(&self) -> i32 {
+    fn message_length(&self) -> usize {
         4
     }
 

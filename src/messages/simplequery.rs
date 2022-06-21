@@ -21,8 +21,8 @@ impl Message for Query {
         Some(b'Q')
     }
 
-    fn message_length(&self) -> i32 {
-        (5 + self.query.as_bytes().len()) as i32
+    fn message_length(&self) -> usize {
+        5 + self.query.as_bytes().len()
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
