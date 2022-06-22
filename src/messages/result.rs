@@ -6,7 +6,7 @@ use super::Message;
 pub const FORMAT_CODE_TEXT: i16 = 0;
 pub const FORMAT_CODE_BINARY: i16 = 1;
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default)]
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct FieldDescription {
     // the field name
@@ -25,9 +25,10 @@ pub struct FieldDescription {
     format_code: i16,
 }
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default)]
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct RowDescription {
+    #[new(default)]
     fields: Vec<FieldDescription>,
 }
 
@@ -87,19 +88,15 @@ impl Message for RowDescription {
 ///
 /// Data can be represented as text or binary format as specified by format
 /// codes from previous `RowDescription` message.
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default)]
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct DataRow {
     // None for Null data
+    #[new(default)]
     fields: Vec<Option<Vec<u8>>>,
 }
 
 impl DataRow {
-    /// create any `DataRow`
-    pub fn new() -> DataRow {
-        Self::default()
-    }
-
     /// resolve data row content as text, return None if the field not exists or
     /// the value is Null.
     ///

@@ -10,22 +10,20 @@ use super::Message;
 /// terminated by a zero byte.
 /// the key-value parameter pairs are terminated by a zero byte, too.
 ///
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug)]
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct Startup {
+    #[new(value = "3")]
     protocol_number_major: u16,
+    #[new(value = "0")]
     protocol_number_minor: u16,
-
+    #[new(default)]
     parameters: BTreeMap<String, String>,
 }
 
 impl Default for Startup {
     fn default() -> Startup {
-        Startup {
-            protocol_number_major: 3,
-            protocol_number_minor: 0,
-            parameters: BTreeMap::default(),
-        }
+        Startup::new()
     }
 }
 
@@ -140,16 +138,10 @@ impl Message for Authentication {
 }
 
 /// password packet sent from frontend
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug)]
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct Password {
     password: String,
-}
-
-impl Password {
-    pub fn new(password: String) -> Password {
-        Password { password }
-    }
 }
 
 impl Message for Password {
@@ -176,17 +168,11 @@ impl Message for Password {
 }
 
 /// parameter ack sent from backend after authentication success
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug)]
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct ParameterStatus {
     name: String,
     value: String,
-}
-
-impl ParameterStatus {
-    pub fn new(name: String, value: String) -> ParameterStatus {
-        ParameterStatus { name, value }
-    }
 }
 
 impl Message for ParameterStatus {

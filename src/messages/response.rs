@@ -3,16 +3,10 @@ use bytes::{Buf, BufMut, BytesMut};
 use super::codec;
 use super::Message;
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug)]
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct CommandComplete {
     tag: String,
-}
-
-impl CommandComplete {
-    pub fn new(tag: String) -> CommandComplete {
-        CommandComplete { tag }
-    }
 }
 
 impl Message for CommandComplete {
@@ -38,17 +32,15 @@ impl Message for CommandComplete {
     }
 }
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug)]
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct ReadyForQuery {
     status: u8,
 }
 
-impl ReadyForQuery {
-    pub fn new(status: u8) -> ReadyForQuery {
-        ReadyForQuery { status }
-    }
-}
+pub const READY_STATUS_IDLE: u8 = b'I';
+pub const READY_STATUS_TRANSACTION_BLOCK: u8 = b'T';
+pub const READY_STATUS_FAILED_TRANSACTION_BLOCK: u8 = b'E';
 
 impl Message for ReadyForQuery {
     #[inline]

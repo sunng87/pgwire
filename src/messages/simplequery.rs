@@ -3,16 +3,10 @@ use bytes::BytesMut;
 use super::codec;
 use super::Message;
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug)]
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct Query {
     query: String,
-}
-
-impl Query {
-    pub fn new(query: String) -> Query {
-        Query { query }
-    }
 }
 
 impl Message for Query {
