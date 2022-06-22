@@ -234,3 +234,35 @@ impl Message for BackendKeyData {
         Ok(BackendKeyData { pid, secret_key })
     }
 }
+
+/// `Sslrequest` sent from frontend to negotiate with backend to check if the
+/// backend supports secure connection.
+///
+/// The backend sents a single byte 'S' or 'N' to indicate its support. Upon 'S'
+/// the frontend should close the connection and reinitialize a new TLS
+/// connection.
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct SslRequest {}
+
+impl Message for SslRequest {
+    #[inline]
+    fn message_type() -> Option<u8> {
+        None
+    }
+
+    #[inline]
+    fn message_length(&self) -> usize {
+        8
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+        buf.put_i32(80877103);
+        Ok(())
+    }
+
+    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
+        buf.advance(4);
+        Ok(SslRequest::new())
+    }
+}
