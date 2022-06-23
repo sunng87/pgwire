@@ -36,22 +36,70 @@ pub(crate) trait Message: Sized {
 }
 
 mod codec;
-mod response;
-mod result;
-mod simplequery;
-mod startup;
-mod terminate;
+pub mod data;
+pub mod response;
+pub mod simplequery;
+pub mod startup;
+pub mod terminate;
 
 pub enum PgWireMessage {
+    // startup
+    SslRequest(startup::SslRequest),
     Startup(startup::Startup),
     Authentication(startup::Authentication),
     Password(startup::Password),
+    ParameterStatus(startup::ParameterStatus),
+    BackendKeyData(startup::BackendKeyData),
+
+    // simple query
+    Query(simplequery::Query),
+
+    // command response
+    CommandComplete(response::CommandComplete),
+    ReadyForQuery(response::ReadyForQuery),
+    ErrorResponse(response::ErrorResponse),
+
+    // data
+    RowDescription(data::RowDescription),
+    DataRow(data::DataRow),
+
+    // termination
+    Termination(terminate::Terminate),
+}
+
+impl PgWireMessage {
+    pub fn encode(&self, buf: &mut BytesMut) -> Result<(), io::Error> {
+        match self {
+            Self::SslRequest(msg) => msg.encode(buf),
+            Self::Startup(msg) => msg.encode(buf),
+            Self::Authentication(msg) => msg.encode(buf),
+            Self::Password(msg) => msg.encode(buf),
+            Self::ParameterStatus(msg) => msg.encode(buf),
+            Self::BackendKeyData(msg) => msg.encode(buf),
+
+            Self::Query(msg) => msg.encode(buf),
+
+            Self::CommandComplete(msg) => msg.encode(buf),
+            Self::ReadyForQuery(msg) => msg.encode(buf),
+            Self::ErrorResponse(msg) => msg.encode(buf),
+
+            Self::RowDescription(msg) => msg.encode(buf),
+            Self::DataRow(msg) => msg.encode(buf),
+
+            Self::Termination(msg) => msg.encode(buf),
+        }
+    }
+
+    pub fn decode(buf: &mut BytesMut) -> Result<Option<PgWireMessage>, io::Error> {
+        todo!();
+        Ok(None)
+    }
 }
 
 #[cfg(test)]
 mod test {
+    use super::data::*;
     use super::response::*;
-    use super::result::*;
     use super::simplequery::*;
     use super::startup::*;
     use super::terminate::*;

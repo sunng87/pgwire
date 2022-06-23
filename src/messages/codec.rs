@@ -36,7 +36,7 @@ pub(crate) fn put_cstring(buf: &mut BytesMut, input: &str) {
 }
 
 /// Try read message length from buf, without actally move the cursor
-pub(crate) fn get_length(buf: &BytesMut) -> Option<usize> {
+fn get_length(buf: &BytesMut) -> Option<usize> {
     if buf.remaining() >= 4 {
         Some((&buf[..4]).get_i32() as usize)
     } else {
