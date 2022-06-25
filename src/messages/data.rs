@@ -32,9 +32,11 @@ pub struct RowDescription {
     fields: Vec<FieldDescription>,
 }
 
+pub const MESSAGE_TYPE_BYTE_ROW_DESCRITION: u8 = b'T';
+
 impl Message for RowDescription {
     fn message_type() -> Option<u8> {
-        Some(b'T')
+        Some(MESSAGE_TYPE_BYTE_ROW_DESCRITION)
     }
 
     fn message_length(&self) -> usize {
@@ -119,10 +121,12 @@ impl DataRow {
     }
 }
 
+pub const MESSAGE_TYPE_BYTE_DATA_ROW: u8 = b'D';
+
 impl Message for DataRow {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(b'D')
+        Some(MESSAGE_TYPE_BYTE_DATA_ROW)
     }
 
     fn message_length(&self) -> usize {

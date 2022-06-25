@@ -89,10 +89,12 @@ pub enum Authentication {
                        // AuthenticationSASLFinal
 }
 
+pub const MESSAGE_TYPE_BYTE_AUTHENTICATION: u8 = b'R';
+
 impl Message for Authentication {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(b'R')
+        Some(MESSAGE_TYPE_BYTE_AUTHENTICATION)
     }
 
     #[inline]
@@ -144,10 +146,12 @@ pub struct Password {
     password: String,
 }
 
+pub const MESSAGE_TYPE_BYTE_PASWORD: u8 = b'p';
+
 impl Message for Password {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(b'p')
+        Some(MESSAGE_TYPE_BYTE_PASWORD)
     }
 
     fn message_length(&self) -> usize {
@@ -175,10 +179,12 @@ pub struct ParameterStatus {
     value: String,
 }
 
+pub const MESSAGE_TYPE_BYTE_PARAMETER_STATUS: u8 = b'S';
+
 impl Message for ParameterStatus {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(b'S')
+        Some(MESSAGE_TYPE_BYTE_PARAMETER_STATUS)
     }
 
     fn message_length(&self) -> usize {
@@ -209,10 +215,12 @@ pub struct BackendKeyData {
     secret_key: i32,
 }
 
+pub const MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA: u8 = b'K';
+
 impl Message for BackendKeyData {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(b'K')
+        Some(MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA)
     }
 
     #[inline]

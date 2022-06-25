@@ -9,10 +9,12 @@ pub struct CommandComplete {
     tag: String,
 }
 
+pub const MESSAGE_TYPE_BYTE_COMMAND_COMPLETE: u8 = b'C';
+
 impl Message for CommandComplete {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(b'C')
+        Some(MESSAGE_TYPE_BYTE_COMMAND_COMPLETE)
     }
 
     fn message_length(&self) -> usize {
@@ -42,10 +44,12 @@ pub const READY_STATUS_IDLE: u8 = b'I';
 pub const READY_STATUS_TRANSACTION_BLOCK: u8 = b'T';
 pub const READY_STATUS_FAILED_TRANSACTION_BLOCK: u8 = b'E';
 
+pub const MESSAGE_TYPE_BYTE_READY_FOR_QUERY: u8 = b'Z';
+
 impl Message for ReadyForQuery {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(b'Z')
+        Some(MESSAGE_TYPE_BYTE_READY_FOR_QUERY)
     }
 
     #[inline]
@@ -72,10 +76,12 @@ pub struct ErrorResponse {
     fields: Vec<(u8, String)>,
 }
 
+pub const MESSAGE_TYPE_BYTE_ERROR_RESPONSE: u8 = b'E';
+
 impl Message for ErrorResponse {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(b'E')
+        Some(MESSAGE_TYPE_BYTE_ERROR_RESPONSE)
     }
 
     fn message_length(&self) -> usize {

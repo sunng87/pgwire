@@ -9,10 +9,12 @@ pub struct Query {
     query: String,
 }
 
+pub const MESSAGE_TYPE_BYTE_QUERY: u8 = b'Q';
+
 impl Message for Query {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(b'Q')
+        Some(MESSAGE_TYPE_BYTE_QUERY)
     }
 
     fn message_length(&self) -> usize {

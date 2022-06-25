@@ -3,10 +3,12 @@ use super::Message;
 #[derive(Default, PartialEq, Eq, Debug, new)]
 pub struct Terminate;
 
+pub const MESSAGE_TYPE_BYTE_TERMINATE: u8 = b'X';
+
 impl Message for Terminate {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(b'X')
+        Some(MESSAGE_TYPE_BYTE_TERMINATE)
     }
 
     #[inline]

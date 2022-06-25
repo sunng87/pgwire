@@ -1,8 +1,8 @@
 use std::io;
 
-use bytes::{BufMut, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 
-pub(crate) trait Message: Sized {
+pub trait Message: Sized {
     /// Return the type code of the message. In order to maintain backward
     /// compatibility, `Startup` has no message type.
     #[inline]
@@ -45,6 +45,7 @@ pub mod terminate;
 pub enum PgWireMessage {
     // startup
     SslRequest(startup::SslRequest),
+    SslResponse(u8), // a single byte N or S
     Startup(startup::Startup),
     Authentication(startup::Authentication),
     Password(startup::Password),
@@ -64,7 +65,7 @@ pub enum PgWireMessage {
     DataRow(data::DataRow),
 
     // termination
-    Termination(terminate::Terminate),
+    Terminate(terminate::Terminate),
 }
 
 impl PgWireMessage {
@@ -72,6 +73,7 @@ impl PgWireMessage {
         match self {
             Self::SslRequest(msg) => msg.encode(buf),
             Self::Startup(msg) => msg.encode(buf),
+
             Self::Authentication(msg) => msg.encode(buf),
             Self::Password(msg) => msg.encode(buf),
             Self::ParameterStatus(msg) => msg.encode(buf),
@@ -86,13 +88,64 @@ impl PgWireMessage {
             Self::RowDescription(msg) => msg.encode(buf),
             Self::DataRow(msg) => msg.encode(buf),
 
-            Self::Termination(msg) => msg.encode(buf),
+            Self::Terminate(msg) => msg.encode(buf),
+
+            Self::SslResponse(b) => {
+                buf.put_u8(*b);
+                Ok(())
+            }
         }
     }
 
     pub fn decode(buf: &mut BytesMut) -> Result<Option<PgWireMessage>, io::Error> {
-        todo!();
-        Ok(None)
+        if buf.remaining() > 1 {
+            let first_byte = buf[0];
+            match first_byte {
+                startup::MESSAGE_TYPE_BYTE_AUTHENTICATION => startup::Authentication::decode(buf)
+                    .map(|v| v.map(PgWireMessage::Authentication)),
+                startup::MESSAGE_TYPE_BYTE_PASWORD => {
+                    startup::Password::decode(buf).map(|v| v.map(PgWireMessage::Password))
+                }
+                startup::MESSAGE_TYPE_BYTE_PARAMETER_STATUS => {
+                    startup::ParameterStatus::decode(buf)
+                        .map(|v| v.map(PgWireMessage::ParameterStatus))
+                }
+                startup::MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA => startup::BackendKeyData::decode(buf)
+                    .map(|v| v.map(PgWireMessage::BackendKeyData)),
+
+                simplequery::MESSAGE_TYPE_BYTE_QUERY => {
+                    simplequery::Query::decode(buf).map(|v| v.map(PgWireMessage::Query))
+                }
+
+                response::MESSAGE_TYPE_BYTE_COMMAND_COMPLETE => {
+                    response::CommandComplete::decode(buf)
+                        .map(|v| v.map(PgWireMessage::CommandComplete))
+                }
+                response::MESSAGE_TYPE_BYTE_READY_FOR_QUERY => response::ReadyForQuery::decode(buf)
+                    .map(|v| v.map(PgWireMessage::ReadyForQuery)),
+                response::MESSAGE_TYPE_BYTE_ERROR_RESPONSE => response::ErrorResponse::decode(buf)
+                    .map(|v| v.map(PgWireMessage::ErrorResponse)),
+
+                data::MESSAGE_TYPE_BYTE_ROW_DESCRITION => {
+                    data::RowDescription::decode(buf).map(|v| v.map(PgWireMessage::RowDescription))
+                }
+                data::MESSAGE_TYPE_BYTE_DATA_ROW => {
+                    data::DataRow::decode(buf).map(|v| v.map(PgWireMessage::DataRow))
+                }
+
+                terminate::MESSAGE_TYPE_BYTE_TERMINATE => {
+                    terminate::Terminate::decode(buf).map(|v| v.map(PgWireMessage::Terminate))
+                }
+                _ => {
+                    // messages have no type byte, manual decoding required
+                    // sslrequest/sslresponse
+                    // startup
+                    Ok(None)
+                }
+            }
+        } else {
+            Ok(None)
+        }
     }
 }
 
