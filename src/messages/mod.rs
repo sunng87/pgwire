@@ -42,6 +42,7 @@ pub mod simplequery;
 pub mod startup;
 pub mod terminate;
 
+#[derive(Debug)]
 pub enum PgWireMessage {
     // startup
     SslRequest(startup::SslRequest),
