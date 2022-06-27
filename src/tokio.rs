@@ -1,27 +1,13 @@
 use tokio_util::codec::{Decoder, Encoder};
 
+use crate::api::{ClientInfo, PgWireConnectionState};
 use crate::messages::startup::{SslRequest, Startup};
 use crate::messages::{Message, PgWireMessage};
 
-#[derive(Debug)]
-pub enum PgWireConnectionState {
-    AwaitingSslRequest,
-    AwaitingStartup,
-    AuthenticationInProgress,
-    ReadyForQuery,
-}
-
-#[derive(Debug, new)]
+#[derive(Debug, new, Getters, Setters, MutGetters)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct PgWireMessageServerCodec {
-    #[new(value = "PgWireConnectionState::AwaitingSslRequest")]
-    state: PgWireConnectionState,
-}
-
-impl PgWireMessageServerCodec {
-    // user are responsible for updating this state as startup progressing
-    pub fn set_state(&mut self, new_state: PgWireConnectionState) {
-        self.state = new_state;
-    }
+    client_info: ClientInfo,
 }
 
 impl Decoder for PgWireMessageServerCodec {
@@ -29,7 +15,7 @@ impl Decoder for PgWireMessageServerCodec {
     type Error = std::io::Error;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        match self.state {
+        match self.client_info.state() {
             PgWireConnectionState::AwaitingSslRequest => {
                 if let Some(ssl_request) = SslRequest::decode(src)? {
                     Ok(Some(PgWireMessage::SslRequest(ssl_request)))

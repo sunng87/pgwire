@@ -1,4 +1,5 @@
 pub mod messages;
+pub mod api;
 pub mod tokio;
 pub mod types;
 
