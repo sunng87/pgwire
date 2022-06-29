@@ -13,9 +13,8 @@ bytes = "1.1.0"
 time = "0.3"
 futures = "0.3"
 async-trait = "0.1"
-
+rand = "0.8"
 
 [dev-dependencies]
 tokio = { version = "1.19", features = ["rt-multi-thread", "net", "io-util", "macros"]}
 tokio-stream = "0.1"
-rand = "0.8"
