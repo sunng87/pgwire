@@ -1,13 +1,13 @@
-use tokio_util::codec::{Decoder, Encoder};
+use tokio_util::codec::{Decoder, Encoder, Framed};
 
-use crate::api::{ClientInfo, PgWireConnectionState};
+use crate::api::{ClientInfo, ClientInfoHolder, PgWireConnectionState};
 use crate::messages::startup::{SslRequest, Startup};
 use crate::messages::{Message, PgWireMessage};
 
 #[derive(Debug, new, Getters, Setters, MutGetters)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct PgWireMessageServerCodec {
-    client_info: ClientInfo,
+    client_info: ClientInfoHolder,
 }
 
 impl Decoder for PgWireMessageServerCodec {
@@ -44,5 +44,27 @@ impl Encoder<PgWireMessage> for PgWireMessageServerCodec {
         dst: &mut bytes::BytesMut,
     ) -> Result<(), Self::Error> {
         item.encode(dst)
+    }
+}
+
+impl<T> ClientInfo for Framed<T, PgWireMessageServerCodec> {
+    fn socket_addr(&self) -> &std::net::SocketAddr {
+        self.codec().client_info().socket_addr()
+    }
+
+    fn state(&self) -> &PgWireConnectionState {
+        self.codec().client_info().state()
+    }
+
+    fn set_state(&mut self, new_state: PgWireConnectionState) {
+        self.codec_mut().client_info_mut().set_state(new_state);
+    }
+
+    fn metadata(&self) -> &std::collections::HashMap<String, String> {
+        self.codec().client_info().metadata()
+    }
+
+    fn metadata_mut(&mut self) -> &mut std::collections::HashMap<String, String> {
+        self.codec_mut().client_info_mut().metadata_mut()
     }
 }

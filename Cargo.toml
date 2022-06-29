@@ -11,10 +11,11 @@ tokio-util = { version = "0.7.3", features = ["codec", "io"] }
 derive-new = "0.5"
 bytes = "1.1.0"
 time = "0.3"
+futures = "0.3"
+async-trait = "0.1"
 
 
 [dev-dependencies]
 tokio = { version = "1.19", features = ["rt-multi-thread", "net", "io-util", "macros"]}
 tokio-stream = "0.1"
-futures = "0.3"
 rand = "0.8"

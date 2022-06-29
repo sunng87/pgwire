@@ -17,10 +17,23 @@ impl Default for PgWireConnectionState {
     }
 }
 
+/// Describe a client infomation holder
+pub trait ClientInfo {
+    fn socket_addr(&self) -> &SocketAddr;
+
+    fn state(&self) -> &PgWireConnectionState;
+
+    fn set_state(&mut self, new_state: PgWireConnectionState);
+
+    fn metadata(&self) -> &HashMap<String, String>;
+
+    fn metadata_mut(&mut self) -> &mut HashMap<String, String>;
+}
+
 #[derive(Debug, new, Getters, Setters, MutGetters)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
-pub struct ClientInfo {
-    addr: SocketAddr,
+pub struct ClientInfoHolder {
+    socket_addr: SocketAddr,
     #[new(default)]
     state: PgWireConnectionState,
     #[new(default)]
