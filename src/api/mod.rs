@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 
 pub mod auth;
+pub mod query;
 
 #[derive(Debug)]
 pub enum PgWireConnectionState {
