@@ -1,21 +1,20 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::StreamExt;
 use futures::{Sink, SinkExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio_util::codec::Framed;
+use tokio::net::TcpListener;
 
 use pgwire::api::auth::StartupHandler;
 use pgwire::api::query::{QueryResponse, SimpleQueryHandler};
+use pgwire::api::ClientInfo;
 use pgwire::api::PgWireConnectionState;
-use pgwire::api::{ClientInfo, ClientInfoHolder};
 use pgwire::messages::data::{DataRow, FieldDescription, RowDescription, FORMAT_CODE_TEXT};
 use pgwire::messages::response::CommandComplete;
 use pgwire::messages::startup::Authentication;
 use pgwire::messages::PgWireMessage;
-use pgwire::tokio::PgWireMessageServerCodec;
+use pgwire::tokio::process_socket;
 
 pub struct DummyAuthenticator;
 
@@ -56,6 +55,7 @@ impl StartupHandler for DummyAuthenticator {
         let mut data = HashMap::new();
         data.insert("application_name".into(), "psql".into());
         data.insert("integer_datetimes".into(), "on".into());
+        data.insert("server_version".into(), "0.0.1".into());
 
         data
     }
@@ -110,63 +110,14 @@ impl SimpleQueryHandler for DummyQueryHandler {
 
 #[tokio::main]
 pub async fn main() {
+    let authenticator = Arc::new(DummyAuthenticator);
+    let querier = Arc::new(DummyQueryHandler);
+
     let server_addr = "127.0.0.1:5433";
     let listener = TcpListener::bind(server_addr).await.unwrap();
     println!("Listening to {}", server_addr);
     loop {
-        let (socket, addr) = listener.accept().await.unwrap();
-        tokio::spawn(async move {
-            let client_info = ClientInfoHolder::new(addr);
-            let framed_socket = Framed::new(socket, PgWireMessageServerCodec::new(client_info));
-            let authenticator = DummyAuthenticator;
-            let querier = DummyQueryHandler;
-            process_socket(framed_socket, authenticator, querier).await;
-        });
-    }
-}
-
-async fn process_socket<A, Q>(
-    mut socket: Framed<TcpStream, PgWireMessageServerCodec>,
-    authenticator: A,
-    query_handler: Q,
-) where
-    A: StartupHandler,
-    Q: SimpleQueryHandler,
-{
-    // client ssl request, return
-    loop {
-        match socket.next().await {
-            Some(Ok(msg)) => {
-                println!("{:?}", msg);
-                match socket.codec().client_info().state() {
-                    PgWireConnectionState::AwaitingSslRequest => {
-                        if matches!(msg, PgWireMessage::SslRequest(_)) {
-                            socket
-                                .codec_mut()
-                                .client_info_mut()
-                                .set_state(PgWireConnectionState::AwaitingStartup);
-                            socket.send(PgWireMessage::SslResponse(b'N')).await.unwrap();
-                        } else {
-                            // TODO: raise error here for invalid packet read
-                            unreachable!()
-                        }
-                    }
-                    PgWireConnectionState::AwaitingStartup
-                    | PgWireConnectionState::AuthenticationInProgress => {
-                        authenticator.on_startup(&mut socket, &msg).await.unwrap();
-                    }
-                    _ => {
-                        if matches!(&msg, PgWireMessage::Query(_)) {
-                            query_handler.on_query(&mut socket, &msg).await.unwrap();
-                        } else {
-                            //todo:
-                        }
-                    }
-                }
-            }
-            Some(Err(_)) | None => {
-                break;
-            }
-        }
+        let incoming_socket = listener.accept().await.unwrap();
+        process_socket(incoming_socket, authenticator.clone(), querier.clone());
     }
 }

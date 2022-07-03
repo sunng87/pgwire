@@ -15,7 +15,7 @@ use crate::messages::PgWireMessage;
 // implementation to track and define state within itself. This allows better
 // support for other auth type like sasl.
 #[async_trait]
-pub trait StartupHandler {
+pub trait StartupHandler: Send + Sync {
     async fn on_startup<C>(
         &self,
         client: &mut C,

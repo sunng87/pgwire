@@ -1,5 +1,13 @@
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+use futures::SinkExt;
+use futures::StreamExt;
+use tokio::net::TcpStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
+use crate::api::auth::StartupHandler;
+use crate::api::query::SimpleQueryHandler;
 use crate::api::{ClientInfo, ClientInfoHolder, PgWireConnectionState};
 use crate::messages::startup::{SslRequest, Startup};
 use crate::messages::{Message, PgWireMessage};
@@ -67,4 +75,56 @@ impl<T> ClientInfo for Framed<T, PgWireMessageServerCodec> {
     fn metadata_mut(&mut self) -> &mut std::collections::HashMap<String, String> {
         self.codec_mut().client_info_mut().metadata_mut()
     }
+}
+
+pub fn process_socket<A, Q>(
+    incoming_socket: (TcpStream, SocketAddr),
+    authenticator: Arc<A>,
+    query_handler: Arc<Q>,
+) where
+    A: StartupHandler + 'static,
+    Q: SimpleQueryHandler + 'static,
+{
+    let (raw_socket, addr) = incoming_socket;
+    tokio::spawn(async move {
+        let client_info = ClientInfoHolder::new(addr);
+        let mut socket = Framed::new(raw_socket, PgWireMessageServerCodec::new(client_info));
+
+        loop {
+            match socket.next().await {
+                Some(Ok(msg)) => {
+                    println!("{:?}", msg);
+                    match socket.codec().client_info().state() {
+                        PgWireConnectionState::AwaitingSslRequest => {
+                            if matches!(msg, PgWireMessage::SslRequest(_)) {
+                                socket
+                                    .codec_mut()
+                                    .client_info_mut()
+                                    .set_state(PgWireConnectionState::AwaitingStartup);
+                                socket.send(PgWireMessage::SslResponse(b'N')).await.unwrap();
+                            } else {
+                                // TODO: raise error here for invalid packet read
+                                socket.close().await.unwrap();
+                                unreachable!()
+                            }
+                        }
+                        PgWireConnectionState::AwaitingStartup
+                        | PgWireConnectionState::AuthenticationInProgress => {
+                            authenticator.on_startup(&mut socket, &msg).await.unwrap();
+                        }
+                        _ => {
+                            if matches!(&msg, PgWireMessage::Query(_)) {
+                                query_handler.on_query(&mut socket, &msg).await.unwrap();
+                            } else {
+                                //todo:
+                            }
+                        }
+                    }
+                }
+                Some(Err(_)) | None => {
+                    break;
+                }
+            }
+        }
+    });
 }

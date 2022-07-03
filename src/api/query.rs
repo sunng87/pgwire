@@ -11,7 +11,7 @@ use crate::messages::PgWireMessage;
 
 /// handler for processing simple query.
 #[async_trait]
-pub trait SimpleQueryHandler: Sync {
+pub trait SimpleQueryHandler: Send + Sync {
     ///
     async fn on_query<C>(&self, client: &mut C, query: &PgWireMessage) -> Result<(), std::io::Error>
     where
