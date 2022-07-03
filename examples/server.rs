@@ -2,14 +2,17 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 use async_trait::async_trait;
+use futures::StreamExt;
 use futures::{Sink, SinkExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio_stream::StreamExt;
 use tokio_util::codec::Framed;
 
 use pgwire::api::auth::StartupHandler;
+use pgwire::api::query::{QueryResponse, SimpleQueryHandler};
 use pgwire::api::PgWireConnectionState;
 use pgwire::api::{ClientInfo, ClientInfoHolder};
+use pgwire::messages::data::{DataRow, FieldDescription, RowDescription, FORMAT_CODE_TEXT};
+use pgwire::messages::response::CommandComplete;
 use pgwire::messages::startup::Authentication;
 use pgwire::messages::PgWireMessage;
 use pgwire::tokio::PgWireMessageServerCodec;
@@ -30,7 +33,6 @@ impl StartupHandler for DummyAuthenticator {
         println!("{:?}, {:?}", client.socket_addr(), message);
         match message {
             PgWireMessage::Startup(ref startup) => {
-                // TODO: update metadata with startup parameters
                 self.handle_startup_parameters(client, startup);
                 client.set_state(PgWireConnectionState::AuthenticationInProgress);
                 client
@@ -59,6 +61,53 @@ impl StartupHandler for DummyAuthenticator {
     }
 }
 
+pub struct DummyQueryHandler;
+
+#[async_trait]
+impl SimpleQueryHandler for DummyQueryHandler {
+    async fn do_query<C>(&self, _client: &C, query: &str) -> Result<QueryResponse, std::io::Error>
+    where
+        C: ClientInfo + Unpin + Send + Sync,
+    {
+        println!("{:?}", query);
+        if query.starts_with("SELECT") {
+            let mut rd = RowDescription::new();
+            // column 0
+            rd.fields_mut().push(FieldDescription::new(
+                "id".into(),
+                123,
+                123,
+                123,
+                132,
+                -1,
+                FORMAT_CODE_TEXT,
+            ));
+            // column 1
+            rd.fields_mut().push(FieldDescription::new(
+                "name".into(),
+                123,
+                123,
+                123,
+                132,
+                -1,
+                FORMAT_CODE_TEXT,
+            ));
+
+            let mut data_row = DataRow::new();
+            *data_row.fields_mut() = vec![Some("0".as_bytes().to_vec()), None];
+
+            let rows = vec![data_row.clone(), data_row.clone(), data_row.clone()];
+
+            let status = CommandComplete::new("SELECT 3".to_owned());
+            Ok(QueryResponse::Data(rd, rows, status))
+        } else {
+            Ok(QueryResponse::Empty(CommandComplete::new(
+                "OK 1".to_owned(),
+            )))
+        }
+    }
+}
+
 #[tokio::main]
 pub async fn main() {
     let server_addr = "127.0.0.1:5433";
@@ -70,16 +119,19 @@ pub async fn main() {
             let client_info = ClientInfoHolder::new(addr);
             let framed_socket = Framed::new(socket, PgWireMessageServerCodec::new(client_info));
             let authenticator = DummyAuthenticator;
-            process_socket(framed_socket, authenticator).await;
+            let querier = DummyQueryHandler;
+            process_socket(framed_socket, authenticator, querier).await;
         });
     }
 }
 
-async fn process_socket<A>(
+async fn process_socket<A, Q>(
     mut socket: Framed<TcpStream, PgWireMessageServerCodec>,
     authenticator: A,
+    query_handler: Q,
 ) where
     A: StartupHandler,
+    Q: SimpleQueryHandler,
 {
     // client ssl request, return
     loop {
@@ -104,7 +156,11 @@ async fn process_socket<A>(
                         authenticator.on_startup(&mut socket, &msg).await.unwrap();
                     }
                     _ => {
-                        // TODO: query handler
+                        if matches!(&msg, PgWireMessage::Query(_)) {
+                            query_handler.on_query(&mut socket, &msg).await.unwrap();
+                        } else {
+                            //todo:
+                        }
                     }
                 }
             }

@@ -90,7 +90,7 @@ impl Message for RowDescription {
 ///
 /// Data can be represented as text or binary format as specified by format
 /// codes from previous `RowDescription` message.
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new, Clone)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct DataRow {
     // None for Null data

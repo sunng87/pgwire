@@ -10,6 +10,7 @@ pub enum PgWireConnectionState {
     AwaitingStartup,
     AuthenticationInProgress,
     ReadyForQuery,
+    QueryInProgress,
 }
 
 impl Default for PgWireConnectionState {
