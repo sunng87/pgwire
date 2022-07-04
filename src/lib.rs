@@ -1,5 +1,6 @@
-pub mod messages;
 pub mod api;
+pub mod messages;
+#[cfg(feature = "tokio_support")]
 pub mod tokio;
 pub mod types;
 

@@ -7,14 +7,23 @@ edition = "2021"
 
 [dependencies]
 getset = "0.1.2"
-tokio-util = { version = "0.7.3", features = ["codec", "io"] }
 derive-new = "0.5"
 bytes = "1.1.0"
 time = "0.3"
 futures = "0.3"
 async-trait = "0.1"
 rand = "0.8"
-tokio = { version = "1.19", features = ["net"] }
+
+tokio = { version = "1.19", features = ["net"], optional = true}
+tokio-util = { version = "0.7.3", features = ["codec", "io"], optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.19", features = ["rt-multi-thread", "net", "io-util", "macros"]}
+
+[features]
+default = []
+tokio_support = ["tokio", "tokio-util"]
+
+[[example]]
+name = "server"
+required-features = ["tokio_support"]
