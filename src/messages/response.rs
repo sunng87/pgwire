@@ -70,7 +70,7 @@ impl Message for ReadyForQuery {
 }
 
 /// postgres error response, sent from backend to frontend
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default)]
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct ErrorResponse {
     fields: Vec<(u8, String)>,

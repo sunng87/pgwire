@@ -7,7 +7,7 @@ use futures::stream;
 use rand;
 
 use super::{ClientInfo, PgWireConnectionState};
-use crate::messages::response::{ReadyForQuery, READY_STATUS_IDLE};
+use crate::messages::response::{ErrorResponse, ReadyForQuery, READY_STATUS_IDLE};
 use crate::messages::startup::{Authentication, BackendKeyData, ParameterStatus, Startup};
 use crate::messages::PgWireMessage;
 
@@ -61,10 +61,79 @@ pub trait StartupHandler: Send + Sync {
         client.send_all(&mut message_stream).await.unwrap();
     }
 
-    fn server_parameters<C>(&self, client: &C) -> HashMap<String, String>
+    fn server_parameters<C>(&self, _client: &C) -> HashMap<String, String>
     where
         C: ClientInfo + Sink<PgWireMessage> + Unpin + Send,
         C::Error: Debug;
 }
 
-// TODO: password handler
+#[async_trait]
+pub trait CleartextPasswordAuthStartupHandler: StartupHandler {
+    async fn verify_password(&self, password: &str) -> Result<bool, std::io::Error>;
+
+    fn server_parameters<C>(&self, _client: &C) -> HashMap<String, String>
+    where
+        C: ClientInfo + Sink<PgWireMessage> + Unpin + Send,
+        C::Error: Debug;
+}
+
+#[async_trait]
+impl<T> StartupHandler for T
+where
+    T: CleartextPasswordAuthStartupHandler,
+{
+    async fn on_startup<C>(
+        &self,
+        client: &mut C,
+        message: &PgWireMessage,
+    ) -> Result<(), std::io::Error>
+    where
+        C: ClientInfo + Sink<PgWireMessage> + Unpin + Send,
+        C::Error: Debug,
+    {
+        match message {
+            PgWireMessage::Startup(ref startup) => {
+                self.handle_startup_parameters(client, startup);
+                client.set_state(PgWireConnectionState::AuthenticationInProgress);
+                client
+                    .send(PgWireMessage::Authentication(
+                        Authentication::CleartextPassword,
+                    ))
+                    .await
+                    .unwrap();
+            }
+            PgWireMessage::Password(ref pwd) => {
+                if let Ok(true) = self.verify_password(pwd.password()).await {
+                    self.finish_authentication(client).await
+                } else {
+                    let info = vec![
+                        (b'L', "FATAL".to_owned()),
+                        (b'T', "FATAL".to_owned()),
+                        (b'C', "28P01".to_owned()),
+                        (b'M', "Password authentication failed".to_owned()),
+                        (b'R', "auth_failed".to_owned()),
+                    ];
+                    let error = ErrorResponse::new(info);
+
+                    client
+                        .send(PgWireMessage::ErrorResponse(error))
+                        .await
+                        .unwrap();
+                    client.close().await.unwrap();
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn server_parameters<C>(&self, _client: &C) -> HashMap<String, String>
+    where
+        C: ClientInfo + Sink<PgWireMessage> + Unpin + Send,
+        C::Error: Debug,
+    {
+        CleartextPasswordAuthStartupHandler::server_parameters(self, _client)
+    }
+}
+
+// TODO: md5, scram-sha-256(sasl)
