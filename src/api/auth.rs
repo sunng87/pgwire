@@ -7,6 +7,7 @@ use futures::stream;
 use rand;
 
 use super::{ClientInfo, PgWireConnectionState};
+use crate::error::{PgWireError, PgWireResult};
 use crate::messages::response::{ErrorResponse, ReadyForQuery, READY_STATUS_IDLE};
 use crate::messages::startup::{Authentication, BackendKeyData, ParameterStatus, Startup};
 use crate::messages::PgWireMessage;
@@ -16,14 +17,11 @@ use crate::messages::PgWireMessage;
 // support for other auth type like sasl.
 #[async_trait]
 pub trait StartupHandler: Send + Sync {
-    async fn on_startup<C>(
-        &self,
-        client: &mut C,
-        message: &PgWireMessage,
-    ) -> Result<(), std::io::Error>
+    async fn on_startup<C>(&self, client: &mut C, message: &PgWireMessage) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireMessage> + Unpin + Send,
-        C::Error: Debug;
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireMessage>>::Error>;
 
     fn handle_startup_parameters<C>(&self, client: &mut C, startup_message: &Startup)
     where
@@ -69,7 +67,7 @@ pub trait StartupHandler: Send + Sync {
 
 #[async_trait]
 pub trait CleartextPasswordAuthStartupHandler: StartupHandler {
-    async fn verify_password(&self, password: &str) -> Result<bool, std::io::Error>;
+    async fn verify_password(&self, password: &str) -> PgWireResult<bool>;
 
     fn server_parameters<C>(&self, _client: &C) -> HashMap<String, String>
     where
@@ -82,14 +80,11 @@ impl<T> StartupHandler for T
 where
     T: CleartextPasswordAuthStartupHandler,
 {
-    async fn on_startup<C>(
-        &self,
-        client: &mut C,
-        message: &PgWireMessage,
-    ) -> Result<(), std::io::Error>
+    async fn on_startup<C>(&self, client: &mut C, message: &PgWireMessage) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireMessage> + Unpin + Send,
         C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireMessage>>::Error>,
     {
         match message {
             PgWireMessage::Startup(ref startup) => {
@@ -99,8 +94,7 @@ where
                     .send(PgWireMessage::Authentication(
                         Authentication::CleartextPassword,
                     ))
-                    .await
-                    .unwrap();
+                    .await?;
             }
             PgWireMessage::Password(ref pwd) => {
                 if let Ok(true) = self.verify_password(pwd.password()).await {
@@ -115,11 +109,8 @@ where
                     ];
                     let error = ErrorResponse::new(info);
 
-                    client
-                        .send(PgWireMessage::ErrorResponse(error))
-                        .await
-                        .unwrap();
-                    client.close().await.unwrap();
+                    client.feed(PgWireMessage::ErrorResponse(error)).await?;
+                    client.close().await?;
                 }
             }
             _ => {}

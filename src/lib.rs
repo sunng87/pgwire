@@ -1,4 +1,5 @@
 pub mod api;
+pub mod error;
 pub mod messages;
 #[cfg(feature = "tokio_support")]
 pub mod tokio;

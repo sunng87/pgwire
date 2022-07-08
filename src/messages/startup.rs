@@ -4,6 +4,7 @@ use bytes::{Buf, BufMut, BytesMut};
 
 use super::codec;
 use super::Message;
+use crate::error::PgWireResult;
 
 /// postgresql wire protocol startup message, sent by frontend
 /// the strings are null-ternimated string, which is a string
@@ -38,7 +39,7 @@ impl Message for Startup {
         9 + param_length
     }
 
-    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         // version number
         buf.put_u16(self.protocol_number_major);
         buf.put_u16(self.protocol_number_minor);
@@ -54,7 +55,7 @@ impl Message for Startup {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
         let mut msg = Startup::default();
         // parse
         msg.set_protocol_number_major(buf.get_u16());
@@ -107,7 +108,7 @@ impl Message for Authentication {
         }
     }
 
-    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         match self {
             Authentication::Ok => buf.put_i32(0),
             Authentication::CleartextPassword => buf.put_i32(3),
@@ -120,7 +121,7 @@ impl Message for Authentication {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
         let code = buf.get_i32();
         let msg = match code {
             0 => Authentication::Ok,
@@ -158,13 +159,13 @@ impl Message for Password {
         5 + self.password.as_bytes().len()
     }
 
-    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         codec::put_cstring(buf, &self.password);
 
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
         let pass = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
         Ok(Password::new(pass))
@@ -191,14 +192,14 @@ impl Message for ParameterStatus {
         4 + 2 + self.name.as_bytes().len() + self.value.as_bytes().len()
     }
 
-    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         codec::put_cstring(buf, &self.name);
         codec::put_cstring(buf, &self.value);
 
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
         let name = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
         let value = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
@@ -228,14 +229,14 @@ impl Message for BackendKeyData {
         12
     }
 
-    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         buf.put_i32(self.pid);
         buf.put_i32(self.secret_key);
 
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
         let pid = buf.get_i32();
         let secret_key = buf.get_i32();
 
@@ -264,12 +265,12 @@ impl Message for SslRequest {
         8
     }
 
-    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         buf.put_i32(80877103);
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
         buf.advance(4);
         Ok(SslRequest::new())
     }

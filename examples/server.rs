@@ -9,6 +9,7 @@ use tokio::net::TcpListener;
 use pgwire::api::auth::CleartextPasswordAuthStartupHandler;
 use pgwire::api::query::{QueryResponse, SimpleQueryHandler};
 use pgwire::api::ClientInfo;
+use pgwire::error::PgWireResult;
 use pgwire::messages::data::{DataRow, FieldDescription, RowDescription, FORMAT_CODE_TEXT};
 use pgwire::messages::response::CommandComplete;
 use pgwire::messages::PgWireMessage;
@@ -18,7 +19,7 @@ pub struct DummyAuthenticator;
 
 #[async_trait]
 impl CleartextPasswordAuthStartupHandler for DummyAuthenticator {
-    async fn verify_password(&self, password: &str) -> Result<bool, std::io::Error> {
+    async fn verify_password(&self, password: &str) -> PgWireResult<bool> {
         Ok(password == "test")
     }
 
@@ -40,7 +41,7 @@ pub struct DummyQueryHandler;
 
 #[async_trait]
 impl SimpleQueryHandler for DummyQueryHandler {
-    async fn do_query<C>(&self, _client: &C, query: &str) -> Result<QueryResponse, std::io::Error>
+    async fn do_query<C>(&self, _client: &C, query: &str) -> PgWireResult<QueryResponse>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {

@@ -1,4 +1,5 @@
 use super::Message;
+use crate::error::PgWireResult;
 
 #[derive(Default, PartialEq, Eq, Debug, new)]
 pub struct Terminate;
@@ -16,11 +17,11 @@ impl Message for Terminate {
         4
     }
 
-    fn encode_body(&self, _: &mut bytes::BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, _: &mut bytes::BytesMut) -> PgWireResult<()> {
         Ok(())
     }
 
-    fn decode_body(_: &mut bytes::BytesMut) -> std::io::Result<Self> {
+    fn decode_body(_: &mut bytes::BytesMut) -> PgWireResult<Self> {
         Ok(Terminate)
     }
 }

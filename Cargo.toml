@@ -13,8 +13,9 @@ time = "0.3"
 futures = "0.3"
 async-trait = "0.1"
 rand = "0.8"
+thiserror = "1"
 
-tokio = { version = "1.19", features = ["net"], optional = true}
+tokio = { version = "1.19", features = ["net", "rt"], optional = true}
 tokio-util = { version = "0.7.3", features = ["codec", "io"], optional = true }
 
 [dev-dependencies]

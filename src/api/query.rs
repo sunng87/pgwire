@@ -5,6 +5,7 @@ use futures::sink::{Sink, SinkExt};
 use futures::stream;
 
 use super::ClientInfo;
+use crate::error::{PgWireError, PgWireResult};
 use crate::messages::data::{DataRow, RowDescription};
 use crate::messages::response::{CommandComplete, ErrorResponse, ReadyForQuery, READY_STATUS_IDLE};
 use crate::messages::PgWireMessage;
@@ -13,60 +14,45 @@ use crate::messages::PgWireMessage;
 #[async_trait]
 pub trait SimpleQueryHandler: Send + Sync {
     ///
-    async fn on_query<C>(&self, client: &mut C, query: &PgWireMessage) -> Result<(), std::io::Error>
+    async fn on_query<C>(&self, client: &mut C, query: &PgWireMessage) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireMessage> + Unpin + Send + Sync,
         C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireMessage>>::Error>,
     {
         if let PgWireMessage::Query(query) = query {
             client.set_state(super::PgWireConnectionState::QueryInProgress);
             let resp = self.do_query(client, query.query()).await?;
             match resp {
                 QueryResponse::Data(row_description, data_rows, status) => {
-                    // TODO: combine all these response into one `send_all`
-                    client
-                        .send(PgWireMessage::RowDescription(row_description))
-                        .await
-                        .unwrap();
-                    client
-                        .send_all(&mut stream::iter(
-                            data_rows
-                                .into_iter()
-                                .map(|row| Ok(PgWireMessage::DataRow(row))),
-                        ))
-                        .await
-                        .unwrap();
-                    client
-                        .send(PgWireMessage::CommandComplete(status))
-                        .await
-                        .unwrap();
-                    client
-                        .send(PgWireMessage::ReadyForQuery(ReadyForQuery::new(
-                            READY_STATUS_IDLE,
-                        )))
-                        .await
-                        .unwrap();
+                    let mut msgs = Vec::new();
+                    msgs.push(PgWireMessage::RowDescription(row_description));
+                    msgs.extend(data_rows.into_iter().map(|row| PgWireMessage::DataRow(row)));
+                    msgs.push(PgWireMessage::CommandComplete(status));
+                    msgs.push(PgWireMessage::ReadyForQuery(ReadyForQuery::new(
+                        READY_STATUS_IDLE,
+                    )));
+
+                    let mut stream = stream::iter(msgs.into_iter().map(Ok));
+                    client.send_all(&mut stream).await?;
                 }
                 QueryResponse::Empty(status) => {
+                    client.feed(PgWireMessage::CommandComplete(status)).await?;
                     client
-                        .send(PgWireMessage::CommandComplete(status))
-                        .await
-                        .unwrap();
-                    client
-                        .send(PgWireMessage::ReadyForQuery(ReadyForQuery::new(
+                        .feed(PgWireMessage::ReadyForQuery(ReadyForQuery::new(
                             READY_STATUS_IDLE,
                         )))
-                        .await
-                        .unwrap();
+                        .await?;
+                    client.flush().await?;
                 }
                 QueryResponse::Error(e) => {
-                    client.send(PgWireMessage::ErrorResponse(e)).await.unwrap();
+                    client.feed(PgWireMessage::ErrorResponse(e)).await?;
                     client
-                        .send(PgWireMessage::ReadyForQuery(ReadyForQuery::new(
+                        .feed(PgWireMessage::ReadyForQuery(ReadyForQuery::new(
                             READY_STATUS_IDLE,
                         )))
-                        .await
-                        .unwrap();
+                        .await?;
+                    client.flush().await?;
                 }
             }
         }
@@ -76,7 +62,7 @@ pub trait SimpleQueryHandler: Send + Sync {
     }
 
     ///
-    async fn do_query<C>(&self, client: &C, query: &str) -> Result<QueryResponse, std::io::Error>
+    async fn do_query<C>(&self, client: &C, query: &str) -> PgWireResult<QueryResponse>
     where
         C: ClientInfo + Unpin + Send + Sync;
 }

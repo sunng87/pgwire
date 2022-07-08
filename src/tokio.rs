@@ -9,6 +9,7 @@ use tokio_util::codec::{Decoder, Encoder, Framed};
 use crate::api::auth::StartupHandler;
 use crate::api::query::SimpleQueryHandler;
 use crate::api::{ClientInfo, ClientInfoHolder, PgWireConnectionState};
+use crate::error::PgWireError;
 use crate::messages::startup::{SslRequest, Startup};
 use crate::messages::{Message, PgWireMessage};
 
@@ -20,7 +21,7 @@ pub struct PgWireMessageServerCodec {
 
 impl Decoder for PgWireMessageServerCodec {
     type Item = PgWireMessage;
-    type Error = std::io::Error;
+    type Error = PgWireError;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         match self.client_info.state() {
@@ -44,7 +45,7 @@ impl Decoder for PgWireMessageServerCodec {
 }
 
 impl Encoder<PgWireMessage> for PgWireMessageServerCodec {
-    type Error = std::io::Error;
+    type Error = PgWireError;
 
     fn encode(
         &mut self,

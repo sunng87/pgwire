@@ -1,6 +1,6 @@
-use std::io;
-
 use bytes::{Buf, BufMut, BytesMut};
+
+use crate::error::PgWireResult;
 
 pub trait Message: Sized {
     /// Return the type code of the message. In order to maintain backward
@@ -13,11 +13,11 @@ pub trait Message: Sized {
     /// Return the length of the message, including the length integer itself.
     fn message_length(&self) -> usize;
 
-    fn encode_body(&self, buf: &mut BytesMut) -> io::Result<()>;
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()>;
 
-    fn decode_body(buf: &mut BytesMut) -> io::Result<Self>;
+    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self>;
 
-    fn encode(&self, buf: &mut BytesMut) -> io::Result<()> {
+    fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         if let Some(mt) = Self::message_type() {
             buf.put_u8(mt);
         }
@@ -26,7 +26,7 @@ pub trait Message: Sized {
         self.encode_body(buf)
     }
 
-    fn decode(buf: &mut BytesMut) -> io::Result<Option<Self>> {
+    fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
         if let Some(mt) = Self::message_type() {
             codec::get_and_ensure_message_type(buf, mt)?;
         }
@@ -70,7 +70,7 @@ pub enum PgWireMessage {
 }
 
 impl PgWireMessage {
-    pub fn encode(&self, buf: &mut BytesMut) -> Result<(), io::Error> {
+    pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         match self {
             Self::SslRequest(msg) => msg.encode(buf),
             Self::Startup(msg) => msg.encode(buf),
@@ -98,7 +98,7 @@ impl PgWireMessage {
         }
     }
 
-    pub fn decode(buf: &mut BytesMut) -> Result<Option<PgWireMessage>, io::Error> {
+    pub fn decode(buf: &mut BytesMut) -> PgWireResult<Option<PgWireMessage>> {
         if buf.remaining() > 1 {
             let first_byte = buf[0];
             match first_byte {

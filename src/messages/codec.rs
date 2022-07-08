@@ -2,6 +2,8 @@ use std::str;
 
 use bytes::{Buf, BufMut, BytesMut};
 
+use crate::error::{PgWireError, PgWireResult};
+
 /// Get null-terminated string, returns None when empty cstring read.
 ///
 /// Note that this implementation will also advance cursor by 1 after reading
@@ -46,9 +48,9 @@ fn get_length(buf: &BytesMut) -> Option<usize> {
 
 /// Check if message_length matches and move the cursor to right position then
 /// call the `decode_fn` for the body
-pub(crate) fn decode_packet<T, F>(buf: &mut BytesMut, decode_fn: F) -> std::io::Result<Option<T>>
+pub(crate) fn decode_packet<T, F>(buf: &mut BytesMut, decode_fn: F) -> PgWireResult<Option<T>>
 where
-    F: Fn(&mut BytesMut, usize) -> std::io::Result<T>,
+    F: Fn(&mut BytesMut, usize) -> PgWireResult<T>,
 {
     if let Some(msg_len) = get_length(buf) {
         if buf.remaining() >= msg_len {
@@ -62,14 +64,11 @@ where
     Ok(None)
 }
 
-pub(crate) fn get_and_ensure_message_type(buf: &mut BytesMut, t: u8) -> std::io::Result<()> {
+pub(crate) fn get_and_ensure_message_type(buf: &mut BytesMut, t: u8) -> PgWireResult<()> {
     let msg_type = buf.get_u8();
     // ensure the type is corrent
     if msg_type != t {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "invalid message type",
-        ));
+        return Err(PgWireError::InvalidMessageType(t, msg_type));
     }
 
     Ok(())

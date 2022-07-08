@@ -2,6 +2,7 @@ use bytes::{Buf, BufMut, BytesMut};
 
 use super::codec;
 use super::Message;
+use crate::error::PgWireResult;
 
 #[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
@@ -21,13 +22,13 @@ impl Message for CommandComplete {
         5 + self.tag.as_bytes().len()
     }
 
-    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         codec::put_cstring(buf, &self.tag);
 
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
         let tag = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
         Ok(CommandComplete::new(tag))
@@ -57,13 +58,13 @@ impl Message for ReadyForQuery {
         5
     }
 
-    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         buf.put_u8(self.status);
 
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
         let status = buf.get_u8();
         Ok(ReadyForQuery::new(status))
     }
@@ -92,7 +93,7 @@ impl Message for ErrorResponse {
             .sum::<usize>()
     }
 
-    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         for (code, value) in &self.fields {
             buf.put_u8(*code);
             codec::put_cstring(buf, value);
@@ -103,7 +104,7 @@ impl Message for ErrorResponse {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
         let mut fields = Vec::new();
         loop {
             let code = buf.get_u8();

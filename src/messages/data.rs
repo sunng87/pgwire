@@ -2,6 +2,7 @@ use bytes::{Buf, BufMut, BytesMut};
 
 use super::codec;
 use super::Message;
+use crate::error::PgWireResult;
 
 pub const FORMAT_CODE_TEXT: i16 = 0;
 pub const FORMAT_CODE_BINARY: i16 = 1;
@@ -48,7 +49,7 @@ impl Message for RowDescription {
                 .sum::<usize>()
     }
 
-    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         buf.put_i16(self.fields.len() as i16);
 
         for field in &self.fields {
@@ -64,7 +65,7 @@ impl Message for RowDescription {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
         let fields_len = buf.get_i16();
         let mut fields = Vec::with_capacity(fields_len as usize);
 
@@ -138,7 +139,7 @@ impl Message for DataRow {
                 .sum::<usize>()
     }
 
-    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         buf.put_i16(self.fields.len() as i16);
 
         for field in &self.fields {
@@ -153,7 +154,7 @@ impl Message for DataRow {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
         let fields_len = buf.get_i16();
         let mut fields = Vec::with_capacity(fields_len as usize);
 

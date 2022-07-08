@@ -2,6 +2,7 @@ use bytes::BytesMut;
 
 use super::codec;
 use super::Message;
+use crate::error::PgWireResult;
 
 #[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
@@ -21,13 +22,13 @@ impl Message for Query {
         5 + self.query.as_bytes().len()
     }
 
-    fn encode_body(&self, buf: &mut BytesMut) -> std::io::Result<()> {
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         codec::put_cstring(buf, &self.query);
 
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> std::io::Result<Self> {
+    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
         let query = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
         Ok(Query::new(query))
