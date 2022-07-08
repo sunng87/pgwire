@@ -25,16 +25,20 @@ pub trait SimpleQueryHandler: Send + Sync {
             let resp = self.do_query(client, query.query()).await?;
             match resp {
                 QueryResponse::Data(row_description, data_rows, status) => {
-                    let mut msgs = Vec::new();
-                    msgs.push(PgWireMessage::RowDescription(row_description));
-                    msgs.extend(data_rows.into_iter().map(|row| PgWireMessage::DataRow(row)));
-                    msgs.push(PgWireMessage::CommandComplete(status));
-                    msgs.push(PgWireMessage::ReadyForQuery(ReadyForQuery::new(
-                        READY_STATUS_IDLE,
-                    )));
+                    let msgs = vec![PgWireMessage::RowDescription(row_description)]
+                        .into_iter()
+                        .chain(data_rows.into_iter().map(|row| PgWireMessage::DataRow(row)))
+                        .chain(
+                            vec![
+                                PgWireMessage::CommandComplete(status),
+                                PgWireMessage::ReadyForQuery(ReadyForQuery::new(READY_STATUS_IDLE)),
+                            ]
+                            .into_iter(),
+                        )
+                        .map(Ok);
 
-                    let mut stream = stream::iter(msgs.into_iter().map(Ok));
-                    client.send_all(&mut stream).await?;
+                    let mut msg_stream = stream::iter(msgs);
+                    client.send_all(&mut msg_stream).await?;
                 }
                 QueryResponse::Empty(status) => {
                     client.feed(PgWireMessage::CommandComplete(status)).await?;
