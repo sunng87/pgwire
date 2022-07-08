@@ -88,42 +88,36 @@ pub fn process_socket<A, Q>(
 {
     let (raw_socket, addr) = incoming_socket;
     tokio::spawn(async move {
+        // TODO: remove unwrap
         let client_info = ClientInfoHolder::new(addr);
         let mut socket = Framed::new(raw_socket, PgWireMessageServerCodec::new(client_info));
 
-        loop {
-            match socket.next().await {
-                Some(Ok(msg)) => {
-                    println!("{:?}", msg);
-                    match socket.codec().client_info().state() {
-                        PgWireConnectionState::AwaitingSslRequest => {
-                            if matches!(msg, PgWireMessage::SslRequest(_)) {
-                                socket
-                                    .codec_mut()
-                                    .client_info_mut()
-                                    .set_state(PgWireConnectionState::AwaitingStartup);
-                                socket.send(PgWireMessage::SslResponse(b'N')).await.unwrap();
-                            } else {
-                                // TODO: raise error here for invalid packet read
-                                socket.close().await.unwrap();
-                                unreachable!()
-                            }
-                        }
-                        PgWireConnectionState::AwaitingStartup
-                        | PgWireConnectionState::AuthenticationInProgress => {
-                            authenticator.on_startup(&mut socket, &msg).await.unwrap();
-                        }
-                        _ => {
-                            if matches!(&msg, PgWireMessage::Query(_)) {
-                                query_handler.on_query(&mut socket, &msg).await.unwrap();
-                            } else {
-                                //todo:
-                            }
-                        }
+        while let Some(Ok(msg)) = socket.next().await {
+            println!("{:?}", msg);
+            match socket.codec().client_info().state() {
+                PgWireConnectionState::AwaitingSslRequest => {
+                    if matches!(msg, PgWireMessage::SslRequest(_)) {
+                        socket
+                            .codec_mut()
+                            .client_info_mut()
+                            .set_state(PgWireConnectionState::AwaitingStartup);
+                        socket.send(PgWireMessage::SslResponse(b'N')).await.unwrap();
+                    } else {
+                        // TODO: raise error here for invalid packet read
+                        socket.close().await.unwrap();
+                        unreachable!()
                     }
                 }
-                Some(Err(_)) | None => {
-                    break;
+                PgWireConnectionState::AwaitingStartup
+                | PgWireConnectionState::AuthenticationInProgress => {
+                    authenticator.on_startup(&mut socket, &msg).await.unwrap();
+                }
+                _ => {
+                    if matches!(&msg, PgWireMessage::Query(_)) {
+                        query_handler.on_query(&mut socket, &msg).await.unwrap();
+                    } else {
+                        //todo:
+                    }
                 }
             }
         }

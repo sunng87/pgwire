@@ -46,8 +46,8 @@ impl Message for Startup {
 
         // parameters
         for (k, v) in self.parameters.iter() {
-            codec::put_cstring(buf, &k);
-            codec::put_cstring(buf, &v);
+            codec::put_cstring(buf, k);
+            codec::put_cstring(buf, v);
         }
         // ends with empty cstring, a \0
         codec::put_cstring(buf, "");

@@ -70,15 +70,15 @@ impl Message for RowDescription {
         let mut fields = Vec::with_capacity(fields_len as usize);
 
         for _ in 0..fields_len {
-            let mut field = FieldDescription::default();
-
-            field.name = codec::get_cstring(buf).unwrap();
-            field.table_id = buf.get_i32();
-            field.column_id = buf.get_i16();
-            field.type_id = buf.get_i32();
-            field.type_size = buf.get_i16();
-            field.type_modifier = buf.get_i32();
-            field.format_code = buf.get_i16();
+            let field = FieldDescription {
+                name: codec::get_cstring(buf).unwrap(),
+                table_id: buf.get_i32(),
+                column_id: buf.get_i16(),
+                type_id: buf.get_i32(),
+                type_size: buf.get_i16(),
+                type_modifier: buf.get_i32(),
+                format_code: buf.get_i16(),
+            };
 
             fields.push(field);
         }
@@ -119,6 +119,10 @@ impl DataRow {
     /// count of fields
     pub fn len(&self) -> usize {
         self.fields.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 

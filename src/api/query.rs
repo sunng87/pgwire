@@ -27,7 +27,7 @@ pub trait SimpleQueryHandler: Send + Sync {
                 QueryResponse::Data(row_description, data_rows, status) => {
                     let msgs = vec![PgWireMessage::RowDescription(row_description)]
                         .into_iter()
-                        .chain(data_rows.into_iter().map(|row| PgWireMessage::DataRow(row)))
+                        .chain(data_rows.into_iter().map(PgWireMessage::DataRow))
                         .chain(
                             vec![
                                 PgWireMessage::CommandComplete(status),
