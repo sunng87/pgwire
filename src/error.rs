@@ -11,3 +11,5 @@ pub enum PgWireError {
 }
 
 pub type PgWireResult<T> = Result<T, PgWireError>;
+
+// TODO: distinguish fatal error and recoverable error

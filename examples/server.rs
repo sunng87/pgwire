@@ -15,10 +15,10 @@ use pgwire::messages::response::CommandComplete;
 use pgwire::messages::PgWireMessage;
 use pgwire::tokio::process_socket;
 
-pub struct DummyAuthenticator;
+pub struct DummyProcessor;
 
 #[async_trait]
-impl CleartextPasswordAuthStartupHandler for DummyAuthenticator {
+impl CleartextPasswordAuthStartupHandler for DummyProcessor {
     async fn verify_password(&self, password: &str) -> PgWireResult<bool> {
         Ok(password == "test")
     }
@@ -37,10 +37,8 @@ impl CleartextPasswordAuthStartupHandler for DummyAuthenticator {
     }
 }
 
-pub struct DummyQueryHandler;
-
 #[async_trait]
-impl SimpleQueryHandler for DummyQueryHandler {
+impl SimpleQueryHandler for DummyProcessor {
     async fn do_query<C>(&self, _client: &C, query: &str) -> PgWireResult<QueryResponse>
     where
         C: ClientInfo + Unpin + Send + Sync,
@@ -86,14 +84,13 @@ impl SimpleQueryHandler for DummyQueryHandler {
 
 #[tokio::main]
 pub async fn main() {
-    let authenticator = Arc::new(DummyAuthenticator);
-    let querier = Arc::new(DummyQueryHandler);
+    let processor = Arc::new(DummyProcessor);
 
     let server_addr = "127.0.0.1:5433";
     let listener = TcpListener::bind(server_addr).await.unwrap();
     println!("Listening to {}", server_addr);
     loop {
         let incoming_socket = listener.accept().await.unwrap();
-        process_socket(incoming_socket, authenticator.clone(), querier.clone());
+        process_socket(incoming_socket, processor.clone(), processor.clone());
     }
 }
