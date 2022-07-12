@@ -37,6 +37,7 @@ pub trait Message: Sized {
 
 mod codec;
 pub mod data;
+pub mod extendedquery;
 pub mod response;
 pub mod simplequery;
 pub mod startup;
@@ -153,6 +154,7 @@ impl PgWireMessage {
 #[cfg(test)]
 mod test {
     use super::data::*;
+    use super::extendedquery::*;
     use super::response::*;
     use super::simplequery::*;
     use super::startup::*;
@@ -282,5 +284,48 @@ mod test {
     fn test_terminate() {
         let terminate = Terminate::new();
         roundtrip!(terminate, Terminate);
+    }
+
+    #[test]
+    fn test_parse() {
+        let parse = Parse::new(
+            Some("find-user-by-id".to_owned()),
+            "SELECT * FROM user WHERE id = ?".to_owned(),
+            vec![1],
+        );
+        roundtrip!(parse, Parse);
+    }
+
+    #[test]
+    fn test_parse_complete() {
+        let parse_complete = ParseComplete::new();
+        roundtrip!(parse_complete, ParseComplete);
+    }
+
+    #[test]
+    fn test_close() {
+        let close = Close::new(
+            TARGET_TYPE_BYTE_STATEMENT,
+            Some("find-user-by-id".to_owned()),
+        );
+        roundtrip!(close, Close);
+    }
+
+    #[test]
+    fn test_bind() {
+        let bind = Bind::new(
+            Some("find-user-by-id-0".to_owned()),
+            Some("find-user-by-id".to_owned()),
+            vec![0],
+            vec![Some("1233".as_bytes().to_vec())],
+            vec![0],
+        );
+        roundtrip!(bind, Bind);
+    }
+
+    #[test]
+    fn test_execute() {
+        let exec = Execute::new(Some("find-user-by-id-0".to_owned()), 100);
+        roundtrip!(exec, Execute);
     }
 }

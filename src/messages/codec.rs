@@ -73,3 +73,7 @@ pub(crate) fn get_and_ensure_message_type(buf: &mut BytesMut, t: u8) -> PgWireRe
 
     Ok(())
 }
+
+pub(crate) fn option_string_len(s: &Option<String>) -> usize {
+    1 + s.as_ref().map(|s| s.as_bytes().len()).unwrap_or(0)
+}
