@@ -11,7 +11,7 @@ use crate::api::query::SimpleQueryHandler;
 use crate::api::{ClientInfo, ClientInfoHolder, PgWireConnectionState};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::{SslRequest, Startup};
-use crate::messages::{Message, PgWireMessage};
+use crate::messages::{Message, PgWireBackendMessage, PgWireFrontendMessage};
 
 #[derive(Debug, new, Getters, Setters, MutGetters)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
@@ -20,36 +20,36 @@ pub struct PgWireMessageServerCodec {
 }
 
 impl Decoder for PgWireMessageServerCodec {
-    type Item = PgWireMessage;
+    type Item = PgWireFrontendMessage;
     type Error = PgWireError;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         match self.client_info.state() {
             PgWireConnectionState::AwaitingSslRequest => {
                 if let Some(ssl_request) = SslRequest::decode(src)? {
-                    Ok(Some(PgWireMessage::SslRequest(ssl_request)))
+                    Ok(Some(PgWireFrontendMessage::SslRequest(ssl_request)))
                 } else {
                     Ok(None)
                 }
             }
             PgWireConnectionState::AwaitingStartup => {
                 if let Some(startup) = Startup::decode(src)? {
-                    Ok(Some(PgWireMessage::Startup(startup)))
+                    Ok(Some(PgWireFrontendMessage::Startup(startup)))
                 } else {
                     Ok(None)
                 }
             }
-            _ => PgWireMessage::decode(src),
+            _ => PgWireFrontendMessage::decode(src),
         }
     }
 }
 
-impl Encoder<PgWireMessage> for PgWireMessageServerCodec {
+impl Encoder<PgWireBackendMessage> for PgWireMessageServerCodec {
     type Error = PgWireError;
 
     fn encode(
         &mut self,
-        item: PgWireMessage,
+        item: PgWireBackendMessage,
         dst: &mut bytes::BytesMut,
     ) -> Result<(), Self::Error> {
         item.encode(dst)
@@ -79,7 +79,7 @@ impl<T> ClientInfo for Framed<T, PgWireMessageServerCodec> {
 }
 
 async fn process_message<A, Q>(
-    message: PgWireMessage,
+    message: PgWireFrontendMessage,
     socket: &mut Framed<TcpStream, PgWireMessageServerCodec>,
     authenticator: Arc<A>,
     query_handler: Arc<Q>,
@@ -91,12 +91,12 @@ where
     println!("{:?}", message);
     match socket.codec().client_info().state() {
         PgWireConnectionState::AwaitingSslRequest => {
-            if matches!(message, PgWireMessage::SslRequest(_)) {
+            if matches!(message, PgWireFrontendMessage::SslRequest(_)) {
                 socket
                     .codec_mut()
                     .client_info_mut()
                     .set_state(PgWireConnectionState::AwaitingStartup);
-                socket.send(PgWireMessage::SslResponse(b'N')).await?;
+                socket.send(PgWireBackendMessage::SslResponse(b'N')).await?;
             } else {
                 // TODO: raise error here for invalid packet read
                 socket.close().await?;
@@ -107,7 +107,7 @@ where
             authenticator.on_startup(socket, &message).await?;
         }
         _ => {
-            if matches!(&message, PgWireMessage::Query(_)) {
+            if matches!(&message, PgWireFrontendMessage::Query(_)) {
                 query_handler.on_query(socket, &message).await?;
             } else {
                 //todo:

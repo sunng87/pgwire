@@ -8,30 +8,32 @@ use super::ClientInfo;
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::data::{DataRow, RowDescription};
 use crate::messages::response::{CommandComplete, ErrorResponse, ReadyForQuery, READY_STATUS_IDLE};
-use crate::messages::PgWireMessage;
+use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 /// handler for processing simple query.
 #[async_trait]
 pub trait SimpleQueryHandler: Send + Sync {
     ///
-    async fn on_query<C>(&self, client: &mut C, query: &PgWireMessage) -> PgWireResult<()>
+    async fn on_query<C>(&self, client: &mut C, query: &PgWireFrontendMessage) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireMessage> + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireMessage>>::Error>,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        if let PgWireMessage::Query(query) = query {
+        if let PgWireFrontendMessage::Query(query) = query {
             client.set_state(super::PgWireConnectionState::QueryInProgress);
             let resp = self.do_query(client, query.query()).await?;
             match resp {
                 QueryResponse::Data(row_description, data_rows, status) => {
-                    let msgs = vec![PgWireMessage::RowDescription(row_description)]
+                    let msgs = vec![PgWireBackendMessage::RowDescription(row_description)]
                         .into_iter()
-                        .chain(data_rows.into_iter().map(PgWireMessage::DataRow))
+                        .chain(data_rows.into_iter().map(PgWireBackendMessage::DataRow))
                         .chain(
                             vec![
-                                PgWireMessage::CommandComplete(status),
-                                PgWireMessage::ReadyForQuery(ReadyForQuery::new(READY_STATUS_IDLE)),
+                                PgWireBackendMessage::CommandComplete(status),
+                                PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+                                    READY_STATUS_IDLE,
+                                )),
                             ]
                             .into_iter(),
                         )
@@ -41,18 +43,20 @@ pub trait SimpleQueryHandler: Send + Sync {
                     client.send_all(&mut msg_stream).await?;
                 }
                 QueryResponse::Empty(status) => {
-                    client.feed(PgWireMessage::CommandComplete(status)).await?;
                     client
-                        .feed(PgWireMessage::ReadyForQuery(ReadyForQuery::new(
+                        .feed(PgWireBackendMessage::CommandComplete(status))
+                        .await?;
+                    client
+                        .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
                             READY_STATUS_IDLE,
                         )))
                         .await?;
                     client.flush().await?;
                 }
                 QueryResponse::Error(e) => {
-                    client.feed(PgWireMessage::ErrorResponse(e)).await?;
+                    client.feed(PgWireBackendMessage::ErrorResponse(e)).await?;
                     client
-                        .feed(PgWireMessage::ReadyForQuery(ReadyForQuery::new(
+                        .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
                             READY_STATUS_IDLE,
                         )))
                         .await?;

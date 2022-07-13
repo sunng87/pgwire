@@ -10,22 +10,26 @@ use super::{ClientInfo, PgWireConnectionState};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::response::{ErrorResponse, ReadyForQuery, READY_STATUS_IDLE};
 use crate::messages::startup::{Authentication, BackendKeyData, ParameterStatus, Startup};
-use crate::messages::PgWireMessage;
+use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 // Alternative design: pass PgWireMessage into the trait and allow the
 // implementation to track and define state within itself. This allows better
 // support for other auth type like sasl.
 #[async_trait]
 pub trait StartupHandler: Send + Sync {
-    async fn on_startup<C>(&self, client: &mut C, message: &PgWireMessage) -> PgWireResult<()>
+    async fn on_startup<C>(
+        &self,
+        client: &mut C,
+        message: &PgWireFrontendMessage,
+    ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireMessage> + Unpin + Send,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
         C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireMessage>>::Error>;
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
     fn handle_startup_parameters<C>(&self, client: &mut C, startup_message: &Startup)
     where
-        C: ClientInfo + Sink<PgWireMessage> + Unpin + Send,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
         C::Error: Debug,
     {
         client.metadata_mut().extend(
@@ -38,21 +42,23 @@ pub trait StartupHandler: Send + Sync {
 
     async fn finish_authentication<C>(&self, client: &mut C)
     where
-        C: ClientInfo + Sink<PgWireMessage> + Unpin + Send,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
         C::Error: Debug,
     {
         client.set_state(PgWireConnectionState::ReadyForQuery);
         let mut messages = Vec::new();
-        messages.push(PgWireMessage::Authentication(Authentication::Ok));
+        messages.push(PgWireBackendMessage::Authentication(Authentication::Ok));
         for (k, v) in self.server_parameters(client) {
-            messages.push(PgWireMessage::ParameterStatus(ParameterStatus::new(k, v)));
+            messages.push(PgWireBackendMessage::ParameterStatus(ParameterStatus::new(
+                k, v,
+            )));
         }
 
-        messages.push(PgWireMessage::BackendKeyData(BackendKeyData::new(
+        messages.push(PgWireBackendMessage::BackendKeyData(BackendKeyData::new(
             std::process::id() as i32,
             rand::random::<i32>(),
         )));
-        messages.push(PgWireMessage::ReadyForQuery(ReadyForQuery::new(
+        messages.push(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
             READY_STATUS_IDLE,
         )));
         let mut message_stream = stream::iter(messages.into_iter().map(Ok));
@@ -61,8 +67,7 @@ pub trait StartupHandler: Send + Sync {
 
     fn server_parameters<C>(&self, _client: &C) -> HashMap<String, String>
     where
-        C: ClientInfo + Sink<PgWireMessage> + Unpin + Send,
-        C::Error: Debug;
+        C: ClientInfo + Unpin + Send;
 }
 
 #[async_trait]
@@ -71,8 +76,7 @@ pub trait CleartextPasswordAuthStartupHandler: StartupHandler {
 
     fn server_parameters<C>(&self, _client: &C) -> HashMap<String, String>
     where
-        C: ClientInfo + Sink<PgWireMessage> + Unpin + Send,
-        C::Error: Debug;
+        C: ClientInfo + Unpin + Send;
 }
 
 #[async_trait]
@@ -80,23 +84,27 @@ impl<T> StartupHandler for T
 where
     T: CleartextPasswordAuthStartupHandler,
 {
-    async fn on_startup<C>(&self, client: &mut C, message: &PgWireMessage) -> PgWireResult<()>
+    async fn on_startup<C>(
+        &self,
+        client: &mut C,
+        message: &PgWireFrontendMessage,
+    ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireMessage> + Unpin + Send,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
         C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireMessage>>::Error>,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         match message {
-            PgWireMessage::Startup(ref startup) => {
+            PgWireFrontendMessage::Startup(ref startup) => {
                 self.handle_startup_parameters(client, startup);
                 client.set_state(PgWireConnectionState::AuthenticationInProgress);
                 client
-                    .send(PgWireMessage::Authentication(
+                    .send(PgWireBackendMessage::Authentication(
                         Authentication::CleartextPassword,
                     ))
                     .await?;
             }
-            PgWireMessage::Password(ref pwd) => {
+            PgWireFrontendMessage::Password(ref pwd) => {
                 if let Ok(true) = self.verify_password(pwd.password()).await {
                     self.finish_authentication(client).await
                 } else {
@@ -109,7 +117,9 @@ where
                     ];
                     let error = ErrorResponse::new(info);
 
-                    client.feed(PgWireMessage::ErrorResponse(error)).await?;
+                    client
+                        .feed(PgWireBackendMessage::ErrorResponse(error))
+                        .await?;
                     client.close().await?;
                 }
             }
@@ -120,8 +130,7 @@ where
 
     fn server_parameters<C>(&self, _client: &C) -> HashMap<String, String>
     where
-        C: ClientInfo + Sink<PgWireMessage> + Unpin + Send,
-        C::Error: Debug,
+        C: ClientInfo + Unpin + Send,
     {
         CleartextPasswordAuthStartupHandler::server_parameters(self, _client)
     }

@@ -1,9 +1,7 @@
 use std::collections::HashMap;
-use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::Sink;
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::CleartextPasswordAuthStartupHandler;
@@ -12,7 +10,6 @@ use pgwire::api::ClientInfo;
 use pgwire::error::PgWireResult;
 use pgwire::messages::data::{DataRow, FieldDescription, RowDescription, FORMAT_CODE_TEXT};
 use pgwire::messages::response::CommandComplete;
-use pgwire::messages::PgWireMessage;
 use pgwire::tokio::process_socket;
 
 pub struct DummyProcessor;
@@ -25,8 +22,7 @@ impl CleartextPasswordAuthStartupHandler for DummyProcessor {
 
     fn server_parameters<C>(&self, _client: &C) -> std::collections::HashMap<String, String>
     where
-        C: ClientInfo + Sink<PgWireMessage> + Unpin + Send,
-        C::Error: Debug,
+        C: ClientInfo + Unpin + Send,
     {
         let mut data = HashMap::new();
         data.insert("application_name".into(), "psql".into());

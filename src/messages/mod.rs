@@ -43,19 +43,101 @@ pub mod simplequery;
 pub mod startup;
 pub mod terminate;
 
+/// Messages sent from Frontend
 #[derive(Debug)]
-pub enum PgWireMessage {
-    // startup
+pub enum PgWireFrontendMessage {
     SslRequest(startup::SslRequest),
-    SslResponse(u8), // a single byte N or S
     Startup(startup::Startup),
-    Authentication(startup::Authentication),
     Password(startup::Password),
+
+    Query(simplequery::Query),
+
+    Parse(extendedquery::Parse),
+    Close(extendedquery::Close),
+    Bind(extendedquery::Bind),
+    Describe(extendedquery::Describe),
+    Execute(extendedquery::Execute),
+
+    Terminate(terminate::Terminate),
+}
+
+impl PgWireFrontendMessage {
+    pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        match self {
+            Self::SslRequest(msg) => msg.encode(buf),
+            Self::Startup(msg) => msg.encode(buf),
+            Self::Password(msg) => msg.encode(buf),
+
+            Self::Query(msg) => msg.encode(buf),
+
+            Self::Parse(msg) => msg.encode(buf),
+            Self::Bind(msg) => msg.encode(buf),
+            Self::Close(msg) => msg.encode(buf),
+            Self::Describe(msg) => msg.encode(buf),
+            Self::Execute(msg) => msg.encode(buf),
+
+            Self::Terminate(msg) => msg.encode(buf),
+        }
+    }
+
+    pub fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
+        if buf.remaining() > 1 {
+            let first_byte = buf[0];
+            match first_byte {
+                startup::MESSAGE_TYPE_BYTE_PASWORD => {
+                    startup::Password::decode(buf).map(|v| v.map(Self::Password))
+                }
+
+                simplequery::MESSAGE_TYPE_BYTE_QUERY => {
+                    simplequery::Query::decode(buf).map(|v| v.map(Self::Query))
+                }
+
+                extendedquery::MESSAGE_TYPE_BYTE_PARSE => {
+                    extendedquery::Parse::decode(buf).map(|v| v.map(Self::Parse))
+                }
+                extendedquery::MESSAGE_TYPE_BYTE_BIND => {
+                    extendedquery::Bind::decode(buf).map(|v| v.map(Self::Bind))
+                }
+                extendedquery::MESSAGE_TYPE_BYTE_CLOSE => {
+                    extendedquery::Close::decode(buf).map(|v| v.map(Self::Close))
+                }
+                extendedquery::MESSAGE_TYPE_BYTE_DESCRIBE => {
+                    extendedquery::Describe::decode(buf).map(|v| v.map(Self::Describe))
+                }
+                extendedquery::MESSAGE_TYPE_BYTE_EXECUTE => {
+                    extendedquery::Execute::decode(buf).map(|v| v.map(Self::Execute))
+                }
+
+                terminate::MESSAGE_TYPE_BYTE_TERMINATE => {
+                    terminate::Terminate::decode(buf).map(|v| v.map(Self::Terminate))
+                }
+                _ => {
+                    // messages have no type byte, manual decoding required
+                    // sslrequest
+                    // startup
+                    Ok(None)
+                }
+            }
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+/// Messages sent from Backend
+#[derive(Debug)]
+pub enum PgWireBackendMessage {
+    // startup
+    SslResponse(u8), // a single byte N or S
+    Authentication(startup::Authentication),
     ParameterStatus(startup::ParameterStatus),
     BackendKeyData(startup::BackendKeyData),
 
-    // simple query
-    Query(simplequery::Query),
+    // extended query
+    ParseComplete(extendedquery::ParseComplete),
+    CloseComplete(extendedquery::CloseComplete),
+    BindComplete(extendedquery::BindComplete),
+    PortalSuspended(extendedquery::PortalSuspended),
 
     // command response
     CommandComplete(response::CommandComplete),
@@ -65,23 +147,19 @@ pub enum PgWireMessage {
     // data
     RowDescription(data::RowDescription),
     DataRow(data::DataRow),
-
-    // termination
-    Terminate(terminate::Terminate),
 }
 
-impl PgWireMessage {
+impl PgWireBackendMessage {
     pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         match self {
-            Self::SslRequest(msg) => msg.encode(buf),
-            Self::Startup(msg) => msg.encode(buf),
-
             Self::Authentication(msg) => msg.encode(buf),
-            Self::Password(msg) => msg.encode(buf),
             Self::ParameterStatus(msg) => msg.encode(buf),
             Self::BackendKeyData(msg) => msg.encode(buf),
 
-            Self::Query(msg) => msg.encode(buf),
+            Self::ParseComplete(msg) => msg.encode(buf),
+            Self::BindComplete(msg) => msg.encode(buf),
+            Self::CloseComplete(msg) => msg.encode(buf),
+            Self::PortalSuspended(msg) => msg.encode(buf),
 
             Self::CommandComplete(msg) => msg.encode(buf),
             Self::ReadyForQuery(msg) => msg.encode(buf),
@@ -90,8 +168,6 @@ impl PgWireMessage {
             Self::RowDescription(msg) => msg.encode(buf),
             Self::DataRow(msg) => msg.encode(buf),
 
-            Self::Terminate(msg) => msg.encode(buf),
-
             Self::SslResponse(b) => {
                 buf.put_u8(*b);
                 Ok(())
@@ -99,44 +175,49 @@ impl PgWireMessage {
         }
     }
 
-    pub fn decode(buf: &mut BytesMut) -> PgWireResult<Option<PgWireMessage>> {
+    pub fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
         if buf.remaining() > 1 {
             let first_byte = buf[0];
             match first_byte {
-                startup::MESSAGE_TYPE_BYTE_AUTHENTICATION => startup::Authentication::decode(buf)
-                    .map(|v| v.map(PgWireMessage::Authentication)),
-                startup::MESSAGE_TYPE_BYTE_PASWORD => {
-                    startup::Password::decode(buf).map(|v| v.map(PgWireMessage::Password))
+                startup::MESSAGE_TYPE_BYTE_AUTHENTICATION => {
+                    startup::Authentication::decode(buf).map(|v| v.map(Self::Authentication))
                 }
                 startup::MESSAGE_TYPE_BYTE_PARAMETER_STATUS => {
-                    startup::ParameterStatus::decode(buf)
-                        .map(|v| v.map(PgWireMessage::ParameterStatus))
+                    startup::ParameterStatus::decode(buf).map(|v| v.map(Self::ParameterStatus))
                 }
-                startup::MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA => startup::BackendKeyData::decode(buf)
-                    .map(|v| v.map(PgWireMessage::BackendKeyData)),
+                startup::MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA => {
+                    startup::BackendKeyData::decode(buf).map(|v| v.map(Self::BackendKeyData))
+                }
 
-                simplequery::MESSAGE_TYPE_BYTE_QUERY => {
-                    simplequery::Query::decode(buf).map(|v| v.map(PgWireMessage::Query))
+                extendedquery::MESSAGE_TYPE_BYTE_PARSE_COMPLETE => {
+                    extendedquery::ParseComplete::decode(buf).map(|v| v.map(Self::ParseComplete))
+                }
+                extendedquery::MESSAGE_TYPE_BYTE_BIND_COMPLETE => {
+                    extendedquery::BindComplete::decode(buf).map(|v| v.map(Self::BindComplete))
+                }
+                extendedquery::MESSAGE_TYPE_BYTE_CLOSE_COMPLETE => {
+                    extendedquery::CloseComplete::decode(buf).map(|v| v.map(Self::CloseComplete))
+                }
+                extendedquery::MESSAGE_TYPE_BYTE_PORTAL_SUSPENDED => {
+                    extendedquery::PortalSuspended::decode(buf)
+                        .map(|v| v.map(PgWireBackendMessage::PortalSuspended))
                 }
 
                 response::MESSAGE_TYPE_BYTE_COMMAND_COMPLETE => {
-                    response::CommandComplete::decode(buf)
-                        .map(|v| v.map(PgWireMessage::CommandComplete))
+                    response::CommandComplete::decode(buf).map(|v| v.map(Self::CommandComplete))
                 }
-                response::MESSAGE_TYPE_BYTE_READY_FOR_QUERY => response::ReadyForQuery::decode(buf)
-                    .map(|v| v.map(PgWireMessage::ReadyForQuery)),
-                response::MESSAGE_TYPE_BYTE_ERROR_RESPONSE => response::ErrorResponse::decode(buf)
-                    .map(|v| v.map(PgWireMessage::ErrorResponse)),
+                response::MESSAGE_TYPE_BYTE_READY_FOR_QUERY => {
+                    response::ReadyForQuery::decode(buf).map(|v| v.map(Self::ReadyForQuery))
+                }
+                response::MESSAGE_TYPE_BYTE_ERROR_RESPONSE => {
+                    response::ErrorResponse::decode(buf).map(|v| v.map(Self::ErrorResponse))
+                }
 
                 data::MESSAGE_TYPE_BYTE_ROW_DESCRITION => {
-                    data::RowDescription::decode(buf).map(|v| v.map(PgWireMessage::RowDescription))
+                    data::RowDescription::decode(buf).map(|v| v.map(Self::RowDescription))
                 }
                 data::MESSAGE_TYPE_BYTE_DATA_ROW => {
-                    data::DataRow::decode(buf).map(|v| v.map(PgWireMessage::DataRow))
-                }
-
-                terminate::MESSAGE_TYPE_BYTE_TERMINATE => {
-                    terminate::Terminate::decode(buf).map(|v| v.map(PgWireMessage::Terminate))
+                    data::DataRow::decode(buf).map(|v| v.map(Self::DataRow))
                 }
                 _ => {
                     // messages have no type byte, manual decoding required
