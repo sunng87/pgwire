@@ -22,7 +22,7 @@ impl CleartextPasswordAuthStartupHandler for DummyProcessor {
 
     fn server_parameters<C>(&self, _client: &C) -> std::collections::HashMap<String, String>
     where
-        C: ClientInfo + Unpin + Send,
+        C: ClientInfo,
     {
         let mut data = HashMap::new();
         data.insert("application_name".into(), "psql".into());

@@ -67,7 +67,7 @@ pub trait StartupHandler: Send + Sync {
 
     fn server_parameters<C>(&self, _client: &C) -> HashMap<String, String>
     where
-        C: ClientInfo + Unpin + Send;
+        C: ClientInfo;
 }
 
 #[async_trait]
@@ -76,7 +76,7 @@ pub trait CleartextPasswordAuthStartupHandler: StartupHandler {
 
     fn server_parameters<C>(&self, _client: &C) -> HashMap<String, String>
     where
-        C: ClientInfo + Unpin + Send;
+        C: ClientInfo;
 }
 
 #[async_trait]
@@ -130,7 +130,7 @@ where
 
     fn server_parameters<C>(&self, _client: &C) -> HashMap<String, String>
     where
-        C: ClientInfo + Unpin + Send,
+        C: ClientInfo,
     {
         CleartextPasswordAuthStartupHandler::server_parameters(self, _client)
     }
