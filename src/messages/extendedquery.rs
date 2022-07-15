@@ -27,7 +27,7 @@ impl Message for Parse {
     }
 
     fn encode_body(&self, buf: &mut bytes::BytesMut) -> PgWireResult<()> {
-        codec::put_cstring(buf, self.name.as_ref().unwrap_or(&"".to_owned()));
+        codec::put_option_cstring(buf, &self.name);
         codec::put_cstring(buf, &self.query);
 
         buf.put_i16(self.type_oids.len() as i16);
@@ -110,7 +110,7 @@ impl Message for Close {
 
     fn encode_body(&self, buf: &mut bytes::BytesMut) -> PgWireResult<()> {
         buf.put_u8(self.target_type);
-        codec::put_cstring(buf, self.name.as_ref().unwrap_or(&"".to_owned()));
+        codec::put_option_cstring(buf, &self.name);
         Ok(())
     }
 
@@ -184,8 +184,8 @@ impl Message for Bind {
     }
 
     fn encode_body(&self, buf: &mut bytes::BytesMut) -> PgWireResult<()> {
-        codec::put_cstring(buf, self.portal_name.as_ref().unwrap_or(&"".to_owned()));
-        codec::put_cstring(buf, self.statement_name.as_ref().unwrap_or(&"".to_owned()));
+        codec::put_option_cstring(buf, &self.portal_name);
+        codec::put_option_cstring(buf, &self.statement_name);
 
         buf.put_i16(self.parameter_format_codes.len() as i16);
         for c in &self.parameter_format_codes {
@@ -304,7 +304,7 @@ impl Message for Describe {
 
     fn encode_body(&self, buf: &mut bytes::BytesMut) -> PgWireResult<()> {
         buf.put_u8(self.target_type);
-        codec::put_cstring(buf, self.name.as_ref().unwrap_or(&"".to_owned()));
+        codec::put_option_cstring(buf, &self.name);
         Ok(())
     }
 
@@ -337,7 +337,7 @@ impl Message for Execute {
     }
 
     fn encode_body(&self, buf: &mut bytes::BytesMut) -> PgWireResult<()> {
-        codec::put_cstring(buf, self.name.as_ref().unwrap_or(&"".to_owned()));
+        codec::put_option_cstring(buf, &self.name);
         buf.put_i32(self.max_rows);
         Ok(())
     }

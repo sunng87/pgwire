@@ -37,6 +37,14 @@ pub(crate) fn put_cstring(buf: &mut BytesMut, input: &str) {
     buf.put_u8(b'\0');
 }
 
+pub(crate) fn put_option_cstring(buf: &mut BytesMut, input: &Option<String>) {
+    if let Some(input) = input {
+        put_cstring(buf, input);
+    } else {
+        buf.put_u8(b'\0');
+    }
+}
+
 /// Try read message length from buf, without actally move the cursor
 fn get_length(buf: &BytesMut) -> Option<usize> {
     if buf.remaining() >= 4 {
