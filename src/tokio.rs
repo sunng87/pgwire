@@ -107,8 +107,8 @@ where
             authenticator.on_startup(socket, &message).await?;
         }
         _ => {
-            if matches!(&message, PgWireFrontendMessage::Query(_)) {
-                query_handler.on_query(socket, &message).await?;
+            if let PgWireFrontendMessage::Query(ref query) = message {
+                query_handler.on_query(socket, query).await?;
             } else {
                 //todo:
             }
