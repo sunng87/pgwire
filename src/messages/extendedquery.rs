@@ -350,6 +350,33 @@ impl Message for Execute {
     }
 }
 
+/// Execute portal by its name
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct Sync;
+
+pub const MESSAGE_TYPE_BYTE_SYNC: u8 = b'S';
+
+impl Message for Sync {
+    #[inline]
+    fn message_type() -> Option<u8> {
+        Some(MESSAGE_TYPE_BYTE_SYNC)
+    }
+
+    #[inline]
+    fn message_length(&self) -> usize {
+        4
+    }
+
+    fn encode_body(&self, _buf: &mut bytes::BytesMut) -> PgWireResult<()> {
+        Ok(())
+    }
+
+    fn decode_body(_buf: &mut bytes::BytesMut) -> PgWireResult<Self> {
+        Ok(Sync)
+    }
+}
+
 #[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct PortalSuspended;

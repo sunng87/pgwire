@@ -57,6 +57,7 @@ pub enum PgWireFrontendMessage {
     Bind(extendedquery::Bind),
     Describe(extendedquery::Describe),
     Execute(extendedquery::Execute),
+    Sync(extendedquery::Sync),
 
     Terminate(terminate::Terminate),
 }
@@ -75,6 +76,7 @@ impl PgWireFrontendMessage {
             Self::Close(msg) => msg.encode(buf),
             Self::Describe(msg) => msg.encode(buf),
             Self::Execute(msg) => msg.encode(buf),
+            Self::Sync(msg) => msg.encode(buf),
 
             Self::Terminate(msg) => msg.encode(buf),
         }
@@ -106,6 +108,9 @@ impl PgWireFrontendMessage {
                 }
                 extendedquery::MESSAGE_TYPE_BYTE_EXECUTE => {
                     extendedquery::Execute::decode(buf).map(|v| v.map(Self::Execute))
+                }
+                extendedquery::MESSAGE_TYPE_BYTE_SYNC => {
+                    extendedquery::Sync::decode(buf).map(|v| v.map(Self::Sync))
                 }
 
                 terminate::MESSAGE_TYPE_BYTE_TERMINATE => {
