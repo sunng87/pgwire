@@ -88,7 +88,6 @@ where
     A: StartupHandler + 'static,
     Q: SimpleQueryHandler + 'static,
 {
-    println!("{:?}", message);
     match socket.codec().client_info().state() {
         PgWireConnectionState::AwaitingSslRequest => {
             if matches!(message, PgWireFrontendMessage::SslRequest(_)) {
@@ -99,6 +98,7 @@ where
                 socket.send(PgWireBackendMessage::SslResponse(b'N')).await?;
             } else {
                 // TODO: raise error here for invalid packet read
+                debug!("invalid packet received, expected sslrequest");
                 socket.close().await?;
             }
         }

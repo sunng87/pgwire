@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+log = "0.4"
 getset = "0.1.2"
 derive-new = "0.5"
 bytes = "1.1.0"
@@ -22,7 +23,7 @@ tokio-util = { version = "0.7.3", features = ["codec", "io"], optional = true }
 tokio = { version = "1.19", features = ["rt-multi-thread", "net", "io-util", "macros"]}
 
 [features]
-default = []
+default = ["tokio_support"]
 tokio_support = ["tokio", "tokio-util"]
 
 [[example]]
