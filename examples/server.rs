@@ -2,14 +2,17 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::Sink;
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::CleartextPasswordAuthStartupHandler;
-use pgwire::api::query::{QueryResponse, SimpleQueryHandler};
+use pgwire::api::query::{ExtendedQueryHandler, QueryResponse, SimpleQueryHandler};
 use pgwire::api::ClientInfo;
-use pgwire::error::PgWireResult;
+use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::messages::data::{DataRow, FieldDescription, RowDescription, FORMAT_CODE_TEXT};
+use pgwire::messages::extendedquery::{Bind, Describe, Execute, Parse, Sync as PgSync};
 use pgwire::messages::response::CommandComplete;
+use pgwire::messages::PgWireBackendMessage;
 use pgwire::tokio::process_socket;
 
 pub struct DummyProcessor;
@@ -78,6 +81,54 @@ impl SimpleQueryHandler for DummyProcessor {
     }
 }
 
+#[async_trait]
+impl ExtendedQueryHandler for DummyProcessor {
+    async fn on_parse<C>(&self, client: &mut C, message: &Parse) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: std::fmt::Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        Ok(())
+    }
+
+    async fn on_bind<C>(&self, client: &mut C, message: &Bind) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: std::fmt::Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        Ok(())
+    }
+
+    async fn on_execute<C>(&self, client: &mut C, message: &Execute) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: std::fmt::Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        Ok(())
+    }
+
+    async fn on_describe<C>(&self, client: &mut C, message: &Describe) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: std::fmt::Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        Ok(())
+    }
+
+    async fn on_sync<C>(&self, client: &mut C, message: &PgSync) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: std::fmt::Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        Ok(())
+    }
+}
+
 #[tokio::main]
 pub async fn main() {
     let processor = Arc::new(DummyProcessor);
@@ -87,6 +138,11 @@ pub async fn main() {
     println!("Listening to {}", server_addr);
     loop {
         let incoming_socket = listener.accept().await.unwrap();
-        process_socket(incoming_socket, processor.clone(), processor.clone());
+        process_socket(
+            incoming_socket,
+            processor.clone(),
+            processor.clone(),
+            processor.clone(),
+        );
     }
 }

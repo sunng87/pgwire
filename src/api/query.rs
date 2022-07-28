@@ -7,7 +7,7 @@ use futures::stream;
 use super::ClientInfo;
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::data::{DataRow, RowDescription};
-use crate::messages::extendedquery::{Bind, Describe, Execute, Parse};
+use crate::messages::extendedquery::{Bind, Describe, Execute, Parse, Sync as PgSync};
 use crate::messages::response::{CommandComplete, ErrorResponse, ReadyForQuery, READY_STATUS_IDLE};
 use crate::messages::simplequery::Query;
 use crate::messages::PgWireBackendMessage;
@@ -107,6 +107,12 @@ pub trait ExtendedQueryHandler: Send + Sync {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
     async fn on_describe<C>(&self, client: &mut C, message: &Describe) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
+
+    async fn on_sync<C>(&self, client: &mut C, message: &PgSync) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,

@@ -7,6 +7,7 @@ use tokio::net::TcpStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
 use crate::api::auth::StartupHandler;
+use crate::api::query::ExtendedQueryHandler;
 use crate::api::query::SimpleQueryHandler;
 use crate::api::{ClientInfo, ClientInfoHolder, PgWireConnectionState};
 use crate::error::{PgWireError, PgWireResult};
@@ -78,15 +79,17 @@ impl<T> ClientInfo for Framed<T, PgWireMessageServerCodec> {
     }
 }
 
-async fn process_message<A, Q>(
+async fn process_message<A, Q, EQ>(
     message: PgWireFrontendMessage,
     socket: &mut Framed<TcpStream, PgWireMessageServerCodec>,
     authenticator: Arc<A>,
     query_handler: Arc<Q>,
+    extended_query_handler: Arc<EQ>,
 ) -> PgWireResult<()>
 where
     A: StartupHandler + 'static,
     Q: SimpleQueryHandler + 'static,
+    EQ: ExtendedQueryHandler + 'static,
 {
     match socket.codec().client_info().state() {
         PgWireConnectionState::AwaitingSslRequest => {
@@ -107,23 +110,42 @@ where
             authenticator.on_startup(socket, &message).await?;
         }
         _ => {
-            if let PgWireFrontendMessage::Query(ref query) = message {
-                query_handler.on_query(socket, query).await?;
-            } else {
-                //todo:
+            // query or query in progress
+            match message {
+                PgWireFrontendMessage::Query(ref query) => {
+                    query_handler.on_query(socket, query).await?;
+                }
+                PgWireFrontendMessage::Parse(ref parse) => {
+                    extended_query_handler.on_parse(socket, parse).await?;
+                }
+                PgWireFrontendMessage::Bind(ref bind) => {
+                    extended_query_handler.on_bind(socket, bind).await?;
+                }
+                PgWireFrontendMessage::Execute(ref execute) => {
+                    extended_query_handler.on_execute(socket, execute).await?;
+                }
+                PgWireFrontendMessage::Describe(ref describe) => {
+                    extended_query_handler.on_describe(socket, describe).await?;
+                }
+                PgWireFrontendMessage::Sync(ref sync) => {
+                    extended_query_handler.on_sync(socket, sync).await?;
+                }
+                _ => {}
             }
         }
     }
     Ok(())
 }
 
-pub fn process_socket<A, Q>(
+pub fn process_socket<A, Q, EQ>(
     incoming_socket: (TcpStream, SocketAddr),
     authenticator: Arc<A>,
     query_handler: Arc<Q>,
+    extended_query_handler: Arc<EQ>,
 ) where
     A: StartupHandler + 'static,
     Q: SimpleQueryHandler + 'static,
+    EQ: ExtendedQueryHandler + 'static,
 {
     let (raw_socket, addr) = incoming_socket;
     tokio::spawn(async move {
@@ -138,6 +160,7 @@ pub fn process_socket<A, Q>(
                         &mut socket,
                         authenticator.clone(),
                         query_handler.clone(),
+                        extended_query_handler.clone(),
                     )
                     .await
                     {
