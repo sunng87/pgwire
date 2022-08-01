@@ -54,6 +54,7 @@ pub trait StartupHandler: Send + Sync {
             )));
         }
 
+        // TODO: store this backend key
         messages.push(PgWireBackendMessage::BackendKeyData(BackendKeyData::new(
             std::process::id() as i32,
             rand::random::<i32>(),
