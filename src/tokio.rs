@@ -7,8 +7,11 @@ use tokio::net::TcpStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
 use crate::api::auth::StartupHandler;
+use crate::api::portal::Portal;
 use crate::api::query::ExtendedQueryHandler;
 use crate::api::query::SimpleQueryHandler;
+use crate::api::stmt::Statement;
+use crate::api::store::MemSessionStore;
 use crate::api::{ClientInfo, ClientInfoHolder, PgWireConnectionState};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::{SslRequest, Startup};
@@ -76,6 +79,22 @@ impl<T> ClientInfo for Framed<T, PgWireMessageServerCodec> {
 
     fn metadata_mut(&mut self) -> &mut std::collections::HashMap<String, String> {
         self.codec_mut().client_info_mut().metadata_mut()
+    }
+
+    fn stmt_store(&self) -> &MemSessionStore<Statement> {
+        self.codec().client_info().stmt_store()
+    }
+
+    fn stmt_store_mut(&mut self) -> &mut MemSessionStore<Statement> {
+        self.codec_mut().client_info_mut().stmt_store_mut()
+    }
+
+    fn portal_store(&self) -> &MemSessionStore<Portal> {
+        self.codec().client_info().portal_store()
+    }
+
+    fn portal_store_mut(&mut self) -> &mut MemSessionStore<Portal> {
+        self.codec_mut().client_info_mut().portal_store_mut()
     }
 }
 

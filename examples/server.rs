@@ -3,10 +3,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::Sink;
+use pgwire::api::stmt::Statement;
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::CleartextPasswordAuthStartupHandler;
 use pgwire::api::query::{ExtendedQueryHandler, QueryResponse, SimpleQueryHandler};
+use pgwire::api::store::SessionStore;
 use pgwire::api::ClientInfo;
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::messages::data::{DataRow, FieldDescription, RowDescription, FORMAT_CODE_TEXT};
@@ -89,6 +91,10 @@ impl ExtendedQueryHandler for DummyProcessor {
         C::Error: std::fmt::Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
+        let stmt = Statement::from(message);
+        let id = stmt.id().clone();
+        client.stmt_store_mut().put(&id, stmt);
+
         Ok(())
     }
 
@@ -98,6 +104,10 @@ impl ExtendedQueryHandler for DummyProcessor {
         C::Error: std::fmt::Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
+        let portal = Portal::from(message);
+        let id = portal.id().clone();
+        client.portal_store_mut().put(&id, portal);
+
         Ok(())
     }
 
@@ -125,6 +135,7 @@ impl ExtendedQueryHandler for DummyProcessor {
         C::Error: std::fmt::Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
+        client.flush().await;
         Ok(())
     }
 }
