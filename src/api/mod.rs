@@ -7,7 +7,7 @@ pub mod query;
 pub mod stmt;
 pub mod store;
 
-pub(crate) static DEFAULT_NAME: &'static str = "POSTGRESQL_DEFAULT_NAME";
+pub static DEFAULT_NAME: &'static str = "POSTGRESQL_DEFAULT_NAME";
 
 #[derive(Debug)]
 pub enum PgWireConnectionState {
@@ -36,13 +36,13 @@ pub trait ClientInfo {
 
     fn metadata_mut(&mut self) -> &mut HashMap<String, String>;
 
-    fn stmt_store(&self) -> &store::MemSessionStore<stmt::Statement>;
+    fn stmt_store(&self) -> &dyn store::SessionStore<stmt::Statement>;
 
-    fn stmt_store_mut(&mut self) -> &mut store::MemSessionStore<stmt::Statement>;
+    fn stmt_store_mut(&mut self) -> &mut dyn store::SessionStore<stmt::Statement>;
 
-    fn portal_store(&self) -> &store::MemSessionStore<portal::Portal>;
+    fn portal_store(&self) -> &dyn store::SessionStore<portal::Portal>;
 
-    fn portal_store_mut(&mut self) -> &mut store::MemSessionStore<portal::Portal>;
+    fn portal_store_mut(&mut self) -> &mut dyn store::SessionStore<portal::Portal>;
 }
 
 #[derive(Debug, new, Getters, Setters, MutGetters)]

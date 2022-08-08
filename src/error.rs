@@ -6,6 +6,8 @@ pub enum PgWireError {
     InvalidMessageType(u8, u8),
     #[error(transparent)]
     IoError(#[from] std::io::Error),
+    #[error("Portal not found for name: {0:?}")]
+    PortalNotFound(String),
     #[error("Api Error")]
     ApiError(Box<dyn std::error::Error + 'static + Send>),
 }

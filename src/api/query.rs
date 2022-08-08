@@ -1,10 +1,13 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 use futures::stream;
 
-use super::ClientInfo;
+use super::portal::Portal;
+use super::stmt::Statement;
+use super::{ClientInfo, DEFAULT_NAME};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::data::{DataRow, RowDescription};
 use crate::messages::extendedquery::{Bind, Describe, Execute, Parse, Sync as PgSync};
@@ -92,27 +95,80 @@ pub trait ExtendedQueryHandler: Send + Sync {
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        let stmt = Statement::from(message);
+        let id = stmt.id().clone();
+        client.stmt_store_mut().put(&id, Arc::new(stmt));
+
+        Ok(())
+    }
 
     async fn on_bind<C>(&self, client: &mut C, message: &Bind) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        let statement_name = message
+            .statement_name()
+            .as_ref()
+            .map_or(DEFAULT_NAME, String::as_str);
+        if let Some(stmt) = client.stmt_store().get(statement_name) {
+            let portal = Portal::new(message, stmt.as_ref());
+            let id = portal.id().clone();
+            client.portal_store_mut().put(&id, Arc::new(portal));
+        }
+
+        Ok(())
+    }
 
     async fn on_execute<C>(&self, client: &mut C, message: &Execute) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        let portal_name = message.name().as_ref().map_or(DEFAULT_NAME, String::as_str);
+        if let Some(portal) = client.portal_store().get(portal_name) {
+            self.do_query(client, portal.as_ref()).await
+        } else {
+            Err(PgWireError::PortalNotFound(portal_name.to_owned()))
+        }
+    }
 
     async fn on_describe<C>(&self, client: &mut C, message: &Describe) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        let portal_name = message.name().as_ref().map_or(DEFAULT_NAME, String::as_str);
+        if let Some(portal) = client.portal_store().get(portal_name) {
+            self.do_describe(client, portal.as_ref()).await
+        } else {
+            Err(PgWireError::PortalNotFound(portal_name.to_owned()))
+        }
+    }
+
+    async fn on_sync<C>(&self, client: &mut C, _message: &PgSync) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        // TODO: clear portal?
+        client.flush().await?;
+        Ok(())
+    }
+
+    async fn do_query<C>(&self, client: &mut C, portal: &Portal) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
-    async fn on_sync<C>(&self, client: &mut C, message: &PgSync) -> PgWireResult<()>
+    async fn do_describe<C>(&self, client: &mut C, portal: &Portal) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,

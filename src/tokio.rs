@@ -11,7 +11,7 @@ use crate::api::portal::Portal;
 use crate::api::query::ExtendedQueryHandler;
 use crate::api::query::SimpleQueryHandler;
 use crate::api::stmt::Statement;
-use crate::api::store::MemSessionStore;
+use crate::api::store::SessionStore;
 use crate::api::{ClientInfo, ClientInfoHolder, PgWireConnectionState};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::{SslRequest, Startup};
@@ -81,19 +81,19 @@ impl<T> ClientInfo for Framed<T, PgWireMessageServerCodec> {
         self.codec_mut().client_info_mut().metadata_mut()
     }
 
-    fn stmt_store(&self) -> &MemSessionStore<Statement> {
+    fn stmt_store(&self) -> &dyn SessionStore<Statement> {
         self.codec().client_info().stmt_store()
     }
 
-    fn stmt_store_mut(&mut self) -> &mut MemSessionStore<Statement> {
+    fn stmt_store_mut(&mut self) -> &mut dyn SessionStore<Statement> {
         self.codec_mut().client_info_mut().stmt_store_mut()
     }
 
-    fn portal_store(&self) -> &MemSessionStore<Portal> {
+    fn portal_store(&self) -> &dyn SessionStore<Portal> {
         self.codec().client_info().portal_store()
     }
 
-    fn portal_store_mut(&mut self) -> &mut MemSessionStore<Portal> {
+    fn portal_store_mut(&mut self) -> &mut dyn SessionStore<Portal> {
         self.codec_mut().client_info_mut().portal_store_mut()
     }
 }

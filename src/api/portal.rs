@@ -5,7 +5,7 @@ use crate::{
     types::Data,
 };
 
-use super::{stmt::Statement, DEFAULT_NAME};
+use super::{stmt::Statement, ClientInfo, DEFAULT_NAME};
 
 #[derive(Debug, Default, Getters, Setters)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
@@ -16,7 +16,7 @@ pub struct Portal {
 }
 
 impl Portal {
-    fn new(bind: &Bind, statement: &Statement) -> Portal {
+    pub fn new(bind: &Bind, statement: &Statement) -> Portal {
         Portal {
             id: bind
                 .portal_name()
@@ -28,6 +28,16 @@ impl Portal {
                 .unwrap_or_else(|| DEFAULT_NAME.to_owned()),
             parameters: parse_parameters(bind, statement),
         }
+    }
+
+    pub fn statement<C>(&self, client: &C) -> Option<String>
+    where
+        C: ClientInfo,
+    {
+        client
+            .stmt_store()
+            .get(self.stmt_id())
+            .map(|s| s.statement().clone())
     }
 }
 

@@ -3,16 +3,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::Sink;
-use pgwire::api::stmt::Statement;
+use pgwire::api::portal::Portal;
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::CleartextPasswordAuthStartupHandler;
 use pgwire::api::query::{ExtendedQueryHandler, QueryResponse, SimpleQueryHandler};
-use pgwire::api::store::SessionStore;
 use pgwire::api::ClientInfo;
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::messages::data::{DataRow, FieldDescription, RowDescription, FORMAT_CODE_TEXT};
-use pgwire::messages::extendedquery::{Bind, Describe, Execute, Parse, Sync as PgSync};
 use pgwire::messages::response::CommandComplete;
 use pgwire::messages::PgWireBackendMessage;
 use pgwire::tokio::process_socket;
@@ -85,58 +83,22 @@ impl SimpleQueryHandler for DummyProcessor {
 
 #[async_trait]
 impl ExtendedQueryHandler for DummyProcessor {
-    async fn on_parse<C>(&self, client: &mut C, message: &Parse) -> PgWireResult<()>
+    async fn do_query<C>(&self, client: &mut C, portal: &Portal) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: std::fmt::Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let stmt = Statement::from(message);
-        let id = stmt.id().clone();
-        client.stmt_store_mut().put(&id, stmt);
-
-        Ok(())
+        todo!()
     }
 
-    async fn on_bind<C>(&self, client: &mut C, message: &Bind) -> PgWireResult<()>
+    async fn do_describe<C>(&self, client: &mut C, portal: &Portal) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: std::fmt::Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let portal = Portal::from(message);
-        let id = portal.id().clone();
-        client.portal_store_mut().put(&id, portal);
-
-        Ok(())
-    }
-
-    async fn on_execute<C>(&self, client: &mut C, message: &Execute) -> PgWireResult<()>
-    where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-        C::Error: std::fmt::Debug,
-        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
-    {
-        Ok(())
-    }
-
-    async fn on_describe<C>(&self, client: &mut C, message: &Describe) -> PgWireResult<()>
-    where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-        C::Error: std::fmt::Debug,
-        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
-    {
-        Ok(())
-    }
-
-    async fn on_sync<C>(&self, client: &mut C, message: &PgSync) -> PgWireResult<()>
-    where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-        C::Error: std::fmt::Debug,
-        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
-    {
-        client.flush().await;
-        Ok(())
+        todo!()
     }
 }
 
