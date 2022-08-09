@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
-pub trait SessionStore<V>: Send + Sync {
+pub trait SessionStore<V>: Sync {
     fn get(&self, name: &str) -> Option<Arc<V>>;
 
     fn put(&mut self, name: &str, value: Arc<V>);

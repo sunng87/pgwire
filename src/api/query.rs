@@ -130,7 +130,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let portal_name = message.name().as_ref().map_or(DEFAULT_NAME, String::as_str);
-        if let Some(portal) = client.portal_store().get(portal_name) {
+        let store = client.portal_store();
+        if let Some(portal) = store.get(portal_name) {
             self.do_query(client, portal.as_ref()).await
         } else {
             Err(PgWireError::PortalNotFound(portal_name.to_owned()))
