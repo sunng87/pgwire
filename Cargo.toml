@@ -15,7 +15,7 @@ futures = "0.3"
 async-trait = "0.1"
 rand = "0.8"
 thiserror = "1"
-itertools = "0.10"
+postgres-types = "0.2"
 
 tokio = { version = "1.19", features = ["net", "rt"], optional = true}
 tokio-util = { version = "0.7.3", features = ["codec", "io"], optional = true }

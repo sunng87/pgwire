@@ -110,15 +110,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let statement_name = message
-            .statement_name()
-            .as_ref()
-            .map_or(DEFAULT_NAME, String::as_str);
-        if let Some(stmt) = client.stmt_store().get(statement_name) {
-            let portal = Portal::new(message, stmt.as_ref());
-            let id = portal.id().clone();
-            client.portal_store_mut().put(&id, Arc::new(portal));
-        }
+        let portal = Portal::try_new(message, client)?;
+        let id = portal.name().clone();
+        client.portal_store_mut().put(&id, Arc::new(portal));
 
         Ok(())
     }
@@ -136,6 +130,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         } else {
             Err(PgWireError::PortalNotFound(portal_name.to_owned()))
         }
+        // TODO: clear portal?
     }
 
     async fn on_describe<C>(&self, client: &mut C, message: &Describe) -> PgWireResult<()>
@@ -158,7 +153,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        // TODO: clear portal?
         client.flush().await?;
         Ok(())
     }
