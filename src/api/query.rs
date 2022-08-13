@@ -126,11 +126,25 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let portal_name = message.name().as_ref().map_or(DEFAULT_NAME, String::as_str);
         let store = client.portal_store();
         if let Some(portal) = store.get(portal_name) {
-            self.do_query(client, portal.as_ref()).await
+            let (rows, tail) = self.do_query(client, portal.as_ref()).await?;
+            if !rows.is_empty() {
+                client
+                    .send_all(&mut stream::iter(
+                        rows.into_iter()
+                            .map(|r| Ok(PgWireBackendMessage::DataRow(r))),
+                    ))
+                    .await?;
+            }
+
+            client
+                .send(PgWireBackendMessage::CommandComplete(tail))
+                .await?;
+
+            Ok(())
         } else {
             Err(PgWireError::PortalNotFound(portal_name.to_owned()))
         }
-        // TODO: clear portal?
+        // TODO: clear/remove portal?
     }
 
     async fn on_describe<C>(&self, client: &mut C, message: &Describe) -> PgWireResult<()>
@@ -141,7 +155,11 @@ pub trait ExtendedQueryHandler: Send + Sync {
     {
         let portal_name = message.name().as_ref().map_or(DEFAULT_NAME, String::as_str);
         if let Some(portal) = client.portal_store().get(portal_name) {
-            self.do_describe(client, portal.as_ref()).await
+            let rowdesc = self.do_describe(client, portal.as_ref()).await?;
+            client
+                .feed(PgWireBackendMessage::RowDescription(rowdesc))
+                .await?;
+            Ok(())
         } else {
             Err(PgWireError::PortalNotFound(portal_name.to_owned()))
         }
@@ -157,13 +175,17 @@ pub trait ExtendedQueryHandler: Send + Sync {
         Ok(())
     }
 
-    async fn do_query<C>(&self, client: &mut C, portal: &Portal) -> PgWireResult<()>
+    async fn do_query<C>(
+        &self,
+        client: &mut C,
+        portal: &Portal,
+    ) -> PgWireResult<(Vec<DataRow>, CommandComplete)>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
-    async fn do_describe<C>(&self, client: &mut C, portal: &Portal) -> PgWireResult<()>
+    async fn do_describe<C>(&self, client: &mut C, portal: &Portal) -> PgWireResult<RowDescription>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
