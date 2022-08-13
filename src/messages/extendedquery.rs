@@ -1,4 +1,5 @@
 use bytes::{Buf, BufMut};
+use postgres_types::Oid;
 
 use super::{codec, Message};
 use crate::error::PgWireResult;
@@ -9,7 +10,7 @@ use crate::error::PgWireResult;
 pub struct Parse {
     name: Option<String>,
     query: String,
-    type_oids: Vec<i32>,
+    type_oids: Vec<Oid>,
 }
 
 pub const MESSAGE_TYPE_BYTE_PARSE: u8 = b'P';
@@ -32,7 +33,7 @@ impl Message for Parse {
 
         buf.put_i16(self.type_oids.len() as i16);
         for oid in &self.type_oids {
-            buf.put_i32(*oid);
+            buf.put_u32(*oid);
         }
 
         Ok(())
@@ -45,7 +46,7 @@ impl Message for Parse {
 
         let mut type_oids = Vec::with_capacity(type_oid_count as usize);
         for _ in 0..type_oid_count {
-            type_oids.push(buf.get_i32());
+            type_oids.push(buf.get_u32());
         }
 
         Ok(Parse {

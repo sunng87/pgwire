@@ -1,4 +1,5 @@
 use bytes::{Buf, BufMut, BytesMut};
+use postgres_types::Oid;
 
 use super::codec;
 use super::Message;
@@ -17,7 +18,7 @@ pub struct FieldDescription {
     // the attribute number of the column, default to 0 if not a column from table
     column_id: i16,
     // the object ID of the data type
-    type_id: i32,
+    type_id: Oid,
     // the size of data type, negative values denote variable-width types
     type_size: i16,
     // the type modifier
@@ -56,7 +57,7 @@ impl Message for RowDescription {
             codec::put_cstring(buf, &field.name);
             buf.put_i32(field.table_id);
             buf.put_i16(field.column_id);
-            buf.put_i32(field.type_id);
+            buf.put_u32(field.type_id);
             buf.put_i16(field.type_size);
             buf.put_i32(field.type_modifier);
             buf.put_i16(field.format_code);
@@ -74,7 +75,7 @@ impl Message for RowDescription {
                 name: codec::get_cstring(buf).unwrap(),
                 table_id: buf.get_i32(),
                 column_id: buf.get_i16(),
-                type_id: buf.get_i32(),
+                type_id: buf.get_u32(),
                 type_size: buf.get_i16(),
                 type_modifier: buf.get_i32(),
                 format_code: buf.get_i16(),

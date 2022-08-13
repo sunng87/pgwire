@@ -83,7 +83,11 @@ impl SimpleQueryHandler for DummyProcessor {
 
 #[async_trait]
 impl ExtendedQueryHandler for DummyProcessor {
-    async fn do_query<C>(&self, client: &mut C, portal: &Portal) -> PgWireResult<()>
+    async fn do_query<C>(
+        &self,
+        client: &mut C,
+        portal: &Portal,
+    ) -> PgWireResult<(Vec<DataRow>, CommandComplete)>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: std::fmt::Debug,
@@ -92,7 +96,7 @@ impl ExtendedQueryHandler for DummyProcessor {
         todo!()
     }
 
-    async fn do_describe<C>(&self, client: &mut C, portal: &Portal) -> PgWireResult<()>
+    async fn do_describe<C>(&self, client: &mut C, portal: &Portal) -> PgWireResult<RowDescription>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: std::fmt::Debug,

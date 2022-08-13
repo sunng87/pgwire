@@ -7,7 +7,7 @@ pub mod query;
 pub mod stmt;
 pub mod store;
 
-pub static DEFAULT_NAME: &'static str = "POSTGRESQL_DEFAULT_NAME";
+pub const DEFAULT_NAME: &str = "POSTGRESQL_DEFAULT_NAME";
 
 #[derive(Debug)]
 pub enum PgWireConnectionState {

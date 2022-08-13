@@ -1,3 +1,5 @@
+use postgres_types::Oid;
+
 use crate::messages::extendedquery::Parse;
 
 use super::DEFAULT_NAME;
@@ -10,7 +12,7 @@ pub struct Statement {
     // query statement
     statement: String,
     // type ids of query parameters
-    type_oids: Vec<i32>,
+    type_oids: Vec<Oid>,
 }
 
 impl From<&Parse> for Statement {
