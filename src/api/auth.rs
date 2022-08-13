@@ -46,8 +46,7 @@ pub trait StartupHandler: Send + Sync {
         C::Error: Debug,
     {
         client.set_state(PgWireConnectionState::ReadyForQuery);
-        let mut messages = Vec::new();
-        messages.push(PgWireBackendMessage::Authentication(Authentication::Ok));
+        let mut messages = vec![PgWireBackendMessage::Authentication(Authentication::Ok)];
         for (k, v) in self.server_parameters(client) {
             messages.push(PgWireBackendMessage::ParameterStatus(ParameterStatus::new(
                 k, v,

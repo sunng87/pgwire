@@ -1,4 +1,4 @@
-use postgres_types::{FromSql, FromSqlOwned, Type};
+use postgres_types::{FromSqlOwned, Type};
 
 use crate::{
     error::{PgWireError, PgWireResult},
@@ -42,7 +42,7 @@ impl Portal {
         let mut types = Vec::new();
         for oid in statement.type_oids() {
             // TODO: support non built-in types
-            types.push(Type::from_oid(*oid).ok_or_else(|| PgWireError::UnknownTypeId(*oid))?);
+            types.push(Type::from_oid(*oid).ok_or(PgWireError::UnknownTypeId(*oid))?);
         }
 
         Ok(Portal {
@@ -83,7 +83,7 @@ impl Portal {
         }
 
         if let Some(ref param) = param {
-            T::from_sql(&ty, param)
+            T::from_sql(ty, param)
                 .map(|v| Some(v))
                 .map_err(PgWireError::FailedToParseParameter)
         } else {
