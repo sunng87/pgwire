@@ -87,9 +87,11 @@ impl Message for ParseComplete {
 }
 
 /// Closing the prepared statement or portal
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
+#[derive(Getters, CopyGetters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct Close {
+    #[getset(skip)]
+    #[getset(get_copy = "pub", set = "pub")]
     target_type: u8,
     name: Option<String>,
 }

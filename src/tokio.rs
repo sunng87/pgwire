@@ -149,6 +149,9 @@ where
                 PgWireFrontendMessage::Sync(ref sync) => {
                     extended_query_handler.on_sync(socket, sync).await?;
                 }
+                PgWireFrontendMessage::Close(ref close) => {
+                    extended_query_handler.on_close(socket, close).await?;
+                }
                 _ => {}
             }
         }

@@ -10,7 +10,10 @@ use super::stmt::Statement;
 use super::{ClientInfo, DEFAULT_NAME};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::data::{DataRow, RowDescription};
-use crate::messages::extendedquery::{Bind, Close, Describe, Execute, Parse, Sync as PgSync};
+use crate::messages::extendedquery::{
+    Bind, Close, Describe, Execute, Parse, Sync as PgSync, TARGET_TYPE_BYTE_PORTAL,
+    TARGET_TYPE_BYTE_STATEMENT,
+};
 use crate::messages::response::{CommandComplete, ErrorResponse, ReadyForQuery, READY_STATUS_IDLE};
 use crate::messages::simplequery::Query;
 use crate::messages::PgWireBackendMessage;
@@ -199,7 +202,16 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        todo!();
+        let name = message.name().as_ref().map_or(DEFAULT_NAME, String::as_str);
+        match message.target_type() {
+            TARGET_TYPE_BYTE_STATEMENT => {
+                client.stmt_store_mut().del(name);
+            }
+            TARGET_TYPE_BYTE_PORTAL => {
+                client.portal_store_mut().del(name);
+            }
+            _ => {}
+        }
         Ok(())
     }
 
