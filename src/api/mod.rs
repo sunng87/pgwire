@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 pub mod auth;
 pub mod portal;
@@ -36,13 +37,13 @@ pub trait ClientInfo {
 
     fn metadata_mut(&mut self) -> &mut HashMap<String, String>;
 
-    fn stmt_store(&self) -> &dyn store::SessionStore<stmt::Statement>;
+    fn stmt_store(&self) -> &dyn store::SessionStore<Arc<stmt::Statement>>;
 
-    fn stmt_store_mut(&mut self) -> &mut dyn store::SessionStore<stmt::Statement>;
+    fn stmt_store_mut(&mut self) -> &mut dyn store::SessionStore<Arc<stmt::Statement>>;
 
-    fn portal_store(&self) -> &dyn store::SessionStore<portal::Portal>;
+    fn portal_store(&self) -> &dyn store::SessionStore<Arc<portal::Portal>>;
 
-    fn portal_store_mut(&mut self) -> &mut dyn store::SessionStore<portal::Portal>;
+    fn portal_store_mut(&mut self) -> &mut dyn store::SessionStore<Arc<portal::Portal>>;
 }
 
 #[derive(Debug, new, Getters, Setters, MutGetters)]

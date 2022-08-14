@@ -12,7 +12,7 @@ use super::{ClientInfo, DEFAULT_NAME};
 
 /// Represent a prepared sql statement and its parameters bound by a `Bind`
 /// request.
-#[derive(Debug, Default, Getters, Setters)]
+#[derive(Debug, CopyGetters, Default, Getters, Setters, Clone)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct Portal {
     name: String,
@@ -21,9 +21,12 @@ pub struct Portal {
     parameter_format: Format,
     parameters: Vec<Option<Vec<u8>>>,
     result_column_format_codes: Vec<i16>,
+    #[getset(skip)]
+    #[getset(get_copy = "pub", set = "pub")]
+    row_description_requested: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Format {
     UnifiedText,
     UnifiedBinary,
@@ -98,6 +101,7 @@ impl Portal {
             parameter_format: format,
             parameters: bind.parameters().clone(),
             result_column_format_codes: bind.result_column_format_codes().clone(),
+            row_description_requested: false,
         })
     }
 

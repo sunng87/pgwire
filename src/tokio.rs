@@ -81,19 +81,19 @@ impl<T> ClientInfo for Framed<T, PgWireMessageServerCodec> {
         self.codec_mut().client_info_mut().metadata_mut()
     }
 
-    fn stmt_store(&self) -> &dyn SessionStore<Statement> {
+    fn stmt_store(&self) -> &dyn SessionStore<Arc<Statement>> {
         self.codec().client_info().stmt_store()
     }
 
-    fn stmt_store_mut(&mut self) -> &mut dyn SessionStore<Statement> {
+    fn stmt_store_mut(&mut self) -> &mut dyn SessionStore<Arc<Statement>> {
         self.codec_mut().client_info_mut().stmt_store_mut()
     }
 
-    fn portal_store(&self) -> &dyn SessionStore<Portal> {
+    fn portal_store(&self) -> &dyn SessionStore<Arc<Portal>> {
         self.codec().client_info().portal_store()
     }
 
-    fn portal_store_mut(&mut self) -> &mut dyn SessionStore<Portal> {
+    fn portal_store_mut(&mut self) -> &mut dyn SessionStore<Arc<Portal>> {
         self.codec_mut().client_info_mut().portal_store_mut()
     }
 }

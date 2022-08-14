@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
 pub trait SessionStore<V>: Sync {
-    fn get(&self, name: &str) -> Option<Arc<V>>;
+    fn get(&self, name: &str) -> Option<V>;
 
-    fn put(&mut self, name: &str, value: Arc<V>);
+    fn put(&mut self, name: &str, value: V);
 
     fn del(&mut self, name: &str);
 }
@@ -12,7 +12,7 @@ pub trait SessionStore<V>: Sync {
 #[derive(Debug, Default)]
 pub struct MemSessionStore<V>(RwLock<BTreeMap<String, Arc<V>>>);
 
-impl<V: Send + Sync> SessionStore<V> for MemSessionStore<V> {
+impl<V: Send + Sync> SessionStore<Arc<V>> for MemSessionStore<V> {
     fn get(&self, name: &str) -> Option<Arc<V>> {
         let guard = self.0.read().unwrap();
         guard.get(name).cloned()
