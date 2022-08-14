@@ -30,7 +30,6 @@ pub struct FieldDescription {
 #[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct RowDescription {
-    #[new(default)]
     fields: Vec<FieldDescription>,
 }
 
@@ -96,7 +95,6 @@ impl Message for RowDescription {
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct DataRow {
     // None for Null data
-    #[new(default)]
     fields: Vec<Option<Vec<u8>>>,
 }
 
