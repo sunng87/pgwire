@@ -39,9 +39,7 @@ impl CleartextPasswordAuthStartupHandler for SqliteBackend {
         C: ClientInfo,
     {
         let mut data = HashMap::new();
-        data.insert("application_name".into(), "psql".into());
-        data.insert("integer_datetimes".into(), "on".into());
-        data.insert("server_version".into(), "0.0.1".into());
+        data.insert("server_version".into(), rusqlite::version().into());
 
         data
     }
