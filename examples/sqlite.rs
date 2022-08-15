@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use futures::Sink;
 use pgwire::api::portal::Portal;
-use rusqlite::{Connection, Row, Statement};
+use rusqlite::{types::ValueRef, Connection, Row, Statement};
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::CleartextPasswordAuthStartupHandler;
@@ -91,8 +91,22 @@ fn row_data_from_sqlite_row(row: &Row, columns: usize) -> DataRow {
     let mut fields = Vec::with_capacity(columns);
 
     for idx in 0..columns {
-        let data = row.get_unwrap::<usize, String>(idx);
-        fields.push(Some(data.as_bytes().to_vec()));
+        let data = row.get_ref_unwrap::<usize>(idx);
+        match data {
+            ValueRef::Null => fields.push(None),
+            ValueRef::Integer(i) => {
+                fields.push(Some(i.to_string().as_bytes().to_vec()));
+            }
+            ValueRef::Real(f) => {
+                fields.push(Some(f.to_string().as_bytes().to_vec()));
+            }
+            ValueRef::Text(t) => {
+                fields.push(Some(t.to_vec()));
+            }
+            ValueRef::Blob(b) => {
+                fields.push(Some(hex::encode(b).as_bytes().to_vec()));
+            }
+        }
     }
 
     DataRow::new(fields)
@@ -100,7 +114,7 @@ fn row_data_from_sqlite_row(row: &Row, columns: usize) -> DataRow {
 
 #[async_trait]
 impl ExtendedQueryHandler for SqliteBackend {
-    async fn do_query<C>(&self, client: &mut C, portal: &Portal) -> PgWireResult<QueryResponse>
+    async fn do_query<C>(&self, _client: &mut C, _portal: &Portal) -> PgWireResult<QueryResponse>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: std::fmt::Debug,
