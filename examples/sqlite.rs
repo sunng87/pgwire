@@ -110,15 +110,45 @@ fn row_data_from_sqlite_row(row: &Row, columns: usize) -> DataRow {
     DataRow::new(fields)
 }
 
+fn get_params(portal: &Portal) -> Vec<dyn Params> {
+    for i in 0..portal.parameter_len() {
+        let param_type = portal.parameter_types().get(i).unwrap();
+        // we now support only a little amount of types
+    }
+}
+
 #[async_trait]
 impl ExtendedQueryHandler for SqliteBackend {
-    async fn do_query<C>(&self, _client: &mut C, _portal: &Portal) -> PgWireResult<QueryResponse>
+    async fn do_query<C>(&self, _client: &mut C, portal: &Portal) -> PgWireResult<QueryResponse>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: std::fmt::Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        todo!()
+        let conn = self.conn.lock().unwrap();
+        let query = portal.statement();
+        let mut stmt = conn.prepare(query).unwrap();
+        let params = todo!();
+
+        if query.to_uppercase().starts_with("SELECT") {
+            let columns = stmt.column_count();
+            let header = row_desc_from_stmt(&stmt);
+
+            let rows = stmt.query(params).unwrap();
+            let body = rows
+                .mapped(|r| Ok(row_data_from_sqlite_row(r, columns)))
+                .map(|r| r.unwrap())
+                .collect::<Vec<DataRow>>();
+
+            let tail = CommandComplete::new(format!("SELECT {:?}", body.len()));
+            Ok(QueryResponse::Data(header, body, tail))
+        } else {
+            let affect_rows = stmt.execute(params);
+            Ok(QueryResponse::Empty(CommandComplete::new(format!(
+                "OK {:?}",
+                affect_rows
+            ))))
+        }
     }
 }
 
