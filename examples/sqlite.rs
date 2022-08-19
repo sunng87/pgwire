@@ -3,11 +3,12 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use futures::Sink;
-use pgwire::api::portal::Portal;
-use rusqlite::{types::ValueRef, Connection, Row, Statement};
+use postgres_types::Type;
+use rusqlite::{types::ValueRef, Connection, Row, Statement, ToSql};
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::CleartextPasswordAuthStartupHandler;
+use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, QueryResponse, SimpleQueryHandler};
 use pgwire::api::ClientInfo;
 use pgwire::error::{PgWireError, PgWireResult};
@@ -110,11 +111,29 @@ fn row_data_from_sqlite_row(row: &Row, columns: usize) -> DataRow {
     DataRow::new(fields)
 }
 
-fn get_params(portal: &Portal) -> Vec<dyn Params> {
+fn get_params(portal: &Portal) -> Vec<Box<dyn ToSql>> {
+    let mut results = Vec::with_capacity(portal.parameter_len());
     for i in 0..portal.parameter_len() {
         let param_type = portal.parameter_types().get(i).unwrap();
         // we now support only a little amount of types
+        match param_type {
+            &Type::BOOL => {
+                let param = portal.parameter::<bool>(i).unwrap();
+                results.push(Box::new(param) as Box<dyn ToSql>);
+            }
+            &Type::INT4 | &Type::INT8 => {
+                let param = portal.parameter::<i32>(i).unwrap();
+                results.push(Box::new(param) as Box<dyn ToSql>);
+            }
+            &Type::TEXT | &Type::VARCHAR => {
+                let param = portal.parameter::<String>(i).unwrap();
+                results.push(Box::new(param) as Box<dyn ToSql>);
+            }
+            _ => {}
+        }
     }
+
+    results
 }
 
 #[async_trait]
@@ -128,13 +147,19 @@ impl ExtendedQueryHandler for SqliteBackend {
         let conn = self.conn.lock().unwrap();
         let query = portal.statement();
         let mut stmt = conn.prepare(query).unwrap();
-        let params = todo!();
+        let params = get_params(portal);
+        let params_ref = params
+            .iter()
+            .map(|f| f.as_ref())
+            .collect::<Vec<&dyn rusqlite::ToSql>>();
 
         if query.to_uppercase().starts_with("SELECT") {
             let columns = stmt.column_count();
             let header = row_desc_from_stmt(&stmt);
 
-            let rows = stmt.query(params).unwrap();
+            let rows = stmt
+                .query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
+                .unwrap();
             let body = rows
                 .mapped(|r| Ok(row_data_from_sqlite_row(r, columns)))
                 .map(|r| r.unwrap())
@@ -143,7 +168,7 @@ impl ExtendedQueryHandler for SqliteBackend {
             let tail = CommandComplete::new(format!("SELECT {:?}", body.len()));
             Ok(QueryResponse::Data(header, body, tail))
         } else {
-            let affect_rows = stmt.execute(params);
+            let affect_rows = stmt.execute::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref());
             Ok(QueryResponse::Empty(CommandComplete::new(format!(
                 "OK {:?}",
                 affect_rows
