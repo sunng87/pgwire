@@ -94,36 +94,11 @@ impl Message for RowDescription {
 #[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new, Clone)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct DataRow {
-    // None for Null data
-    fields: Vec<Option<Vec<u8>>>,
+    // TODO: concat these bytes
+    fields: Vec<BytesMut>,
 }
 
-impl DataRow {
-    /// resolve data row content as text, return None if the field not exists or
-    /// the value is Null.
-    ///
-    /// FIXME: unwrap for utf8
-    pub fn as_text(&self, index: usize) -> Option<String> {
-        self.fields
-            .get(index)
-            .and_then(|f| f.as_ref().map(|bs| String::from_utf8(bs.clone()).unwrap()))
-    }
-
-    /// resolve data row content as binary, return None if the field not exists
-    /// or the value is Null
-    pub fn as_binary(&self, index: usize) -> Option<&Vec<u8>> {
-        self.fields.get(index).and_then(|f| f.as_ref())
-    }
-
-    /// count of fields
-    pub fn len(&self) -> usize {
-        self.fields.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
+impl DataRow {}
 
 pub const MESSAGE_TYPE_BYTE_DATA_ROW: u8 = b'D';
 
