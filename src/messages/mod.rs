@@ -354,11 +354,11 @@ mod test {
 
     #[test]
     fn test_data_row() {
-        let mut row0 = DataRow::new();
+        let mut row0 = DataRow::default();
         row0.fields_mut().push(Some(vec![b'1']));
         row0.fields_mut().push(None);
 
-        let mut row1 = DataRow::new();
+        let mut row1 = DataRow::default();
         row1.fields_mut().push(Some(vec![b'2']));
         row1.fields_mut().push(Some(vec![b't', b'o', b'm']));
 

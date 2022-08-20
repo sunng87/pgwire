@@ -44,7 +44,7 @@ impl SimpleQueryHandler for DummyProcessor {
     {
         println!("{:?}", query);
         if query.starts_with("SELECT") {
-            let mut rd = RowDescription::new();
+            let mut rd = RowDescription::default();
             // column 0
             rd.fields_mut().push(FieldDescription::new(
                 "id".into(),
@@ -66,7 +66,7 @@ impl SimpleQueryHandler for DummyProcessor {
                 FORMAT_CODE_TEXT,
             ));
 
-            let mut data_row = DataRow::new();
+            let mut data_row = DataRow::default();
             *data_row.fields_mut() = vec![Some("0".as_bytes().to_vec()), None];
 
             let rows = vec![data_row.clone(), data_row.clone(), data_row.clone()];
@@ -83,7 +83,7 @@ impl SimpleQueryHandler for DummyProcessor {
 
 #[async_trait]
 impl ExtendedQueryHandler for DummyProcessor {
-    async fn do_query<C>(&self, client: &mut C, portal: &Portal) -> PgWireResult<QueryResponse>
+    async fn do_query<C>(&self, _client: &mut C, _portal: &Portal) -> PgWireResult<QueryResponse>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: std::fmt::Debug,
