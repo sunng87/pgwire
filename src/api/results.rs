@@ -81,7 +81,6 @@ pub struct QueryResponse {
 
 pub struct QueryResponseBuilder {
     row_schema: Vec<FieldInfo>,
-    tag: Tag,
     rows: Vec<DataRow>,
 
     current_row: DataRow,
@@ -89,11 +88,10 @@ pub struct QueryResponseBuilder {
 }
 
 impl QueryResponseBuilder {
-    pub fn new(fields: Vec<FieldInfo>, rows: usize) -> QueryResponseBuilder {
+    pub fn new(fields: Vec<FieldInfo>) -> QueryResponseBuilder {
         let current_row = DataRow::new(fields.len(), Self::new_buffer());
         QueryResponseBuilder {
             row_schema: fields,
-            tag: Tag::new_for_query(rows),
             rows: Vec::new(),
 
             current_row,
@@ -110,6 +108,7 @@ impl QueryResponseBuilder {
         T: ToSql + Sized,
     {
         let col_type = &self.row_schema[self.col_index].datatype;
+        // TODO: reuse this buffer
         let mut buf = BytesMut::with_capacity(8);
         if let IsNull::No = t.to_sql(col_type, &mut buf)? {
             self.current_row.buf_mut().put_i32(buf.len() as i32);
@@ -134,10 +133,11 @@ impl QueryResponseBuilder {
     }
 
     pub fn build(self) -> QueryResponse {
+        let row_count = self.rows.len();
         QueryResponse {
             row_schema: self.row_schema,
             data_rows: self.rows,
-            tag: self.tag,
+            tag: Tag::new_for_query(row_count),
         }
     }
 }
