@@ -38,7 +38,7 @@ impl From<Tag> for CommandComplete {
         let tag_string = if let Some(rows) = tag.rows {
             format!("{:?} {:?}", tag.command, rows)
         } else {
-            tag.command.clone()
+            tag.command
         };
         CommandComplete::new(tag_string)
     }
