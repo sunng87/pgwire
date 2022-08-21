@@ -83,6 +83,7 @@ pub struct QueryResponseBuilder {
     row_schema: Vec<FieldInfo>,
     rows: Vec<DataRow>,
 
+    buffer: BytesMut,
     current_row: DataRow,
     col_index: usize,
 }
@@ -93,6 +94,7 @@ impl QueryResponseBuilder {
         QueryResponseBuilder {
             row_schema: fields,
             rows: Vec::new(),
+            buffer: BytesMut::with_capacity(8),
 
             current_row,
             col_index: 0,
@@ -108,15 +110,14 @@ impl QueryResponseBuilder {
         T: ToSql + Sized,
     {
         let col_type = &self.row_schema[self.col_index].datatype;
-        // TODO: reuse this buffer
-        let mut buf = BytesMut::with_capacity(8);
-        if let IsNull::No = t.to_sql(col_type, &mut buf)? {
-            self.current_row.buf_mut().put_i32(buf.len() as i32);
-            self.current_row.buf_mut().put(&buf[..]);
+        if let IsNull::No = t.to_sql(col_type, &mut self.buffer)? {
+            self.current_row.buf_mut().put_i32(self.buffer.len() as i32);
+            self.current_row.buf_mut().put(&self.buffer[..]);
         } else {
             self.current_row.buf_mut().put_i32(-1);
         };
 
+        self.buffer.clear();
         self.col_index += 1;
 
         Ok(())
