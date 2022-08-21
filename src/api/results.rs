@@ -47,18 +47,18 @@ impl From<Tag> for CommandComplete {
 #[derive(Debug, new)]
 pub struct FieldInfo {
     name: String,
-    table_id: i32,
-    column_id: i16,
+    table_id: Option<i32>,
+    column_id: Option<i16>,
     datatype: Type,
 }
 
 impl From<FieldInfo> for FieldDescription {
     fn from(fi: FieldInfo) -> Self {
         FieldDescription::new(
-            fi.name,           // name
-            fi.table_id,       // table_id
-            fi.column_id,      // column_id
-            fi.datatype.oid(), // type_id
+            fi.name,                   // name
+            fi.table_id.unwrap_or(0),  // table_id
+            fi.column_id.unwrap_or(0), // column_id
+            fi.datatype.oid(),         // type_id
             // TODO: type size and modifier
             0,
             0,
