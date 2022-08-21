@@ -15,7 +15,7 @@ pub trait Message: Sized {
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()>;
 
-    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self>;
+    fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self>;
 
     fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         if let Some(mt) = Self::message_type() {
@@ -31,7 +31,7 @@ pub trait Message: Sized {
             codec::get_and_ensure_message_type(buf, mt)?;
         }
 
-        codec::decode_packet(buf, |buf, _| Self::decode_body(buf))
+        codec::decode_packet(buf, |buf, full_len| Self::decode_body(buf, full_len))
     }
 }
 

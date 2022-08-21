@@ -6,15 +6,16 @@ use futures::sink::{Sink, SinkExt};
 use futures::stream;
 
 use super::portal::Portal;
+use super::results::{into_row_description, Tag};
 use super::stmt::Statement;
 use super::{ClientInfo, DEFAULT_NAME};
+use crate::api::results::{QueryResponse, Response};
 use crate::error::{PgWireError, PgWireResult};
-use crate::messages::data::{DataRow, RowDescription};
 use crate::messages::extendedquery::{
     Bind, Close, Describe, Execute, Parse, Sync as PgSync, TARGET_TYPE_BYTE_PORTAL,
     TARGET_TYPE_BYTE_STATEMENT,
 };
-use crate::messages::response::{CommandComplete, ErrorResponse, ReadyForQuery, READY_STATUS_IDLE};
+use crate::messages::response::{ReadyForQuery, READY_STATUS_IDLE};
 use crate::messages::simplequery::Query;
 use crate::messages::PgWireBackendMessage;
 
@@ -31,36 +32,13 @@ pub trait SimpleQueryHandler: Send + Sync {
         client.set_state(super::PgWireConnectionState::QueryInProgress);
         let resp = self.do_query(client, query.query()).await?;
         match resp {
-            QueryResponse::Data(row_description, data_rows, status) => {
-                let msgs = vec![PgWireBackendMessage::RowDescription(row_description)]
-                    .into_iter()
-                    .chain(data_rows.into_iter().map(PgWireBackendMessage::DataRow))
-                    .chain(
-                        vec![
-                            PgWireBackendMessage::CommandComplete(status),
-                            PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                                READY_STATUS_IDLE,
-                            )),
-                        ]
-                        .into_iter(),
-                    )
-                    .map(Ok);
-
-                let mut msg_stream = stream::iter(msgs);
-                client.send_all(&mut msg_stream).await?;
+            Response::Query(results) => {
+                send_query_response(client, results, true).await?;
             }
-            QueryResponse::Empty(status) => {
-                client
-                    .feed(PgWireBackendMessage::CommandComplete(status))
-                    .await?;
-                client
-                    .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                        READY_STATUS_IDLE,
-                    )))
-                    .await?;
-                client.flush().await?;
+            Response::Execution(tag) => {
+                send_execution_response(client, tag).await?;
             }
-            QueryResponse::Error(e) => {
+            Response::Error(e) => {
                 client.feed(PgWireBackendMessage::ErrorResponse(e)).await?;
                 client
                     .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
@@ -76,20 +54,9 @@ pub trait SimpleQueryHandler: Send + Sync {
     }
 
     ///
-    async fn do_query<C>(&self, client: &C, query: &str) -> PgWireResult<QueryResponse>
+    async fn do_query<C>(&self, client: &C, query: &str) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync;
-}
-
-/// Query response types:
-///
-/// * Data: the response contains data rows,
-/// * Empty: the response has no data, like update/delete/insert
-/// * Error: an error response
-pub enum QueryResponse {
-    Data(RowDescription, Vec<DataRow>, CommandComplete),
-    Empty(CommandComplete),
-    Error(ErrorResponse),
 }
 
 #[async_trait]
@@ -130,32 +97,14 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let store = client.portal_store();
         if let Some(portal) = store.get(portal_name) {
             match self.do_query(client, portal.as_ref()).await? {
-                QueryResponse::Data(head, rows, tail) => {
-                    if portal.row_description_requested() {
-                        client
-                            .send(PgWireBackendMessage::RowDescription(head))
-                            .await?;
-                    }
-
-                    if !rows.is_empty() {
-                        client
-                            .send_all(&mut stream::iter(
-                                rows.into_iter()
-                                    .map(|r| Ok(PgWireBackendMessage::DataRow(r))),
-                            ))
-                            .await?;
-                    }
-
-                    client
-                        .send(PgWireBackendMessage::CommandComplete(tail))
+                Response::Query(results) => {
+                    send_query_response(client, results, portal.row_description_requested())
                         .await?;
                 }
-                QueryResponse::Empty(tail) => {
-                    client
-                        .send(PgWireBackendMessage::CommandComplete(tail))
-                        .await?;
+                Response::Execution(tag) => {
+                    send_execution_response(client, tag).await?;
                 }
-                QueryResponse::Error(err) => {
+                Response::Error(err) => {
                     client
                         .send(PgWireBackendMessage::ErrorResponse(err))
                         .await?;
@@ -215,9 +164,72 @@ pub trait ExtendedQueryHandler: Send + Sync {
         Ok(())
     }
 
-    async fn do_query<C>(&self, client: &mut C, portal: &Portal) -> PgWireResult<QueryResponse>
+    async fn do_query<C>(&self, client: &mut C, portal: &Portal) -> PgWireResult<Response>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
+}
+
+async fn send_query_response<C>(
+    client: &mut C,
+    results: QueryResponse,
+    row_desc_required: bool,
+) -> PgWireResult<()>
+where
+    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+{
+    let QueryResponse {
+        row_schema,
+        data_rows,
+        tag,
+    } = results;
+
+    if row_desc_required {
+        let row_desc = into_row_description(row_schema);
+        client
+            .send(PgWireBackendMessage::RowDescription(row_desc))
+            .await?;
+    }
+
+    if !data_rows.is_empty() {
+        client
+            .send_all(&mut stream::iter(
+                data_rows
+                    .into_iter()
+                    .map(|r| Ok(PgWireBackendMessage::DataRow(r))),
+            ))
+            .await?;
+    }
+
+    client
+        .send(PgWireBackendMessage::CommandComplete(tag.into()))
+        .await?;
+    client
+        .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+            READY_STATUS_IDLE,
+        )))
+        .await?;
+
+    Ok(())
+}
+
+async fn send_execution_response<C>(client: &mut C, tag: Tag) -> PgWireResult<()>
+where
+    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+{
+    client
+        .feed(PgWireBackendMessage::CommandComplete(tag.into()))
+        .await?;
+    client
+        .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+            READY_STATUS_IDLE,
+        )))
+        .await?;
+    client.flush().await?;
+    Ok(())
 }

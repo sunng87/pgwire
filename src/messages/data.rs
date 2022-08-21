@@ -65,7 +65,7 @@ impl Message for RowDescription {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
         let fields_len = buf.get_i16();
         let mut fields = Vec::with_capacity(fields_len as usize);
 
@@ -94,8 +94,8 @@ impl Message for RowDescription {
 #[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new, Clone)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct DataRow {
-    // TODO: concat these bytes
-    fields: Vec<BytesMut>,
+    fields: usize,
+    buf: BytesMut,
 }
 
 impl DataRow {}
@@ -109,43 +109,26 @@ impl Message for DataRow {
     }
 
     fn message_length(&self) -> usize {
-        4 + 2
-            + self
-                .fields
-                .iter()
-                .map(|f| 4 + f.as_ref().map(|d| d.len()).unwrap_or(0))
-                .sum::<usize>()
+        4 + 2 + self.buf.len()
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
-        buf.put_i16(self.fields.len() as i16);
-
-        for field in &self.fields {
-            if let Some(data) = field {
-                buf.put_i32(data.len() as i32);
-                buf.put_slice(data.as_ref());
-            } else {
-                buf.put_i32(-1);
-            }
-        }
+        buf.put_i16(self.fields as i16);
+        buf.put(&self.buf[..]);
 
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
-        let fields_len = buf.get_i16();
-        let mut fields = Vec::with_capacity(fields_len as usize);
+    fn decode_body(buf: &mut BytesMut, msg_len: usize) -> PgWireResult<Self> {
+        let fields = buf.get_i16();
+        // minus packet_len and field count i16
+        let buf_len = msg_len - 6;
 
-        for _ in 0..fields_len {
-            let data_len = buf.get_i32();
+        let row_buf = buf.split_to(buf_len);
 
-            if data_len >= 0 {
-                fields.push(Some(buf.split_to(data_len as usize).to_vec()));
-            } else {
-                fields.push(None);
-            }
-        }
-
-        Ok(DataRow { fields })
+        Ok(DataRow {
+            fields: fields as usize,
+            buf: row_buf,
+        })
     }
 }

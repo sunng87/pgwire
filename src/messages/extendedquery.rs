@@ -39,7 +39,7 @@ impl Message for Parse {
         Ok(())
     }
 
-    fn decode_body(buf: &mut bytes::BytesMut) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
         let name = codec::get_cstring(buf);
         let query = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
         let type_oid_count = buf.get_i16();
@@ -81,7 +81,7 @@ impl Message for ParseComplete {
     }
 
     #[inline]
-    fn decode_body(_buf: &mut bytes::BytesMut) -> PgWireResult<Self> {
+    fn decode_body(_buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
         Ok(ParseComplete)
     }
 }
@@ -117,7 +117,7 @@ impl Message for Close {
         Ok(())
     }
 
-    fn decode_body(buf: &mut bytes::BytesMut) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
         let target_type = buf.get_u8();
         let name = codec::get_cstring(buf);
 
@@ -149,7 +149,7 @@ impl Message for CloseComplete {
     }
 
     #[inline]
-    fn decode_body(_buf: &mut bytes::BytesMut) -> PgWireResult<Self> {
+    fn decode_body(_buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
         Ok(CloseComplete)
     }
 }
@@ -213,7 +213,7 @@ impl Message for Bind {
         Ok(())
     }
 
-    fn decode_body(buf: &mut bytes::BytesMut) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
         let portal_name = codec::get_cstring(buf);
         let statement_name = codec::get_cstring(buf);
 
@@ -279,7 +279,7 @@ impl Message for BindComplete {
     }
 
     #[inline]
-    fn decode_body(_buf: &mut bytes::BytesMut) -> PgWireResult<Self> {
+    fn decode_body(_buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
         Ok(BindComplete)
     }
 }
@@ -311,7 +311,7 @@ impl Message for Describe {
         Ok(())
     }
 
-    fn decode_body(buf: &mut bytes::BytesMut) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
         let target_type = buf.get_u8();
         let name = codec::get_cstring(buf);
 
@@ -345,7 +345,7 @@ impl Message for Execute {
         Ok(())
     }
 
-    fn decode_body(buf: &mut bytes::BytesMut) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
         let name = codec::get_cstring(buf);
         let max_rows = buf.get_i32();
 
@@ -375,7 +375,7 @@ impl Message for Sync {
         Ok(())
     }
 
-    fn decode_body(_buf: &mut bytes::BytesMut) -> PgWireResult<Self> {
+    fn decode_body(_buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
         Ok(Sync)
     }
 }
@@ -401,7 +401,7 @@ impl Message for PortalSuspended {
         Ok(())
     }
 
-    fn decode_body(_buf: &mut bytes::BytesMut) -> PgWireResult<Self> {
+    fn decode_body(_buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
         Ok(PortalSuspended)
     }
 }

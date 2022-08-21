@@ -55,7 +55,7 @@ impl Message for Startup {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
         let mut msg = Startup::default();
         // parse
         msg.set_protocol_number_major(buf.get_u16());
@@ -121,7 +121,7 @@ impl Message for Authentication {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
         let code = buf.get_i32();
         let msg = match code {
             0 => Authentication::Ok,
@@ -165,7 +165,7 @@ impl Message for Password {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
         let pass = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
         Ok(Password::new(pass))
@@ -199,7 +199,7 @@ impl Message for ParameterStatus {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
         let name = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
         let value = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
@@ -236,7 +236,7 @@ impl Message for BackendKeyData {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
         let pid = buf.get_i32();
         let secret_key = buf.get_i32();
 
@@ -270,7 +270,7 @@ impl Message for SslRequest {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
         buf.advance(4);
         Ok(SslRequest::new())
     }

@@ -28,7 +28,7 @@ impl Message for CommandComplete {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
         let tag = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
         Ok(CommandComplete::new(tag))
@@ -64,7 +64,7 @@ impl Message for ReadyForQuery {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
         let status = buf.get_u8();
         Ok(ReadyForQuery::new(status))
     }
@@ -104,7 +104,7 @@ impl Message for ErrorResponse {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
         let mut fields = Vec::new();
         loop {
             let code = buf.get_u8();

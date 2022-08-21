@@ -29,7 +29,7 @@ impl Message for Query {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
         let query = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
         Ok(Query::new(query))
