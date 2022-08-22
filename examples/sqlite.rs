@@ -75,7 +75,7 @@ impl SimpleQueryHandler for SqliteBackend {
 fn name_to_type(name: &str) -> Type {
     dbg!(name);
     match name.to_uppercase().as_ref() {
-        "INT" => Type::INT4,
+        "INT" => Type::INT8,
         "VARCHAR" => Type::VARCHAR,
         "BINARY" => Type::BYTEA,
         "FLOAT" => Type::FLOAT8,
@@ -126,18 +126,30 @@ fn get_params(portal: &Portal) -> Vec<Box<dyn ToSql>> {
     let mut results = Vec::with_capacity(portal.parameter_len());
     for i in 0..portal.parameter_len() {
         let param_type = portal.parameter_types().get(i).unwrap();
-        // we now support only a little amount of types
+        // we only support a small amount of types for demo
         match param_type {
             &Type::BOOL => {
                 let param = portal.parameter::<bool>(i).unwrap();
                 results.push(Box::new(param) as Box<dyn ToSql>);
             }
-            &Type::INT4 | &Type::INT8 => {
+            &Type::INT4 => {
                 let param = portal.parameter::<i32>(i).unwrap();
+                results.push(Box::new(param) as Box<dyn ToSql>);
+            }
+            &Type::INT8 => {
+                let param = portal.parameter::<i64>(i).unwrap();
                 results.push(Box::new(param) as Box<dyn ToSql>);
             }
             &Type::TEXT | &Type::VARCHAR => {
                 let param = portal.parameter::<String>(i).unwrap();
+                results.push(Box::new(param) as Box<dyn ToSql>);
+            }
+            &Type::FLOAT4 => {
+                let param = portal.parameter::<f32>(i).unwrap();
+                results.push(Box::new(param) as Box<dyn ToSql>);
+            }
+            &Type::FLOAT8 => {
+                let param = portal.parameter::<f64>(i).unwrap();
                 results.push(Box::new(param) as Box<dyn ToSql>);
             }
             _ => {}

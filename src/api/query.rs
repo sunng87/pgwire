@@ -22,7 +22,9 @@ use crate::messages::PgWireBackendMessage;
 /// handler for processing simple query.
 #[async_trait]
 pub trait SimpleQueryHandler: Send + Sync {
-    ///
+    /// Executed on `Query` request arrived. This is how postgres respond to
+    /// simple query. The default implementation calls `do_query` with the
+    /// incoming query string.
     async fn on_query<C>(&self, client: &mut C, query: &Query) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -53,7 +55,7 @@ pub trait SimpleQueryHandler: Send + Sync {
         Ok(())
     }
 
-    ///
+    /// Provide your query implementation using the incoming query string.
     async fn do_query<C>(&self, client: &C, query: &str) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync;
