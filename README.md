@@ -1,5 +1,9 @@
 # pgwire
 
+[![CI](https://github.com/sunng87/pgwire/actions/workflows/ci.yml/badge.svg)](https://github.com/sunng87/pgwire/actions/workflows/ci.yml)
+[![Docs](https://docs.rs/pgwire/badge.svg)](https://docs.rs/pgwire/latest/pgwire/)
+
+
 This library implements PostgreSQL Wire Protocol, and provide essential APIs to
 write PostgreSQL comptible servers and clients.
 
