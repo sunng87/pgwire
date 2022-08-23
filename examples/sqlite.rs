@@ -4,16 +4,16 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use futures::Sink;
 use postgres_types::Type;
-use rusqlite::{types::ValueRef, Connection, Row, Statement, ToSql};
+use rusqlite::Rows;
+use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::CleartextPasswordAuthStartupHandler;
 use pgwire::api::portal::Portal;
-use pgwire::api::query::{ExtendedQueryHandler, QueryResponse, SimpleQueryHandler};
+use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
+use pgwire::api::results::{FieldInfo, QueryResponseBuilder, Response, Tag};
 use pgwire::api::ClientInfo;
 use pgwire::error::{PgWireError, PgWireResult};
-use pgwire::messages::data::{DataRow, FieldDescription, RowDescription, FORMAT_CODE_TEXT};
-use pgwire::messages::response::CommandComplete;
 use pgwire::messages::PgWireBackendMessage;
 use pgwire::tokio::process_socket;
 
@@ -48,7 +48,7 @@ impl CleartextPasswordAuthStartupHandler for SqliteBackend {
 
 #[async_trait]
 impl SimpleQueryHandler for SqliteBackend {
-    async fn do_query<C>(&self, _client: &C, query: &str) -> PgWireResult<QueryResponse>
+    async fn do_query<C>(&self, _client: &C, query: &str) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -57,76 +57,99 @@ impl SimpleQueryHandler for SqliteBackend {
             let mut stmt = conn.prepare(query).unwrap();
             let columns = stmt.column_count();
             let header = row_desc_from_stmt(&stmt);
-
             let rows = stmt.query(()).unwrap();
-            let body = rows
-                .mapped(|r| Ok(row_data_from_sqlite_row(r, columns)))
-                .map(|r| r.unwrap())
-                .collect::<Vec<DataRow>>();
 
-            let tail = CommandComplete::new(format!("SELECT {:?}", body.len()));
-            Ok(QueryResponse::Data(header, body, tail))
+            let mut builder = QueryResponseBuilder::new(header);
+            encode_row_data(rows, columns, &mut builder);
+
+            Ok(Response::Query(builder.build()))
         } else {
-            let affect_rows = conn.execute(query, ()).unwrap();
-            Ok(QueryResponse::Empty(CommandComplete::new(format!(
-                "OK {:?}",
-                affect_rows
-            ))))
+            let affected_rows = conn.execute(query, ()).unwrap();
+            Ok(Response::Execution(
+                Tag::new_for_execution("OK", Some(affected_rows)).into(),
+            ))
         }
     }
 }
 
-fn row_desc_from_stmt(stmt: &Statement) -> RowDescription {
-    // TODO: real field descriptions
-    let fields = stmt
-        .column_names()
-        .into_iter()
-        .map(|n| FieldDescription::new(n.to_owned(), 123, 123, 123, 12, 0, FORMAT_CODE_TEXT))
-        .collect();
-    RowDescription::new(fields)
+fn name_to_type(name: &str) -> Type {
+    dbg!(name);
+    match name.to_uppercase().as_ref() {
+        "INT" => Type::INT8,
+        "VARCHAR" => Type::VARCHAR,
+        "BINARY" => Type::BYTEA,
+        "FLOAT" => Type::FLOAT8,
+        _ => unimplemented!("unknown type"),
+    }
 }
 
-fn row_data_from_sqlite_row(row: &Row, columns: usize) -> DataRow {
-    let mut fields = Vec::with_capacity(columns);
+fn row_desc_from_stmt(stmt: &Statement) -> Vec<FieldInfo> {
+    stmt.columns()
+        .iter()
+        .map(|col| {
+            FieldInfo::new(
+                col.name().to_owned(),
+                None,
+                None,
+                name_to_type(col.decl_type().unwrap()),
+            )
+        })
+        .collect()
+}
 
-    for idx in 0..columns {
-        let data = row.get_ref_unwrap::<usize>(idx);
-        match data {
-            ValueRef::Null => fields.push(None),
-            ValueRef::Integer(i) => {
-                fields.push(Some(i.to_string().as_bytes().to_vec()));
-            }
-            ValueRef::Real(f) => {
-                fields.push(Some(f.to_string().as_bytes().to_vec()));
-            }
-            ValueRef::Text(t) => {
-                fields.push(Some(t.to_vec()));
-            }
-            ValueRef::Blob(b) => {
-                fields.push(Some(hex::encode(b).as_bytes().to_vec()));
+fn encode_row_data(mut rows: Rows, columns: usize, builder: &mut QueryResponseBuilder) {
+    while let Ok(Some(row)) = rows.next() {
+        for idx in 0..columns {
+            let data = row.get_ref_unwrap::<usize>(idx);
+            match data {
+                ValueRef::Null => builder.append_field(None::<i8>).unwrap(),
+                ValueRef::Integer(i) => {
+                    builder.append_field(i).unwrap();
+                }
+                ValueRef::Real(f) => {
+                    builder.append_field(f).unwrap();
+                }
+                ValueRef::Text(t) => {
+                    builder.append_field(t).unwrap();
+                }
+                ValueRef::Blob(b) => {
+                    builder.append_field(b).unwrap();
+                }
             }
         }
-    }
 
-    DataRow::new(fields)
+        builder.finish_row();
+    }
 }
 
 fn get_params(portal: &Portal) -> Vec<Box<dyn ToSql>> {
     let mut results = Vec::with_capacity(portal.parameter_len());
     for i in 0..portal.parameter_len() {
         let param_type = portal.parameter_types().get(i).unwrap();
-        // we now support only a little amount of types
+        // we only support a small amount of types for demo
         match param_type {
             &Type::BOOL => {
                 let param = portal.parameter::<bool>(i).unwrap();
                 results.push(Box::new(param) as Box<dyn ToSql>);
             }
-            &Type::INT4 | &Type::INT8 => {
+            &Type::INT4 => {
                 let param = portal.parameter::<i32>(i).unwrap();
+                results.push(Box::new(param) as Box<dyn ToSql>);
+            }
+            &Type::INT8 => {
+                let param = portal.parameter::<i64>(i).unwrap();
                 results.push(Box::new(param) as Box<dyn ToSql>);
             }
             &Type::TEXT | &Type::VARCHAR => {
                 let param = portal.parameter::<String>(i).unwrap();
+                results.push(Box::new(param) as Box<dyn ToSql>);
+            }
+            &Type::FLOAT4 => {
+                let param = portal.parameter::<f32>(i).unwrap();
+                results.push(Box::new(param) as Box<dyn ToSql>);
+            }
+            &Type::FLOAT8 => {
+                let param = portal.parameter::<f64>(i).unwrap();
                 results.push(Box::new(param) as Box<dyn ToSql>);
             }
             _ => {}
@@ -138,7 +161,7 @@ fn get_params(portal: &Portal) -> Vec<Box<dyn ToSql>> {
 
 #[async_trait]
 impl ExtendedQueryHandler for SqliteBackend {
-    async fn do_query<C>(&self, _client: &mut C, portal: &Portal) -> PgWireResult<QueryResponse>
+    async fn do_query<C>(&self, _client: &mut C, portal: &Portal) -> PgWireResult<Response>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: std::fmt::Debug,
@@ -156,23 +179,22 @@ impl ExtendedQueryHandler for SqliteBackend {
         if query.to_uppercase().starts_with("SELECT") {
             let columns = stmt.column_count();
             let header = row_desc_from_stmt(&stmt);
-
             let rows = stmt
                 .query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
                 .unwrap();
-            let body = rows
-                .mapped(|r| Ok(row_data_from_sqlite_row(r, columns)))
-                .map(|r| r.unwrap())
-                .collect::<Vec<DataRow>>();
 
-            let tail = CommandComplete::new(format!("SELECT {:?}", body.len()));
-            Ok(QueryResponse::Data(header, body, tail))
+            let mut builder = QueryResponseBuilder::new(header);
+            encode_row_data(rows, columns, &mut builder);
+
+            Ok(Response::Query(builder.build()))
         } else {
-            let affect_rows = stmt.execute::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref());
-            Ok(QueryResponse::Empty(CommandComplete::new(format!(
-                "OK {:?}",
-                affect_rows
-            ))))
+            let affected_rows = stmt
+                .execute::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
+                .unwrap();
+            Ok(Response::Execution(Tag::new_for_execution(
+                "OK",
+                Some(affected_rows),
+            )))
         }
     }
 }

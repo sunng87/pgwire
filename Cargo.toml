@@ -22,7 +22,7 @@ tokio-util = { version = "0.7.3", features = ["codec", "io"], optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.19", features = ["rt-multi-thread", "net", "io-util", "macros"]}
-rusqlite = { version = "0.28.0", features = ["bundled"] }
+rusqlite = { version = "0.28.0", features = ["bundled", "column_decltype"] }
 hex = "0.4"
 
 [features]

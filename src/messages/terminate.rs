@@ -21,7 +21,7 @@ impl Message for Terminate {
         Ok(())
     }
 
-    fn decode_body(_: &mut bytes::BytesMut) -> PgWireResult<Self> {
+    fn decode_body(_: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
         Ok(Terminate)
     }
 }
