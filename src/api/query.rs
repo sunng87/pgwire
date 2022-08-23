@@ -41,7 +41,9 @@ pub trait SimpleQueryHandler: Send + Sync {
                 send_execution_response(client, tag).await?;
             }
             Response::Error(e) => {
-                client.feed(PgWireBackendMessage::ErrorResponse(e)).await?;
+                client
+                    .feed(PgWireBackendMessage::ErrorResponse(e.into()))
+                    .await?;
                 client
                     .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
                         READY_STATUS_IDLE,
@@ -108,7 +110,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 }
                 Response::Error(err) => {
                     client
-                        .send(PgWireBackendMessage::ErrorResponse(err))
+                        .send(PgWireBackendMessage::ErrorResponse(err.into()))
                         .await?;
                 }
             }

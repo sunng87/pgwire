@@ -4,7 +4,7 @@ use bytes::{BufMut, BytesMut};
 use postgres_types::{IsNull, ToSql, Type};
 
 use crate::{
-    error::PgWireResult,
+    error::{PgWireError, PgWireResult},
     messages::{
         data::{DataRow, FieldDescription, RowDescription, FORMAT_CODE_BINARY},
         response::{CommandComplete, ErrorResponse},
@@ -143,6 +143,13 @@ impl QueryResponseBuilder {
     }
 }
 
+impl From<PgWireError> for ErrorResponse {
+    fn from(_e: PgWireError) -> Self {
+        // TODO: carry inforamtion with PgWireError
+        ErrorResponse::default()
+    }
+}
+
 /// Query response types:
 ///
 /// * Query: the response contains data rows
@@ -152,5 +159,5 @@ impl QueryResponseBuilder {
 pub enum Response {
     Query(QueryResponse),
     Execution(Tag),
-    Error(ErrorResponse),
+    Error(PgWireError),
 }
