@@ -246,7 +246,7 @@ mod test {
     use super::startup::*;
     use super::terminate::*;
     use super::Message;
-    use bytes::{Buf, BytesMut};
+    use bytes::{Buf, BufMut, BytesMut};
 
     macro_rules! roundtrip {
         ($ins:ident, $st:ty) => {
@@ -354,16 +354,12 @@ mod test {
 
     #[test]
     fn test_data_row() {
-        let mut row0 = DataRow::default();
-        row0.fields_mut().push(Some(vec![b'1']));
-        row0.fields_mut().push(None);
-
-        let mut row1 = DataRow::default();
-        row1.fields_mut().push(Some(vec![b'2']));
-        row1.fields_mut().push(Some(vec![b't', b'o', b'm']));
+        let mut row0 = DataRow::new(2, BytesMut::with_capacity(10));
+        row0.buf_mut().put_i16(1);
+        row0.buf_mut().put_u8(b'1');
+        row0.buf_mut().put_i16(-1);
 
         roundtrip!(row0, DataRow);
-        roundtrip!(row1, DataRow);
     }
 
     #[test]
