@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use postgres_types::{FromSqlOwned, Type};
 
 use crate::{
@@ -19,7 +20,7 @@ pub struct Portal {
     statement: String,
     parameter_types: Vec<Type>,
     parameter_format: Format,
-    parameters: Vec<Option<Vec<u8>>>,
+    parameters: Vec<Option<Bytes>>,
     result_column_format_codes: Vec<i16>,
     #[getset(skip)]
     #[getset(get_copy = "pub", set = "pub")]
