@@ -1,4 +1,4 @@
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use postgres_types::Oid;
 
 use super::codec;
@@ -94,8 +94,7 @@ impl Message for RowDescription {
 #[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new, Clone)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct DataRow {
-    fields: usize,
-    buf: BytesMut,
+    fields: Vec<Option<Bytes>>,
 }
 
 impl DataRow {}
@@ -109,26 +108,41 @@ impl Message for DataRow {
     }
 
     fn message_length(&self) -> usize {
-        4 + 2 + self.buf.len()
+        4 + 2
+            + self
+                .fields
+                .iter()
+                .map(|b| b.as_ref().map(|b| b.len() + 4).unwrap_or(2))
+                .sum::<usize>()
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
-        buf.put_i16(self.fields as i16);
-        buf.put(&self.buf[..]);
+        buf.put_i16(self.fields.len() as i16);
+        for field in &self.fields {
+            if let Some(bytes) = field {
+                buf.put_i32(bytes.len() as i32);
+                buf.put_slice(bytes.as_ref());
+            } else {
+                buf.put_i32(-1);
+            }
+        }
 
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, msg_len: usize) -> PgWireResult<Self> {
-        let fields = buf.get_i16();
-        // minus packet_len and field count i16
-        let buf_len = msg_len - 6;
+    fn decode_body(buf: &mut BytesMut, _msg_len: usize) -> PgWireResult<Self> {
+        let field_count = buf.get_i16() as usize;
 
-        let row_buf = buf.split_to(buf_len);
+        let mut fields = Vec::with_capacity(field_count);
+        for _ in 0..field_count {
+            let field_len = buf.get_i32();
+            if field_len >= 0 {
+                fields.push(Some(buf.split_to(field_len as usize).freeze()));
+            } else {
+                fields.push(None);
+            }
+        }
 
-        Ok(DataRow {
-            fields: fields as usize,
-            buf: row_buf,
-        })
+        Ok(DataRow { fields })
     }
 }
