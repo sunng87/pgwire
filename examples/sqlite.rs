@@ -8,7 +8,7 @@ use rusqlite::Rows;
 use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
 use tokio::net::TcpListener;
 
-use pgwire::api::auth::CleartextPasswordAuthStartupHandler;
+use pgwire::api::auth::cleartext::CleartextPasswordAuthStartupHandler;
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{FieldInfo, QueryResponseBuilder, Response, Tag};

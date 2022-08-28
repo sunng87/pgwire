@@ -7,7 +7,7 @@ use pgwire::api::portal::Portal;
 use postgres_types::Type;
 use tokio::net::TcpListener;
 
-use pgwire::api::auth::CleartextPasswordAuthStartupHandler;
+use pgwire::api::auth::cleartext::CleartextPasswordAuthStartupHandler;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{FieldInfo, QueryResponseBuilder, Response, Tag};
 use pgwire::api::ClientInfo;
