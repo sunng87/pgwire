@@ -68,9 +68,13 @@ pub trait StartupHandler: Send + Sync {
 
     fn server_parameters<C>(&self, _client: &C) -> HashMap<String, String>
     where
-        C: ClientInfo;
+        C: ClientInfo,
+    {
+        HashMap::default()
+    }
 }
 
 pub mod cleartext;
+pub mod noop;
 
 // TODO: md5, scram-sha-256(sasl)

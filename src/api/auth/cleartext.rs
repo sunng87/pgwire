@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt::Debug;
 
 use async_trait::async_trait;
@@ -11,19 +10,16 @@ use crate::messages::startup::Authentication;
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 #[async_trait]
-pub trait CleartextPasswordAuthStartupHandler: StartupHandler {
+pub trait PasswordVerifier: Send + Sync {
     async fn verify_password(&self, password: &str) -> PgWireResult<bool>;
+}
 
-    fn server_parameters<C>(&self, _client: &C) -> HashMap<String, String>
-    where
-        C: ClientInfo;
+pub struct CleartextPasswordAuthStartupHandler<V: PasswordVerifier> {
+    verifier: V,
 }
 
 #[async_trait]
-impl<T> StartupHandler for T
-where
-    T: CleartextPasswordAuthStartupHandler,
-{
+impl<V: PasswordVerifier> StartupHandler for CleartextPasswordAuthStartupHandler<V> {
     async fn on_startup<C>(
         &self,
         client: &mut C,
@@ -45,7 +41,7 @@ where
                     .await?;
             }
             PgWireFrontendMessage::Password(ref pwd) => {
-                if let Ok(true) = self.verify_password(pwd.password()).await {
+                if let Ok(true) = self.verifier.verify_password(pwd.password()).await {
                     self.finish_authentication(client).await
                 } else {
                     // TODO: error api
@@ -67,12 +63,5 @@ where
             _ => {}
         }
         Ok(())
-    }
-
-    fn server_parameters<C>(&self, _client: &C) -> HashMap<String, String>
-    where
-        C: ClientInfo,
-    {
-        CleartextPasswordAuthStartupHandler::server_parameters(self, _client)
     }
 }
