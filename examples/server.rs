@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -7,7 +6,7 @@ use pgwire::api::portal::Portal;
 use postgres_types::Type;
 use tokio::net::TcpListener;
 
-use pgwire::api::auth::cleartext::CleartextPasswordAuthStartupHandler;
+use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{FieldInfo, QueryResponseBuilder, Response, Tag};
 use pgwire::api::ClientInfo;
@@ -16,25 +15,6 @@ use pgwire::messages::PgWireBackendMessage;
 use pgwire::tokio::process_socket;
 
 pub struct DummyProcessor;
-
-#[async_trait]
-impl CleartextPasswordAuthStartupHandler for DummyProcessor {
-    async fn verify_password(&self, password: &str) -> PgWireResult<bool> {
-        Ok(password == "test")
-    }
-
-    fn server_parameters<C>(&self, _client: &C) -> std::collections::HashMap<String, String>
-    where
-        C: ClientInfo,
-    {
-        let mut data = HashMap::new();
-        data.insert("application_name".into(), "psql".into());
-        data.insert("integer_datetimes".into(), "on".into());
-        data.insert("server_version".into(), "0.0.1".into());
-
-        data
-    }
-}
 
 #[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
@@ -84,7 +64,7 @@ pub async fn main() {
         let incoming_socket = listener.accept().await.unwrap();
         process_socket(
             incoming_socket,
-            processor.clone(),
+            Arc::new(NoopStartupHandler),
             processor.clone(),
             processor.clone(),
         );

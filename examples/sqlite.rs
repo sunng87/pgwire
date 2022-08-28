@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -8,34 +9,56 @@ use rusqlite::Rows;
 use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
 use tokio::net::TcpListener;
 
-use pgwire::api::auth::cleartext::CleartextPasswordAuthStartupHandler;
+use pgwire::api::auth::cleartext::{CleartextPasswordAuthStartupHandler, PasswordVerifier};
+use pgwire::api::auth::StartupHandler;
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{FieldInfo, QueryResponseBuilder, Response, Tag};
 use pgwire::api::ClientInfo;
 use pgwire::error::{PgWireError, PgWireResult};
-use pgwire::messages::PgWireBackendMessage;
+use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 use pgwire::tokio::process_socket;
 
 pub struct SqliteBackend {
     conn: Arc<Mutex<Connection>>,
+    authenticator: CleartextPasswordAuthStartupHandler<DummyPasswordVerifier>,
 }
 
 impl SqliteBackend {
     fn new() -> SqliteBackend {
         SqliteBackend {
             conn: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
+            authenticator: CleartextPasswordAuthStartupHandler::new(DummyPasswordVerifier),
         }
     }
 }
 
+struct DummyPasswordVerifier;
+
 #[async_trait]
-impl CleartextPasswordAuthStartupHandler for SqliteBackend {
+impl PasswordVerifier for DummyPasswordVerifier {
     async fn verify_password(&self, password: &str) -> PgWireResult<bool> {
         Ok(password == "test")
     }
+}
 
-    fn server_parameters<C>(&self, _client: &C) -> std::collections::HashMap<String, String>
+#[async_trait]
+impl StartupHandler for SqliteBackend {
+    async fn on_startup<C>(
+        &self,
+        client: &mut C,
+        message: &PgWireFrontendMessage,
+    ) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        self.authenticator.on_startup(client, message).await
+    }
+
+    // FIXME: does not work when using on_startup from authenticator
+    fn server_parameters<C>(&self, _client: &C) -> HashMap<String, String>
     where
         C: ClientInfo,
     {

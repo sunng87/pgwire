@@ -14,6 +14,7 @@ pub trait PasswordVerifier: Send + Sync {
     async fn verify_password(&self, password: &str) -> PgWireResult<bool>;
 }
 
+#[derive(new)]
 pub struct CleartextPasswordAuthStartupHandler<V: PasswordVerifier> {
     verifier: V,
 }
