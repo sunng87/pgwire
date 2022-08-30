@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -10,25 +9,23 @@ use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::cleartext::{CleartextPasswordAuthStartupHandler, PasswordVerifier};
-use pgwire::api::auth::StartupHandler;
+use pgwire::api::auth::ServerParameterProvider;
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{FieldInfo, QueryResponseBuilder, Response, Tag};
 use pgwire::api::ClientInfo;
 use pgwire::error::{PgWireError, PgWireResult};
-use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
+use pgwire::messages::PgWireBackendMessage;
 use pgwire::tokio::process_socket;
 
 pub struct SqliteBackend {
     conn: Arc<Mutex<Connection>>,
-    authenticator: CleartextPasswordAuthStartupHandler<DummyPasswordVerifier>,
 }
 
 impl SqliteBackend {
     fn new() -> SqliteBackend {
         SqliteBackend {
             conn: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
-            authenticator: CleartextPasswordAuthStartupHandler::new(DummyPasswordVerifier),
         }
     }
 }
@@ -42,30 +39,27 @@ impl PasswordVerifier for DummyPasswordVerifier {
     }
 }
 
-#[async_trait]
-impl StartupHandler for SqliteBackend {
-    async fn on_startup<C>(
-        &self,
-        client: &mut C,
-        message: &PgWireFrontendMessage,
-    ) -> PgWireResult<()>
-    where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
-        C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
-    {
-        self.authenticator.on_startup(client, message).await
-    }
+struct SqliteParameters {
+    version: &'static str,
+}
 
-    // FIXME: does not work when using on_startup from authenticator
-    fn server_parameters<C>(&self, _client: &C) -> HashMap<String, String>
+impl SqliteParameters {
+    fn new() -> SqliteParameters {
+        SqliteParameters {
+            version: rusqlite::version(),
+        }
+    }
+}
+
+impl ServerParameterProvider for SqliteParameters {
+    fn server_parameters<C>(&self, _client: &C) -> Option<HashMap<String, String>>
     where
         C: ClientInfo,
     {
-        let mut data = HashMap::new();
-        data.insert("server_version".into(), rusqlite::version().into());
+        let mut params = HashMap::new();
+        params.insert("version".to_owned(), self.version.to_owned());
 
-        data
+        Some(params)
     }
 }
 
@@ -224,6 +218,10 @@ impl ExtendedQueryHandler for SqliteBackend {
 
 #[tokio::main]
 pub async fn main() {
+    let authenticator = Arc::new(CleartextPasswordAuthStartupHandler::new(
+        DummyPasswordVerifier,
+        SqliteParameters::new(),
+    ));
     let processor = Arc::new(SqliteBackend::new());
 
     let server_addr = "127.0.0.1:5433";
@@ -233,7 +231,7 @@ pub async fn main() {
         let incoming_socket = listener.accept().await.unwrap();
         process_socket(
             incoming_socket,
-            processor.clone(),
+            authenticator.clone(),
             processor.clone(),
             processor.clone(),
         );

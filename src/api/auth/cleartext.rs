@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 
-use super::{ClientInfo, PgWireConnectionState, StartupHandler};
+use super::{ClientInfo, PgWireConnectionState, ServerParameterProvider, StartupHandler};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::response::ErrorResponse;
 use crate::messages::startup::Authentication;
@@ -15,12 +15,15 @@ pub trait PasswordVerifier: Send + Sync {
 }
 
 #[derive(new)]
-pub struct CleartextPasswordAuthStartupHandler<V: PasswordVerifier> {
+pub struct CleartextPasswordAuthStartupHandler<V, P> {
     verifier: V,
+    parameter_provider: P,
 }
 
 #[async_trait]
-impl<V: PasswordVerifier> StartupHandler for CleartextPasswordAuthStartupHandler<V> {
+impl<V: PasswordVerifier, P: ServerParameterProvider> StartupHandler
+    for CleartextPasswordAuthStartupHandler<V, P>
+{
     async fn on_startup<C>(
         &self,
         client: &mut C,
@@ -33,7 +36,7 @@ impl<V: PasswordVerifier> StartupHandler for CleartextPasswordAuthStartupHandler
     {
         match message {
             PgWireFrontendMessage::Startup(ref startup) => {
-                self.handle_startup_parameters(client, startup);
+                super::save_startup_parameters_to_metadata(client, startup);
                 client.set_state(PgWireConnectionState::AuthenticationInProgress);
                 client
                     .send(PgWireBackendMessage::Authentication(
@@ -43,7 +46,7 @@ impl<V: PasswordVerifier> StartupHandler for CleartextPasswordAuthStartupHandler
             }
             PgWireFrontendMessage::Password(ref pwd) => {
                 if let Ok(true) = self.verifier.verify_password(pwd.password()).await {
-                    self.finish_authentication(client).await
+                    super::finish_authentication(client, &self.parameter_provider).await
                 } else {
                     // TODO: error api
                     let info = vec![
