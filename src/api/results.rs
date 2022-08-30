@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use bytes::{BufMut, BytesMut};
+use bytes::BytesMut;
 use postgres_types::{IsNull, ToSql, Type};
 
 use crate::{
@@ -90,7 +90,8 @@ pub struct QueryResponseBuilder {
 
 impl QueryResponseBuilder {
     pub fn new(fields: Vec<FieldInfo>) -> QueryResponseBuilder {
-        let current_row = DataRow::new(fields.len(), Self::new_buffer());
+        let fields_count = fields.len();
+        let current_row = DataRow::new(Vec::with_capacity(fields_count));
         QueryResponseBuilder {
             row_schema: fields,
             rows: Vec::new(),
@@ -101,20 +102,17 @@ impl QueryResponseBuilder {
         }
     }
 
-    fn new_buffer() -> BytesMut {
-        BytesMut::with_capacity(128)
-    }
-
     pub fn append_field<T>(&mut self, t: T) -> PgWireResult<()>
     where
         T: ToSql + Sized,
     {
         let col_type = &self.row_schema[self.col_index].datatype;
         if let IsNull::No = t.to_sql(col_type, &mut self.buffer)? {
-            self.current_row.buf_mut().put_i32(self.buffer.len() as i32);
-            self.current_row.buf_mut().put(&self.buffer[..]);
+            self.current_row
+                .fields_mut()
+                .push(Some(self.buffer.split().freeze()));
         } else {
-            self.current_row.buf_mut().put_i32(-1);
+            self.current_row.fields_mut().push(None);
         };
 
         self.buffer.clear();
@@ -126,7 +124,7 @@ impl QueryResponseBuilder {
     pub fn finish_row(&mut self) {
         let row = std::mem::replace(
             &mut self.current_row,
-            DataRow::new(self.row_schema.len(), Self::new_buffer()),
+            DataRow::new(Vec::with_capacity(self.row_schema.len())),
         );
         self.rows.push(row);
 

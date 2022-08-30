@@ -1,4 +1,4 @@
-use bytes::{Buf, BufMut};
+use bytes::{Buf, BufMut, Bytes};
 use postgres_types::Oid;
 
 use super::{codec, Message};
@@ -163,7 +163,7 @@ pub struct Bind {
     parameter_format_codes: Vec<i16>,
     // None for Null data, TODO: consider wrapping this together with DataRow in
     // data.rs
-    parameters: Vec<Option<Vec<u8>>>,
+    parameters: Vec<Option<Bytes>>,
 
     result_column_format_codes: Vec<i16>,
 }
@@ -230,7 +230,7 @@ impl Message for Bind {
             let data_len = buf.get_i32();
 
             if data_len >= 0 {
-                parameters.push(Some(buf.split_to(data_len as usize).to_vec()));
+                parameters.push(Some(buf.split_to(data_len as usize).freeze()));
             } else {
                 parameters.push(None);
             }
