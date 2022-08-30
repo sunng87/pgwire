@@ -219,9 +219,13 @@ impl TextQueryResponseBuilder {
 }
 
 impl From<PgWireError> for ErrorResponse {
-    fn from(_e: PgWireError) -> Self {
-        // TODO: carry inforamtion with PgWireError
-        ErrorResponse::default()
+    fn from(e: PgWireError) -> Self {
+        match e {
+            PgWireError::UserError(data) => {
+                ErrorResponse::new(data.into_iter().collect::<Vec<(u8, String)>>())
+            }
+            _ => ErrorResponse::default(),
+        }
     }
 }
 

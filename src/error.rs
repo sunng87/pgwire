@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use postgres_types::Oid;
 use thiserror::Error;
 
@@ -21,10 +23,18 @@ pub enum PgWireError {
     InvalidRustTypeForParameter(String),
     #[error("Failed to parse parameter: {0:?}")]
     FailedToParseParameter(#[from] Box<dyn std::error::Error + Send + Sync>),
+
     #[error("Api Error: {0:?}")]
     ApiError(Box<dyn std::error::Error + 'static + Send>),
+
+    #[error("User Error")]
+    UserError(HashMap<u8, String>), // TODO: typed
 }
 
 pub type PgWireResult<T> = Result<T, PgWireError>;
 
 // TODO: distinguish fatal error and recoverable error
+
+// Postgres error codes
+// https://www.postgresql.org/docs/current/errcodes-appendix.html
+// https://www.postgresql.org/docs/8.2/protocol-error-fields.html
