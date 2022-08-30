@@ -153,6 +153,7 @@ pub enum PgWireBackendMessage {
     CommandComplete(response::CommandComplete),
     ReadyForQuery(response::ReadyForQuery),
     ErrorResponse(response::ErrorResponse),
+    NoticeResponse(response::NoticeResponse),
 
     // data
     RowDescription(data::RowDescription),
@@ -174,6 +175,7 @@ impl PgWireBackendMessage {
             Self::CommandComplete(msg) => msg.encode(buf),
             Self::ReadyForQuery(msg) => msg.encode(buf),
             Self::ErrorResponse(msg) => msg.encode(buf),
+            Self::NoticeResponse(msg) => msg.encode(buf),
 
             Self::RowDescription(msg) => msg.encode(buf),
             Self::DataRow(msg) => msg.encode(buf),
@@ -221,6 +223,9 @@ impl PgWireBackendMessage {
                 }
                 response::MESSAGE_TYPE_BYTE_ERROR_RESPONSE => {
                     response::ErrorResponse::decode(buf).map(|v| v.map(Self::ErrorResponse))
+                }
+                response::MESSAGE_TYPE_BYTE_NOTICE_RESPONSE => {
+                    response::NoticeResponse::decode(buf).map(|v| v.map(Self::NoticeResponse))
                 }
 
                 data::MESSAGE_TYPE_BYTE_ROW_DESCRITION => {
@@ -328,6 +333,15 @@ mod test {
         error.fields_mut().push((b'K', "cli".to_owned()));
 
         roundtrip!(error, ErrorResponse);
+    }
+
+    #[test]
+    fn test_notice_response() {
+        let mut error = NoticeResponse::default();
+        error.fields_mut().push((b'R', "NOTICE".to_owned()));
+        error.fields_mut().push((b'K', "cli".to_owned()));
+
+        roundtrip!(error, NoticeResponse);
     }
 
     #[test]
