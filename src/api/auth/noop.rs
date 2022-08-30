@@ -21,12 +21,9 @@ impl StartupHandler for NoopStartupHandler {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        match message {
-            PgWireFrontendMessage::Startup(ref startup) => {
-                self.handle_startup_parameters(client, startup);
-                self.finish_authentication(client).await;
-            }
-            _ => {}
+        if let PgWireFrontendMessage::Startup(ref startup) = message {
+            self.handle_startup_parameters(client, startup);
+            self.finish_authentication(client).await;
         }
         Ok(())
     }
