@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+pub use postgres_types::Type;
+
 pub mod auth;
 pub mod portal;
 pub mod query;
