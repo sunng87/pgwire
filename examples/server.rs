@@ -1,40 +1,17 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::Sink;
-use pgwire::api::portal::Portal;
-use postgres_types::Type;
 use tokio::net::TcpListener;
 
-use pgwire::api::auth::CleartextPasswordAuthStartupHandler;
+use pgwire::api::auth::noop::NoopStartupHandler;
+use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{FieldInfo, QueryResponseBuilder, Response, Tag};
-use pgwire::api::ClientInfo;
-use pgwire::error::{PgWireError, PgWireResult};
-use pgwire::messages::PgWireBackendMessage;
+use pgwire::api::{ClientInfo, Type};
+use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 
 pub struct DummyProcessor;
-
-#[async_trait]
-impl CleartextPasswordAuthStartupHandler for DummyProcessor {
-    async fn verify_password(&self, password: &str) -> PgWireResult<bool> {
-        Ok(password == "test")
-    }
-
-    fn server_parameters<C>(&self, _client: &C) -> std::collections::HashMap<String, String>
-    where
-        C: ClientInfo,
-    {
-        let mut data = HashMap::new();
-        data.insert("application_name".into(), "psql".into());
-        data.insert("integer_datetimes".into(), "on".into());
-        data.insert("server_version".into(), "0.0.1".into());
-
-        data
-    }
-}
 
 #[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
@@ -65,9 +42,7 @@ impl SimpleQueryHandler for DummyProcessor {
 impl ExtendedQueryHandler for DummyProcessor {
     async fn do_query<C>(&self, _client: &mut C, _portal: &Portal) -> PgWireResult<Response>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-        C::Error: std::fmt::Debug,
-        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+        C: ClientInfo + Unpin + Send + Sync,
     {
         todo!()
     }
@@ -84,7 +59,7 @@ pub async fn main() {
         let incoming_socket = listener.accept().await.unwrap();
         process_socket(
             incoming_socket,
-            processor.clone(),
+            Arc::new(NoopStartupHandler),
             processor.clone(),
             processor.clone(),
         );

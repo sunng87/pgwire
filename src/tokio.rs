@@ -177,7 +177,7 @@ pub fn process_socket<A, Q, EQ>(
         loop {
             match socket.next().await {
                 Some(Ok(msg)) => {
-                    if let Err(e) = process_message(
+                    if let Err(_e) = process_message(
                         msg,
                         &mut socket,
                         authenticator.clone(),
@@ -187,13 +187,13 @@ pub fn process_socket<A, Q, EQ>(
                     .await
                     {
                         // TODO: error processing
-                        println!("{:?}", e);
+                        // println!("{:?}", e);
                         break;
                     }
                 }
-                Some(Err(e)) => {
+                Some(Err(_e)) => {
                     // TODO: logging
-                    println!("{:?}", e);
+                    // println!("{:?}", e);
                     break;
                 }
                 None => break,

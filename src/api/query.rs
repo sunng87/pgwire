@@ -170,9 +170,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
 
     async fn do_query<C>(&self, client: &mut C, portal: &Portal) -> PgWireResult<Response>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-        C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
+        C: ClientInfo + Unpin + Send + Sync;
 }
 
 async fn send_query_response<C>(
