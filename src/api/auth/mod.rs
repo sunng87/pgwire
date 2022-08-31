@@ -38,7 +38,7 @@ pub trait ServerParameterProvider: Send + Sync {
 struct NoopServerParameterProvider;
 
 impl ServerParameterProvider for NoopServerParameterProvider {
-    fn server_parameters<C>(self: &Self, _client: &C) -> Option<HashMap<String, String>>
+    fn server_parameters<C>(&self, _client: &C) -> Option<HashMap<String, String>>
     where
         C: ClientInfo,
     {
