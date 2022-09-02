@@ -410,4 +410,10 @@ mod test {
         let exec = Execute::new(Some("find-user-by-id-0".to_owned()), 100);
         roundtrip!(exec, Execute);
     }
+
+    #[test]
+    fn test_sslrequest() {
+        let sslreq = SslRequest::new();
+        roundtrip!(sslreq, SslRequest);
+    }
 }

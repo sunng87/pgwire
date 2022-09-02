@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use bytes::Buf;
 use futures::SinkExt;
 use futures::StreamExt;
 use tokio::net::TcpStream;
@@ -32,6 +33,15 @@ impl Decoder for PgWireMessageServerCodec {
                 if let Some(ssl_request) = SslRequest::decode(src)? {
                     Ok(Some(PgWireFrontendMessage::SslRequest(ssl_request)))
                 } else {
+                    // the packet is longer than 8 bytes and is not a
+                    // `SslRequest`, so it should be a client without SSL
+                    // capability, goto next state directly and try to decode it
+                    // as a `Startup` message
+                    if src.remaining() >= 8 {
+                        *self.client_info.state_mut() = PgWireConnectionState::AwaitingStartup;
+                        // re-attempt to decode immediately
+                        return self.decode(src);
+                    }
                     Ok(None)
                 }
             }

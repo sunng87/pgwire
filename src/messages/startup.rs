@@ -245,7 +245,8 @@ impl Message for BackendKeyData {
 }
 
 /// `Sslrequest` sent from frontend to negotiate with backend to check if the
-/// backend supports secure connection.
+/// backend supports secure connection. The packet has no message type and
+/// contains only a length(4) and an i32 value.
 ///
 /// The backend sents a single byte 'S' or 'N' to indicate its support. Upon 'S'
 /// the frontend should close the connection and reinitialize a new TLS
@@ -253,6 +254,10 @@ impl Message for BackendKeyData {
 #[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct SslRequest {}
+
+impl SslRequest {
+    const BODY_MAGIC_NUMBER: i32 = 80877103;
+}
 
 impl Message for SslRequest {
     #[inline]
@@ -266,12 +271,21 @@ impl Message for SslRequest {
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
-        buf.put_i32(80877103);
+        buf.put_i32(Self::BODY_MAGIC_NUMBER);
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
-        buf.advance(4);
-        Ok(SslRequest::new())
+    fn decode_body(_buf: &mut BytesMut, _full_len: usize) -> PgWireResult<Self> {
+        unreachable!();
+    }
+
+    /// Try to decode and check if the packet is a `SslRequest`.
+    fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
+        if buf.remaining() >= 8 && (&buf[4..8]).get_i32() == Self::BODY_MAGIC_NUMBER {
+            buf.advance(8);
+            Ok(Some(SslRequest {}))
+        } else {
+            Ok(None)
+        }
     }
 }
