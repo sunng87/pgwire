@@ -1,4 +1,3 @@
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use futures::SinkExt;
@@ -159,8 +158,8 @@ where
     Ok(())
 }
 
-pub fn process_socket<A, Q, EQ>(
-    incoming_socket: (TcpStream, SocketAddr),
+pub async fn process_socket<A, Q, EQ>(
+    tcp_socket: TcpStream,
     authenticator: Arc<A>,
     query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
@@ -169,10 +168,9 @@ pub fn process_socket<A, Q, EQ>(
     Q: SimpleQueryHandler + 'static,
     EQ: ExtendedQueryHandler + 'static,
 {
-    let (raw_socket, addr) = incoming_socket;
-    tokio::spawn(async move {
+    if let Ok(addr) = tcp_socket.peer_addr() {
         let client_info = ClientInfoHolder::new(addr);
-        let mut socket = Framed::new(raw_socket, PgWireMessageServerCodec::new(client_info));
+        let mut socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
 
         loop {
             match socket.next().await {
@@ -199,5 +197,5 @@ pub fn process_socket<A, Q, EQ>(
                 None => break,
             }
         }
-    });
+    }
 }

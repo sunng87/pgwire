@@ -51,17 +51,23 @@ impl ExtendedQueryHandler for DummyProcessor {
 #[tokio::main]
 pub async fn main() {
     let processor = Arc::new(DummyProcessor);
+    let authenticator = Arc::new(NoopStartupHandler);
 
     let server_addr = "127.0.0.1:5433";
     let listener = TcpListener::bind(server_addr).await.unwrap();
     println!("Listening to {}", server_addr);
     loop {
         let incoming_socket = listener.accept().await.unwrap();
-        process_socket(
-            incoming_socket,
-            Arc::new(NoopStartupHandler),
-            processor.clone(),
-            processor.clone(),
-        );
+        let authenticator_ref = authenticator.clone();
+        let processor_ref = processor.clone();
+        tokio::spawn(async move {
+            process_socket(
+                incoming_socket.0,
+                authenticator_ref.clone(),
+                processor_ref.clone(),
+                processor_ref.clone(),
+            )
+            .await;
+        });
     }
 }

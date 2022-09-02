@@ -224,11 +224,16 @@ pub async fn main() {
     println!("Listening to {}", server_addr);
     loop {
         let incoming_socket = listener.accept().await.unwrap();
-        process_socket(
-            incoming_socket,
-            authenticator.clone(),
-            processor.clone(),
-            processor.clone(),
-        );
+        let authenticator_ref = authenticator.clone();
+        let processor_ref = processor.clone();
+        tokio::spawn(async move {
+            process_socket(
+                incoming_socket.0,
+                authenticator_ref.clone(),
+                processor_ref.clone(),
+                processor_ref.clone(),
+            )
+            .await;
+        });
     }
 }
