@@ -1,12 +1,12 @@
 use std::fmt::Debug;
 
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use postgres_types::{IsNull, ToSql, Type};
 
 use crate::{
     error::{PgWireError, PgWireResult},
     messages::{
-        data::{DataRow, FieldDescription, RowDescription, FORMAT_CODE_BINARY},
+        data::{DataRow, FieldDescription, RowDescription, FORMAT_CODE_BINARY, FORMAT_CODE_TEXT},
         response::{CommandComplete, ErrorResponse},
     },
 };
@@ -50,6 +50,8 @@ pub struct FieldInfo {
     table_id: Option<i32>,
     column_id: Option<i16>,
     datatype: Type,
+    #[new(value = "FORMAT_CODE_BINARY")]
+    format: i16,
 }
 
 impl From<FieldInfo> for FieldDescription {
@@ -62,7 +64,7 @@ impl From<FieldInfo> for FieldDescription {
             // TODO: type size and modifier
             0,
             0,
-            FORMAT_CODE_BINARY,
+            fi.format,
         )
     }
 }
@@ -82,6 +84,7 @@ pub struct QueryResponse {
 pub struct QueryResponseBuilder {
     row_schema: Vec<FieldInfo>,
     rows: Vec<DataRow>,
+    format: i16,
 
     buffer: BytesMut,
     current_row: DataRow,
@@ -96,16 +99,29 @@ impl QueryResponseBuilder {
             row_schema: fields,
             rows: Vec::new(),
             buffer: BytesMut::with_capacity(8),
+            format: FORMAT_CODE_BINARY,
 
             current_row,
             col_index: 0,
         }
     }
 
-    pub fn append_field<T>(&mut self, t: T) -> PgWireResult<()>
+    pub fn text_format(&mut self) {
+        self.format = FORMAT_CODE_TEXT;
+    }
+
+    pub fn binary_format(&mut self) {
+        self.format = FORMAT_CODE_BINARY;
+    }
+
+    pub fn append_field_binary<T>(&mut self, t: T) -> PgWireResult<()>
     where
         T: ToSql + Sized,
     {
+        if self.format != FORMAT_CODE_BINARY {
+            panic!("Conflict format. Call binary_format() to switch.");
+        }
+
         let col_type = &self.row_schema[self.col_index].datatype;
         if let IsNull::No = t.to_sql(col_type, &mut self.buffer)? {
             self.current_row
@@ -121,6 +137,25 @@ impl QueryResponseBuilder {
         Ok(())
     }
 
+    pub fn append_field_text<T>(&mut self, data: Option<T>) -> PgWireResult<()>
+    where
+        T: ToString,
+    {
+        if self.format != FORMAT_CODE_TEXT {
+            panic!("Conflict format. Call text_format() to switch.");
+        }
+
+        if let Some(data) = data {
+            self.current_row
+                .fields_mut()
+                .push(Some(Bytes::copy_from_slice(data.to_string().as_ref())));
+        } else {
+            self.current_row.fields_mut().push(None);
+        }
+
+        Ok(())
+    }
+
     pub fn finish_row(&mut self) {
         let row = std::mem::replace(
             &mut self.current_row,
@@ -131,8 +166,14 @@ impl QueryResponseBuilder {
         self.col_index = 0;
     }
 
-    pub fn build(self) -> QueryResponse {
+    pub fn build(mut self) -> QueryResponse {
         let row_count = self.rows.len();
+
+        // set column format
+        for r in self.row_schema.iter_mut() {
+            r.format = self.format;
+        }
+
         QueryResponse {
             row_schema: self.row_schema,
             data_rows: self.rows,
