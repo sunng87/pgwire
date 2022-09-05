@@ -74,7 +74,8 @@ impl SimpleQueryHandler for SqliteBackend {
             let rows = stmt.query(()).unwrap();
 
             let mut builder = QueryResponseBuilder::new(header);
-            encode_row_data(rows, columns, &mut builder);
+            builder.text_format();
+            encode_text_row_data(rows, columns, &mut builder);
 
             Ok(Response::Query(builder.build()))
         } else {
@@ -111,23 +112,50 @@ fn row_desc_from_stmt(stmt: &Statement) -> Vec<FieldInfo> {
         .collect()
 }
 
-fn encode_row_data(mut rows: Rows, columns: usize, builder: &mut QueryResponseBuilder) {
+fn encode_text_row_data(mut rows: Rows, columns: usize, builder: &mut QueryResponseBuilder) {
     while let Ok(Some(row)) = rows.next() {
         for idx in 0..columns {
             let data = row.get_ref_unwrap::<usize>(idx);
             match data {
-                ValueRef::Null => builder.append_field(None::<i8>).unwrap(),
+                ValueRef::Null => builder.append_field_text(None::<i8>).unwrap(),
                 ValueRef::Integer(i) => {
-                    builder.append_field(i).unwrap();
+                    builder.append_field_text(Some(i)).unwrap();
                 }
                 ValueRef::Real(f) => {
-                    builder.append_field(f).unwrap();
+                    builder.append_field_text(Some(f)).unwrap();
                 }
                 ValueRef::Text(t) => {
-                    builder.append_field(t).unwrap();
+                    builder
+                        .append_field_text(Some(String::from_utf8_lossy(t)))
+                        .unwrap();
                 }
                 ValueRef::Blob(b) => {
-                    builder.append_field(b).unwrap();
+                    builder.append_field_text(Some(hex::encode(b))).unwrap();
+                }
+            }
+        }
+
+        builder.finish_row();
+    }
+}
+
+fn encode_binary_row_data(mut rows: Rows, columns: usize, builder: &mut QueryResponseBuilder) {
+    while let Ok(Some(row)) = rows.next() {
+        for idx in 0..columns {
+            let data = row.get_ref_unwrap::<usize>(idx);
+            match data {
+                ValueRef::Null => builder.append_field_binary(None::<i8>).unwrap(),
+                ValueRef::Integer(i) => {
+                    builder.append_field_binary(i).unwrap();
+                }
+                ValueRef::Real(f) => {
+                    builder.append_field_binary(f).unwrap();
+                }
+                ValueRef::Text(t) => {
+                    builder.append_field_binary(t).unwrap();
+                }
+                ValueRef::Blob(b) => {
+                    builder.append_field_binary(b).unwrap();
                 }
             }
         }
@@ -196,7 +224,8 @@ impl ExtendedQueryHandler for SqliteBackend {
                 .unwrap();
 
             let mut builder = QueryResponseBuilder::new(header);
-            encode_row_data(rows, columns, &mut builder);
+            builder.binary_format();
+            encode_binary_row_data(rows, columns, &mut builder);
 
             Ok(Response::Query(builder.build()))
         } else {

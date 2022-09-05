@@ -26,9 +26,10 @@ impl SimpleQueryHandler for DummyProcessor {
             let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR);
 
             let mut result_builder = QueryResponseBuilder::new(vec![f1, f2]);
+            result_builder.text_format();
             for _ in 0..3 {
-                result_builder.append_field(1i32)?;
-                result_builder.append_field("Tom")?;
+                result_builder.append_field_text(Some(1i32))?;
+                result_builder.append_field_text(Some("Tom"))?;
                 result_builder.finish_row();
             }
             Ok(Response::Query(result_builder.build()))
