@@ -2,7 +2,7 @@ use std::str;
 
 use bytes::{Buf, BufMut, BytesMut};
 
-use crate::error::{PgWireError, PgWireResult};
+use crate::error::PgWireResult;
 
 /// Get null-terminated string, returns None when empty cstring read.
 ///
@@ -74,15 +74,15 @@ where
     Ok(None)
 }
 
-pub(crate) fn get_and_ensure_message_type(buf: &mut BytesMut, t: u8) -> PgWireResult<()> {
-    let msg_type = buf[0];
-    // ensure the type is corrent
-    if msg_type != t {
-        return Err(PgWireError::InvalidMessageType(t, msg_type));
-    }
+// pub(crate) fn get_and_ensure_message_type(buf: &mut BytesMut, t: u8) -> PgWireResult<()> {
+//     let msg_type = buf[0];
+//     // ensure the type is corrent
+//     if msg_type != t {
+//         return Err(PgWireError::InvalidMessageType(t, msg_type));
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 pub(crate) fn option_string_len(s: &Option<String>) -> usize {
     1 + s.as_ref().map(|s| s.as_bytes().len()).unwrap_or(0)
