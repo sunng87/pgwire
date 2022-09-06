@@ -27,11 +27,15 @@ pub trait Message: Sized {
     }
 
     fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
+        let mut offset: usize = 0;
         if let Some(mt) = Self::message_type() {
             codec::get_and_ensure_message_type(buf, mt)?;
+            offset = 1;
         }
 
-        codec::decode_packet(buf, |buf, full_len| Self::decode_body(buf, full_len))
+        codec::decode_packet(buf, offset, |buf, full_len| {
+            Self::decode_body(buf, full_len)
+        })
     }
 }
 

@@ -65,7 +65,6 @@ where
     C::Error: Debug,
     P: ServerParameterProvider,
 {
-    client.set_state(PgWireConnectionState::ReadyForQuery);
     let mut messages = vec![PgWireBackendMessage::Authentication(Authentication::Ok)];
 
     if let Some(parameters) = server_parameter_provider.server_parameters(client) {
@@ -86,6 +85,7 @@ where
     )));
     let mut message_stream = stream::iter(messages.into_iter().map(Ok));
     client.send_all(&mut message_stream).await.unwrap();
+    client.set_state(PgWireConnectionState::ReadyForQuery);
 }
 
 pub mod cleartext;

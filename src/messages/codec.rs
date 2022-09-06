@@ -46,9 +46,9 @@ pub(crate) fn put_option_cstring(buf: &mut BytesMut, input: &Option<String>) {
 }
 
 /// Try read message length from buf, without actally move the cursor
-fn get_length(buf: &BytesMut) -> Option<usize> {
+fn get_length(buf: &BytesMut, offset: usize) -> Option<usize> {
     if buf.remaining() >= 4 {
-        Some((&buf[..4]).get_i32() as usize)
+        Some((&buf[offset..4 + offset]).get_i32() as usize)
     } else {
         None
     }
@@ -56,15 +56,17 @@ fn get_length(buf: &BytesMut) -> Option<usize> {
 
 /// Check if message_length matches and move the cursor to right position then
 /// call the `decode_fn` for the body
-pub(crate) fn decode_packet<T, F>(buf: &mut BytesMut, decode_fn: F) -> PgWireResult<Option<T>>
+pub(crate) fn decode_packet<T, F>(
+    buf: &mut BytesMut,
+    offset: usize,
+    decode_fn: F,
+) -> PgWireResult<Option<T>>
 where
     F: Fn(&mut BytesMut, usize) -> PgWireResult<T>,
 {
-    if let Some(msg_len) = get_length(buf) {
-        if buf.remaining() >= msg_len {
-            // skip msg_len
-            buf.advance(4);
-
+    if let Some(msg_len) = get_length(buf, offset) {
+        if buf.remaining() >= msg_len + offset {
+            buf.advance(offset + 4);
             return decode_fn(buf, msg_len).map(|r| Some(r));
         }
     }
@@ -73,7 +75,7 @@ where
 }
 
 pub(crate) fn get_and_ensure_message_type(buf: &mut BytesMut, t: u8) -> PgWireResult<()> {
-    let msg_type = buf.get_u8();
+    let msg_type = buf[0];
     // ensure the type is corrent
     if msg_type != t {
         return Err(PgWireError::InvalidMessageType(t, msg_type));
