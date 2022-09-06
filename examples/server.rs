@@ -6,7 +6,7 @@ use tokio::net::TcpListener;
 use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
-use pgwire::api::results::{FieldInfo, QueryResponseBuilder, Response, Tag};
+use pgwire::api::results::{FieldInfo, Response, Tag, TextQueryResponseBuilder};
 use pgwire::api::{ClientInfo, Type};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
@@ -25,11 +25,10 @@ impl SimpleQueryHandler for DummyProcessor {
             let f1 = FieldInfo::new("id".into(), None, None, Type::INT4);
             let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR);
 
-            let mut result_builder = QueryResponseBuilder::new(vec![f1, f2]);
-            result_builder.text_format();
+            let mut result_builder = TextQueryResponseBuilder::new(vec![f1, f2]);
             for _ in 0..3 {
-                result_builder.append_field_text(Some(1i32))?;
-                result_builder.append_field_text(Some("Tom"))?;
+                result_builder.append_field(Some(1i32))?;
+                result_builder.append_field(Some("Tom"))?;
                 result_builder.finish_row();
             }
             Ok(Response::Query(result_builder.build()))

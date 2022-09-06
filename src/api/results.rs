@@ -81,7 +81,7 @@ pub struct QueryResponse {
     pub(crate) tag: Tag,
 }
 
-pub struct QueryResponseBuilder {
+struct QueryResponseBuilder {
     row_schema: Vec<FieldInfo>,
     rows: Vec<DataRow>,
     format: i16,
@@ -92,7 +92,7 @@ pub struct QueryResponseBuilder {
 }
 
 impl QueryResponseBuilder {
-    pub fn new(fields: Vec<FieldInfo>) -> QueryResponseBuilder {
+    fn new(fields: Vec<FieldInfo>) -> QueryResponseBuilder {
         let fields_count = fields.len();
         let current_row = DataRow::new(Vec::with_capacity(fields_count));
         QueryResponseBuilder {
@@ -106,57 +106,15 @@ impl QueryResponseBuilder {
         }
     }
 
-    pub fn text_format(&mut self) {
+    fn text_format(&mut self) {
         self.format = FORMAT_CODE_TEXT;
     }
 
-    pub fn binary_format(&mut self) {
+    fn binary_format(&mut self) {
         self.format = FORMAT_CODE_BINARY;
     }
 
-    pub fn append_field_binary<T>(&mut self, t: T) -> PgWireResult<()>
-    where
-        T: ToSql + Sized,
-    {
-        if self.format != FORMAT_CODE_BINARY {
-            panic!("Conflict format. Call binary_format() to switch.");
-        }
-
-        let col_type = &self.row_schema[self.col_index].datatype;
-        if let IsNull::No = t.to_sql(col_type, &mut self.buffer)? {
-            self.current_row
-                .fields_mut()
-                .push(Some(self.buffer.split().freeze()));
-        } else {
-            self.current_row.fields_mut().push(None);
-        };
-
-        self.buffer.clear();
-        self.col_index += 1;
-
-        Ok(())
-    }
-
-    pub fn append_field_text<T>(&mut self, data: Option<T>) -> PgWireResult<()>
-    where
-        T: ToString,
-    {
-        if self.format != FORMAT_CODE_TEXT {
-            panic!("Conflict format. Call text_format() to switch.");
-        }
-
-        if let Some(data) = data {
-            self.current_row
-                .fields_mut()
-                .push(Some(Bytes::copy_from_slice(data.to_string().as_ref())));
-        } else {
-            self.current_row.fields_mut().push(None);
-        }
-
-        Ok(())
-    }
-
-    pub fn finish_row(&mut self) {
+    fn finish_row(&mut self) {
         let row = std::mem::replace(
             &mut self.current_row,
             DataRow::new(Vec::with_capacity(self.row_schema.len())),
@@ -166,7 +124,7 @@ impl QueryResponseBuilder {
         self.col_index = 0;
     }
 
-    pub fn build(mut self) -> QueryResponse {
+    fn build(mut self) -> QueryResponse {
         let row_count = self.rows.len();
 
         // set column format
@@ -179,6 +137,84 @@ impl QueryResponseBuilder {
             data_rows: self.rows,
             tag: Tag::new_for_query(row_count),
         }
+    }
+}
+
+pub struct BinaryQueryResponseBuilder {
+    inner: QueryResponseBuilder,
+}
+
+impl BinaryQueryResponseBuilder {
+    pub fn new(fields: Vec<FieldInfo>) -> BinaryQueryResponseBuilder {
+        let mut qrb = QueryResponseBuilder::new(fields);
+        qrb.binary_format();
+
+        BinaryQueryResponseBuilder { inner: qrb }
+    }
+
+    pub fn append_field<T>(&mut self, t: T) -> PgWireResult<()>
+    where
+        T: ToSql + Sized,
+    {
+        let col_type = &self.inner.row_schema[self.inner.col_index].datatype;
+        if let IsNull::No = t.to_sql(col_type, &mut self.inner.buffer)? {
+            self.inner
+                .current_row
+                .fields_mut()
+                .push(Some(self.inner.buffer.split().freeze()));
+        } else {
+            self.inner.current_row.fields_mut().push(None);
+        };
+
+        self.inner.buffer.clear();
+        self.inner.col_index += 1;
+
+        Ok(())
+    }
+
+    pub fn finish_row(&mut self) {
+        self.inner.finish_row();
+    }
+
+    pub fn build(self) -> QueryResponse {
+        self.inner.build()
+    }
+}
+
+pub struct TextQueryResponseBuilder {
+    inner: QueryResponseBuilder,
+}
+
+impl TextQueryResponseBuilder {
+    pub fn new(fields: Vec<FieldInfo>) -> TextQueryResponseBuilder {
+        let mut qrb = QueryResponseBuilder::new(fields);
+        qrb.text_format();
+
+        TextQueryResponseBuilder { inner: qrb }
+    }
+
+    pub fn append_field<T>(&mut self, data: Option<T>) -> PgWireResult<()>
+    where
+        T: ToString,
+    {
+        if let Some(data) = data {
+            self.inner
+                .current_row
+                .fields_mut()
+                .push(Some(Bytes::copy_from_slice(data.to_string().as_ref())));
+        } else {
+            self.inner.current_row.fields_mut().push(None);
+        }
+
+        Ok(())
+    }
+
+    pub fn finish_row(&mut self) {
+        self.inner.finish_row();
+    }
+
+    pub fn build(self) -> QueryResponse {
+        self.inner.build()
     }
 }
 
