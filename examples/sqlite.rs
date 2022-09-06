@@ -10,7 +10,9 @@ use pgwire::api::auth::cleartext::{CleartextPasswordAuthStartupHandler, Password
 use pgwire::api::auth::ServerParameterProvider;
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
-use pgwire::api::results::{FieldInfo, QueryResponseBuilder, Response, Tag};
+use pgwire::api::results::{
+    BinaryQueryResponseBuilder, FieldInfo, Response, Tag, TextQueryResponseBuilder,
+};
 use pgwire::api::{ClientInfo, Type};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
@@ -73,8 +75,8 @@ impl SimpleQueryHandler for SqliteBackend {
             let header = row_desc_from_stmt(&stmt);
             let rows = stmt.query(()).unwrap();
 
-            let mut builder = QueryResponseBuilder::new(header);
-            encode_row_data(rows, columns, &mut builder);
+            let mut builder = TextQueryResponseBuilder::new(header);
+            encode_text_row_data(rows, columns, &mut builder);
 
             Ok(Response::Query(builder.build()))
         } else {
@@ -111,7 +113,38 @@ fn row_desc_from_stmt(stmt: &Statement) -> Vec<FieldInfo> {
         .collect()
 }
 
-fn encode_row_data(mut rows: Rows, columns: usize, builder: &mut QueryResponseBuilder) {
+fn encode_text_row_data(mut rows: Rows, columns: usize, builder: &mut TextQueryResponseBuilder) {
+    while let Ok(Some(row)) = rows.next() {
+        for idx in 0..columns {
+            let data = row.get_ref_unwrap::<usize>(idx);
+            match data {
+                ValueRef::Null => builder.append_field(None::<i8>).unwrap(),
+                ValueRef::Integer(i) => {
+                    builder.append_field(Some(i)).unwrap();
+                }
+                ValueRef::Real(f) => {
+                    builder.append_field(Some(f)).unwrap();
+                }
+                ValueRef::Text(t) => {
+                    builder
+                        .append_field(Some(String::from_utf8_lossy(t)))
+                        .unwrap();
+                }
+                ValueRef::Blob(b) => {
+                    builder.append_field(Some(hex::encode(b))).unwrap();
+                }
+            }
+        }
+
+        builder.finish_row();
+    }
+}
+
+fn encode_binary_row_data(
+    mut rows: Rows,
+    columns: usize,
+    builder: &mut BinaryQueryResponseBuilder,
+) {
     while let Ok(Some(row)) = rows.next() {
         for idx in 0..columns {
             let data = row.get_ref_unwrap::<usize>(idx);
@@ -195,8 +228,8 @@ impl ExtendedQueryHandler for SqliteBackend {
                 .query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
                 .unwrap();
 
-            let mut builder = QueryResponseBuilder::new(header);
-            encode_row_data(rows, columns, &mut builder);
+            let mut builder = BinaryQueryResponseBuilder::new(header);
+            encode_binary_row_data(rows, columns, &mut builder);
 
             Ok(Response::Query(builder.build()))
         } else {
