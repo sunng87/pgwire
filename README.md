@@ -27,4 +27,4 @@ Examples are provided to demo the very basic usage of `pgwire` in server side:
 
 ## License
 
-This library is released under MIT license.
+This library is released under MIT/Apache dual license.
