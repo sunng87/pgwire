@@ -4,7 +4,7 @@ use bytes::{Bytes, BytesMut};
 use postgres_types::{IsNull, ToSql, Type};
 
 use crate::{
-    error::{ErrorNoticeFields, PgWireResult},
+    error::{ErrorInfo, PgWireResult},
     messages::{
         data::{DataRow, FieldDescription, RowDescription, FORMAT_CODE_BINARY, FORMAT_CODE_TEXT},
         response::CommandComplete,
@@ -227,5 +227,5 @@ impl TextQueryResponseBuilder {
 pub enum Response {
     Query(QueryResponse),
     Execution(Tag),
-    Error(ErrorNoticeFields),
+    Error(ErrorInfo),
 }

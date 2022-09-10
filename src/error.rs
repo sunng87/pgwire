@@ -28,7 +28,7 @@ pub enum PgWireError {
     ApiError(Box<dyn std::error::Error + 'static + Send>),
 
     #[error("User Error")]
-    UserError(ErrorNoticeFields),
+    UserError(ErrorInfo),
 }
 
 pub type PgWireResult<T> = Result<T, PgWireError>;
@@ -40,7 +40,7 @@ pub type PgWireResult<T> = Result<T, PgWireError>;
 // https://www.postgresql.org/docs/8.2/protocol-error-fields.html
 #[derive(new, Setters, Getters, Debug)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
-pub struct ErrorNoticeFields {
+pub struct ErrorInfo {
     // severity can be one of `ERROR`, `FATAL`, or `PANIC` (in an error
     // message), or `WARNING`, `NOTICE`, `DEBUG`, `INFO`, or `LOG` (in a notice
     // message), or a localized translation of one of these.
@@ -84,7 +84,7 @@ pub struct ErrorNoticeFields {
     routine: Option<String>,
 }
 
-impl ErrorNoticeFields {
+impl ErrorInfo {
     fn into_fields(self) -> Vec<(u8, String)> {
         let mut fields = Vec::with_capacity(11);
 
@@ -123,14 +123,32 @@ impl ErrorNoticeFields {
     }
 }
 
-impl Into<ErrorResponse> for ErrorNoticeFields {
+impl Into<ErrorResponse> for ErrorInfo {
     fn into(self) -> ErrorResponse {
         ErrorResponse::new(self.into_fields())
     }
 }
 
-impl Into<NoticeResponse> for ErrorNoticeFields {
+impl Into<NoticeResponse> for ErrorInfo {
     fn into(self) -> NoticeResponse {
         NoticeResponse::new(self.into_fields())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_error_notice_info() {
+        let error_info = ErrorInfo::new(
+            "FATAL".to_owned(),
+            "28P01".to_owned(),
+            "Password authentication failed".to_owned(),
+        );
+        assert_eq!("FATAL", error_info.severity());
+        assert_eq!("28P01", error_info.code());
+        assert_eq!("Password authentication failed", error_info.message());
+        assert!(error_info.file_name().is_none());
     }
 }
