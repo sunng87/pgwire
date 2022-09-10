@@ -4,10 +4,10 @@ use bytes::{Bytes, BytesMut};
 use postgres_types::{IsNull, ToSql, Type};
 
 use crate::{
-    error::{PgWireError, PgWireResult},
+    error::{ErrorNoticeFields, PgWireResult},
     messages::{
         data::{DataRow, FieldDescription, RowDescription, FORMAT_CODE_BINARY, FORMAT_CODE_TEXT},
-        response::{CommandComplete, ErrorResponse},
+        response::CommandComplete,
     },
 };
 
@@ -218,17 +218,6 @@ impl TextQueryResponseBuilder {
     }
 }
 
-impl From<PgWireError> for ErrorResponse {
-    fn from(e: PgWireError) -> Self {
-        match e {
-            PgWireError::UserError(data) => {
-                ErrorResponse::new(data.into_iter().collect::<Vec<(u8, String)>>())
-            }
-            _ => ErrorResponse::default(),
-        }
-    }
-}
-
 /// Query response types:
 ///
 /// * Query: the response contains data rows
@@ -238,5 +227,5 @@ impl From<PgWireError> for ErrorResponse {
 pub enum Response {
     Query(QueryResponse),
     Execution(Tag),
-    Error(PgWireError),
+    Error(ErrorNoticeFields),
 }
