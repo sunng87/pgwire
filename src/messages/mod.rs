@@ -32,7 +32,7 @@ pub trait Message: Sized {
         //     // codec::get_and_ensure_message_type(buf, mt)?;
         //     offset = 1;
         // }
-        let offset = if Self::message_type().is_some() { 1 } else { 0 };
+        let offset = Self::message_type().is_some().into();
 
         codec::decode_packet(buf, offset, |buf, full_len| {
             Self::decode_body(buf, full_len)
