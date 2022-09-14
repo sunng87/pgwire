@@ -11,7 +11,7 @@ use crate::{
     },
 };
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct Tag {
     command: String,
     rows: Option<usize>,
@@ -44,7 +44,7 @@ impl From<Tag> for CommandComplete {
     }
 }
 
-#[derive(Debug, new)]
+#[derive(Debug, new, Eq, PartialEq)]
 pub struct FieldInfo {
     name: String,
     table_id: Option<i32>,
@@ -73,7 +73,7 @@ pub(crate) fn into_row_description(fields: Vec<FieldInfo>) -> RowDescription {
     RowDescription::new(fields.into_iter().map(Into::into).collect())
 }
 
-#[derive(Debug, Getters)]
+#[derive(Debug, Getters, Eq, PartialEq)]
 #[getset(get = "pub")]
 pub struct QueryResponse {
     pub(crate) row_schema: Vec<FieldInfo>,
