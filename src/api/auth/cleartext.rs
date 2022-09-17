@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 
 use super::{ClientInfo, PgWireConnectionState, ServerParameterProvider, StartupHandler};
-use crate::error::{PgWireError, PgWireResult};
+use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::response::ErrorResponse;
 use crate::messages::startup::Authentication;
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
@@ -48,15 +48,12 @@ impl<V: PasswordVerifier, P: ServerParameterProvider> StartupHandler
                 if let Ok(true) = self.verifier.verify_password(pwd.password()).await {
                     super::finish_authentication(client, &self.parameter_provider).await
                 } else {
-                    // TODO: error api
-                    let info = vec![
-                        (b'L', "FATAL".to_owned()),
-                        (b'T', "FATAL".to_owned()),
-                        (b'C', "28P01".to_owned()),
-                        (b'M', "Password authentication failed".to_owned()),
-                        (b'R', "auth_failed".to_owned()),
-                    ];
-                    let error = ErrorResponse::new(info);
+                    let error_info = ErrorInfo::new(
+                        "FATAL".to_owned(),
+                        "28P01".to_owned(),
+                        "Password authentication failed".to_owned(),
+                    );
+                    let error = ErrorResponse::from(error_info);
 
                     client
                         .feed(PgWireBackendMessage::ErrorResponse(error))
