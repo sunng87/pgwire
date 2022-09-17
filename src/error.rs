@@ -24,10 +24,10 @@ pub enum PgWireError {
     #[error("Failed to parse parameter: {0:?}")]
     FailedToParseParameter(#[from] Box<dyn std::error::Error + Send + Sync>),
 
-    #[error("Api Error: {0:?}")]
-    ApiError(Box<dyn std::error::Error + 'static + Send>),
+    #[error(transparent)]
+    ApiError(#[from] Box<dyn std::error::Error + 'static + Send>),
 
-    #[error("User Error")]
+    #[error("Provided Error")]
     UserError(ErrorInfo),
 }
 
