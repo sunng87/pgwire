@@ -91,6 +91,7 @@ impl Message for ErrorResponse {
             .iter()
             .map(|f| 1 + f.1.as_bytes().len() + 1)
             .sum::<usize>()
+            + 1
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
@@ -140,6 +141,7 @@ impl Message for NoticeResponse {
             .iter()
             .map(|f| 1 + f.1.as_bytes().len() + 1)
             .sum::<usize>()
+            + 1
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
