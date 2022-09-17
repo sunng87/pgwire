@@ -175,7 +175,7 @@ async fn process_error(
     match error {
         PgWireError::UserError(error_info) => {
             let _ = socket
-                .send(PgWireBackendMessage::ErrorResponse(error_info.into()))
+                .send(PgWireBackendMessage::ErrorResponse((*error_info).into()))
                 .await;
         }
         _ => {

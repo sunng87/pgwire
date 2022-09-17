@@ -27,13 +27,11 @@ pub enum PgWireError {
     #[error(transparent)]
     ApiError(#[from] Box<dyn std::error::Error + 'static + Send>),
 
-    #[error("Provided Error")]
-    UserError(ErrorInfo),
+    #[error("User provided error: {0:?}")]
+    UserError(Box<ErrorInfo>),
 }
 
 pub type PgWireResult<T> = Result<T, PgWireError>;
-
-// TODO: distinguish fatal error and recoverable error
 
 // Postgres error and notice message fields
 // This part of protocol is defined in
@@ -123,15 +121,15 @@ impl ErrorInfo {
     }
 }
 
-impl Into<ErrorResponse> for ErrorInfo {
-    fn into(self) -> ErrorResponse {
-        ErrorResponse::new(self.into_fields())
+impl From<ErrorInfo> for ErrorResponse {
+    fn from(ei: ErrorInfo) -> ErrorResponse {
+        ErrorResponse::new(ei.into_fields())
     }
 }
 
-impl Into<NoticeResponse> for ErrorInfo {
-    fn into(self) -> NoticeResponse {
-        NoticeResponse::new(self.into_fields())
+impl From<ErrorInfo> for NoticeResponse {
+    fn from(ei: ErrorInfo) -> NoticeResponse {
+        NoticeResponse::new(ei.into_fields())
     }
 }
 
