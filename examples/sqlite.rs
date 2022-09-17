@@ -14,7 +14,7 @@ use pgwire::api::results::{
     BinaryQueryResponseBuilder, FieldInfo, Response, Tag, TextQueryResponseBuilder,
 };
 use pgwire::api::{ClientInfo, Type};
-use pgwire::error::PgWireResult;
+use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
 
 pub struct SqliteBackend {
@@ -70,20 +70,24 @@ impl SimpleQueryHandler for SqliteBackend {
     {
         let conn = self.conn.lock().unwrap();
         if query.to_uppercase().starts_with("SELECT") {
-            let mut stmt = conn.prepare(query).unwrap();
+            let mut stmt = conn
+                .prepare(query)
+                .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
             let columns = stmt.column_count();
             let header = row_desc_from_stmt(&stmt);
-            let rows = stmt.query(()).unwrap();
-
-            let mut builder = TextQueryResponseBuilder::new(header);
-            encode_text_row_data(rows, columns, &mut builder);
-
-            Ok(Response::Query(builder.build()))
+            stmt.query(())
+                .map(|rows| {
+                    let mut builder = TextQueryResponseBuilder::new(header);
+                    encode_text_row_data(rows, columns, &mut builder);
+                    Response::Query(builder.build())
+                })
+                .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {
-            let affected_rows = conn.execute(query, ()).unwrap();
-            Ok(Response::Execution(
-                Tag::new_for_execution("OK", Some(affected_rows)).into(),
-            ))
+            conn.execute(query, ())
+                .map(|affected_rows| {
+                    Response::Execution(Tag::new_for_execution("OK", Some(affected_rows)).into())
+                })
+                .map_err(|e| PgWireError::ApiError(Box::new(e)))
         }
     }
 }
@@ -214,7 +218,9 @@ impl ExtendedQueryHandler for SqliteBackend {
     {
         let conn = self.conn.lock().unwrap();
         let query = portal.statement();
-        let mut stmt = conn.prepare(query).unwrap();
+        let mut stmt = conn
+            .prepare(query)
+            .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         let params = get_params(portal);
         let params_ref = params
             .iter()
@@ -224,22 +230,20 @@ impl ExtendedQueryHandler for SqliteBackend {
         if query.to_uppercase().starts_with("SELECT") {
             let columns = stmt.column_count();
             let header = row_desc_from_stmt(&stmt);
-            let rows = stmt
-                .query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
-                .unwrap();
+            stmt.query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
+                .map(|rows| {
+                    let mut builder = BinaryQueryResponseBuilder::new(header);
+                    encode_binary_row_data(rows, columns, &mut builder);
 
-            let mut builder = BinaryQueryResponseBuilder::new(header);
-            encode_binary_row_data(rows, columns, &mut builder);
-
-            Ok(Response::Query(builder.build()))
+                    Response::Query(builder.build())
+                })
+                .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {
-            let affected_rows = stmt
-                .execute::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
-                .unwrap();
-            Ok(Response::Execution(Tag::new_for_execution(
-                "OK",
-                Some(affected_rows),
-            )))
+            stmt.execute::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
+                .map(|affected_rows| {
+                    Response::Execution(Tag::new_for_execution("OK", Some(affected_rows)).into())
+                })
+                .map_err(|e| PgWireError::ApiError(Box::new(e)))
         }
     }
 }
