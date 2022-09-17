@@ -14,6 +14,8 @@ use crate::api::stmt::Statement;
 use crate::api::store::SessionStore;
 use crate::api::{ClientInfo, ClientInfoHolder, PgWireConnectionState};
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
+use crate::messages::response::ReadyForQuery;
+use crate::messages::response::READY_STATUS_IDLE;
 use crate::messages::startup::{SslRequest, Startup};
 use crate::messages::{Message, PgWireBackendMessage, PgWireFrontendMessage};
 
@@ -175,8 +177,26 @@ async fn process_error(
     match error {
         PgWireError::UserError(error_info) => {
             let _ = socket
-                .send(PgWireBackendMessage::ErrorResponse((*error_info).into()))
+                .feed(PgWireBackendMessage::ErrorResponse((*error_info).into()))
                 .await;
+            let _ = socket
+                .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+                    READY_STATUS_IDLE,
+                )))
+                .await;
+            let _ = socket.flush().await;
+        }
+        PgWireError::ApiError(e) => {
+            let error_info = ErrorInfo::new("ERROR".to_owned(), "XX000".to_owned(), e.to_string());
+            let _ = socket
+                .feed(PgWireBackendMessage::ErrorResponse(error_info.into()))
+                .await;
+            let _ = socket
+                .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+                    READY_STATUS_IDLE,
+                )))
+                .await;
+            let _ = socket.flush().await;
         }
         _ => {
             // Internal error
@@ -185,6 +205,7 @@ async fn process_error(
             let _ = socket
                 .send(PgWireBackendMessage::ErrorResponse(error_info.into()))
                 .await;
+            let _ = socket.close().await;
         }
     }
 }
