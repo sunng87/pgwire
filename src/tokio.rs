@@ -13,7 +13,7 @@ use crate::api::query::SimpleQueryHandler;
 use crate::api::stmt::Statement;
 use crate::api::store::SessionStore;
 use crate::api::{ClientInfo, ClientInfoHolder, PgWireConnectionState};
-use crate::error::{PgWireError, PgWireResult};
+use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::startup::{SslRequest, Startup};
 use crate::messages::{Message, PgWireBackendMessage, PgWireFrontendMessage};
 
@@ -168,6 +168,27 @@ where
     Ok(())
 }
 
+async fn process_error(
+    socket: &mut Framed<TcpStream, PgWireMessageServerCodec>,
+    error: PgWireError,
+) {
+    match error {
+        PgWireError::UserError(error_info) => {
+            let _ = socket
+                .send(PgWireBackendMessage::ErrorResponse(error_info.into()))
+                .await;
+        }
+        _ => {
+            // Internal error
+            let error_info =
+                ErrorInfo::new("FATAL".to_owned(), "XX000".to_owned(), error.to_string());
+            let _ = socket
+                .send(PgWireBackendMessage::ErrorResponse(error_info.into()))
+                .await;
+        }
+    }
+}
+
 pub async fn process_socket<A, Q, EQ>(
     tcp_socket: TcpStream,
     authenticator: Arc<A>,
@@ -185,7 +206,7 @@ pub async fn process_socket<A, Q, EQ>(
         loop {
             match socket.next().await {
                 Some(Ok(msg)) => {
-                    if let Err(_e) = process_message(
+                    if let Err(e) = process_message(
                         msg,
                         &mut socket,
                         authenticator.clone(),
@@ -194,14 +215,10 @@ pub async fn process_socket<A, Q, EQ>(
                     )
                     .await
                     {
-                        // TODO: error processing
-                        // println!("{:?}", e);
-                        break;
+                        process_error(&mut socket, e).await;
                     }
                 }
                 Some(Err(_e)) => {
-                    // TODO: logging
-                    // println!("{:?}", e);
                     break;
                 }
                 None => break,
