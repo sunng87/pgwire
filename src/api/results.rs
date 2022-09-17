@@ -227,5 +227,5 @@ impl TextQueryResponseBuilder {
 pub enum Response {
     Query(QueryResponse),
     Execution(Tag),
-    Error(ErrorInfo),
+    Error(Box<ErrorInfo>),
 }

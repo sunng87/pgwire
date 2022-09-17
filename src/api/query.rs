@@ -42,7 +42,7 @@ pub trait SimpleQueryHandler: Send + Sync {
             }
             Response::Error(e) => {
                 client
-                    .feed(PgWireBackendMessage::ErrorResponse(e.into()))
+                    .feed(PgWireBackendMessage::ErrorResponse((*e).into()))
                     .await?;
                 client
                     .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
@@ -110,7 +110,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 }
                 Response::Error(err) => {
                     client
-                        .send(PgWireBackendMessage::ErrorResponse(err.into()))
+                        .send(PgWireBackendMessage::ErrorResponse((*err).into()))
                         .await?;
                 }
             }
