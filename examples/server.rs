@@ -15,7 +15,7 @@ pub struct DummyProcessor;
 
 #[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
-    async fn do_query<C>(&self, _client: &C, query: &str) -> PgWireResult<Response>
+    async fn do_query<C>(&self, _client: &C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -31,9 +31,12 @@ impl SimpleQueryHandler for DummyProcessor {
                 result_builder.append_field(Some("Tom"))?;
                 result_builder.finish_row();
             }
-            Ok(Response::Query(result_builder.build()))
+            Ok(vec![Response::Query(result_builder.build())])
         } else {
-            Ok(Response::Execution(Tag::new_for_execution("OK", Some(1))))
+            Ok(vec![Response::Execution(Tag::new_for_execution(
+                "OK",
+                Some(1),
+            ))])
         }
     }
 }

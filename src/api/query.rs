@@ -33,32 +33,34 @@ pub trait SimpleQueryHandler: Send + Sync {
     {
         client.set_state(super::PgWireConnectionState::QueryInProgress);
         let resp = self.do_query(client, query.query()).await?;
-        match resp {
-            Response::Query(results) => {
-                send_query_response(client, results, true).await?;
-            }
-            Response::Execution(tag) => {
-                send_execution_response(client, tag).await?;
-            }
-            Response::Error(e) => {
-                client
-                    .feed(PgWireBackendMessage::ErrorResponse((*e).into()))
-                    .await?;
-                client
-                    .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                        READY_STATUS_IDLE,
-                    )))
-                    .await?;
-                client.flush().await?;
+        for r in resp {
+            match r {
+                Response::Query(results) => {
+                    send_query_response(client, results, true).await?;
+                }
+                Response::Execution(tag) => {
+                    send_execution_response(client, tag).await?;
+                }
+                Response::Error(e) => {
+                    client
+                        .feed(PgWireBackendMessage::ErrorResponse((*e).into()))
+                        .await?;
+                }
             }
         }
+        client
+            .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+                READY_STATUS_IDLE,
+            )))
+            .await?;
+        client.flush().await?;
 
         client.set_state(super::PgWireConnectionState::ReadyForQuery);
         Ok(())
     }
 
     /// Provide your query implementation using the incoming query string.
-    async fn do_query<C>(&self, client: &C, query: &str) -> PgWireResult<Response>
+    async fn do_query<C>(&self, client: &C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Unpin + Send + Sync;
 }
@@ -114,6 +116,11 @@ pub trait ExtendedQueryHandler: Send + Sync {
                         .await?;
                 }
             }
+            client
+                .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+                    READY_STATUS_IDLE,
+                )))
+                .await?;
 
             Ok(())
         } else {
@@ -209,11 +216,6 @@ where
     client
         .send(PgWireBackendMessage::CommandComplete(tag.into()))
         .await?;
-    client
-        .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-            READY_STATUS_IDLE,
-        )))
-        .await?;
 
     Ok(())
 }
@@ -225,13 +227,8 @@ where
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
     client
-        .feed(PgWireBackendMessage::CommandComplete(tag.into()))
+        .send(PgWireBackendMessage::CommandComplete(tag.into()))
         .await?;
-    client
-        .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-            READY_STATUS_IDLE,
-        )))
-        .await?;
-    client.flush().await?;
+
     Ok(())
 }
