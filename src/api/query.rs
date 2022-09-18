@@ -15,7 +15,7 @@ use crate::messages::extendedquery::{
     Bind, Close, Describe, Execute, Parse, Sync as PgSync, TARGET_TYPE_BYTE_PORTAL,
     TARGET_TYPE_BYTE_STATEMENT,
 };
-use crate::messages::response::{ReadyForQuery, READY_STATUS_IDLE};
+use crate::messages::response::{EmptyQueryResponse, ReadyForQuery, READY_STATUS_IDLE};
 use crate::messages::simplequery::Query;
 use crate::messages::PgWireBackendMessage;
 
@@ -32,22 +32,30 @@ pub trait SimpleQueryHandler: Send + Sync {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         client.set_state(super::PgWireConnectionState::QueryInProgress);
-        let resp = self.do_query(client, query.query()).await?;
-        for r in resp {
-            match r {
-                Response::Query(results) => {
-                    send_query_response(client, results, true).await?;
-                }
-                Response::Execution(tag) => {
-                    send_execution_response(client, tag).await?;
-                }
-                Response::Error(e) => {
-                    client
-                        .feed(PgWireBackendMessage::ErrorResponse((*e).into()))
-                        .await?;
+        let query_string = query.query();
+        if query_string.is_empty() {
+            client
+                .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
+                .await?;
+        } else {
+            let resp = self.do_query(client, query.query()).await?;
+            for r in resp {
+                match r {
+                    Response::Query(results) => {
+                        send_query_response(client, results, true).await?;
+                    }
+                    Response::Execution(tag) => {
+                        send_execution_response(client, tag).await?;
+                    }
+                    Response::Error(e) => {
+                        client
+                            .feed(PgWireBackendMessage::ErrorResponse((*e).into()))
+                            .await?;
+                    }
                 }
             }
         }
+
         client
             .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
                 READY_STATUS_IDLE,

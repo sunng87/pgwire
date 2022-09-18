@@ -37,6 +37,30 @@ impl Message for CommandComplete {
 
 #[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct EmptyQueryResponse;
+
+pub const MESSAGE_TYPE_BYTE_EMPTY_QUERY_RESPONSE: u8 = b'I';
+
+impl Message for EmptyQueryResponse {
+    fn message_type() -> Option<u8> {
+        Some(MESSAGE_TYPE_BYTE_EMPTY_QUERY_RESPONSE)
+    }
+
+    fn message_length(&self) -> usize {
+        4
+    }
+
+    fn encode_body(&self, _buf: &mut BytesMut) -> PgWireResult<()> {
+        Ok(())
+    }
+
+    fn decode_body(_buf: &mut BytesMut, _full_len: usize) -> PgWireResult<Self> {
+        Ok(EmptyQueryResponse)
+    }
+}
+
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct ReadyForQuery {
     status: u8,
 }
