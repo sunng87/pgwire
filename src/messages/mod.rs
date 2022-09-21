@@ -151,6 +151,7 @@ pub enum PgWireBackendMessage {
 
     // command response
     CommandComplete(response::CommandComplete),
+    EmptyQueryResponse(response::EmptyQueryResponse),
     ReadyForQuery(response::ReadyForQuery),
     ErrorResponse(response::ErrorResponse),
     NoticeResponse(response::NoticeResponse),
@@ -173,6 +174,7 @@ impl PgWireBackendMessage {
             Self::PortalSuspended(msg) => msg.encode(buf),
 
             Self::CommandComplete(msg) => msg.encode(buf),
+            Self::EmptyQueryResponse(msg) => msg.encode(buf),
             Self::ReadyForQuery(msg) => msg.encode(buf),
             Self::ErrorResponse(msg) => msg.encode(buf),
             Self::NoticeResponse(msg) => msg.encode(buf),
@@ -217,6 +219,10 @@ impl PgWireBackendMessage {
 
                 response::MESSAGE_TYPE_BYTE_COMMAND_COMPLETE => {
                     response::CommandComplete::decode(buf).map(|v| v.map(Self::CommandComplete))
+                }
+                response::MESSAGE_TYPE_BYTE_EMPTY_QUERY_RESPONSE => {
+                    response::EmptyQueryResponse::decode(buf)
+                        .map(|v| v.map(Self::EmptyQueryResponse))
                 }
                 response::MESSAGE_TYPE_BYTE_READY_FOR_QUERY => {
                     response::ReadyForQuery::decode(buf).map(|v| v.map(Self::ReadyForQuery))

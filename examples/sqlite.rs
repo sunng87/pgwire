@@ -64,7 +64,7 @@ impl ServerParameterProvider for SqliteParameters {
 
 #[async_trait]
 impl SimpleQueryHandler for SqliteBackend {
-    async fn do_query<C>(&self, _client: &C, query: &str) -> PgWireResult<Response>
+    async fn do_query<C>(&self, _client: &C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -79,13 +79,15 @@ impl SimpleQueryHandler for SqliteBackend {
                 .map(|rows| {
                     let mut builder = TextQueryResponseBuilder::new(header);
                     encode_text_row_data(rows, columns, &mut builder);
-                    Response::Query(builder.build())
+                    vec![Response::Query(builder.build())]
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {
             conn.execute(query, ())
                 .map(|affected_rows| {
-                    Response::Execution(Tag::new_for_execution("OK", Some(affected_rows)).into())
+                    vec![Response::Execution(
+                        Tag::new_for_execution("OK", Some(affected_rows)).into(),
+                    )]
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         }
