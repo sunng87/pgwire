@@ -7,6 +7,31 @@ on:
   pull_request:
 
 jobs:
+  format:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        components: rustfmt
+        override: true
+    - run: cargo fmt -- --check
+
+  lint:
+    name: Clippy lint
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        components: clippy
+        override: true
+    - name: Lint
+      run: cargo clippy --all-features -- -D warnings
+
   test:
     name: Test
     runs-on: ${{ matrix.os }}
@@ -30,34 +55,19 @@ jobs:
             os: windows-latest
             rust: stable
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - uses: actions-rs/toolchain@v1
       with:
         toolchain: ${{ matrix.rust }}
-        components: clippy
         override: true
-    - name: Lint
-      run: cargo clippy --all-features -- -D warnings
     - name: Build and run tests
       run: cargo test --all-features
-
-  rustfmt:
-    name: Rustfmt
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v2
-    - uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        components: rustfmt
-        override: true
-    - run: cargo fmt -- --check
 
   msrv:
     name: MSRV
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - uses: actions-rs/toolchain@v1
       with:
         toolchain: "1.62"
