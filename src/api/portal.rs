@@ -83,7 +83,7 @@ impl Portal {
         let mut types = Vec::new();
         for oid in statement.type_oids() {
             // TODO: support non built-in types
-            types.push(Type::from_oid(*oid).ok_or(PgWireError::UnknownTypeId(*oid))?);
+            types.push(Type::from_oid(*oid).ok_or_else(|| PgWireError::UnknownTypeId(*oid))?);
         }
 
         // format
@@ -120,14 +120,14 @@ impl Portal {
         let param = self
             .parameters()
             .get(idx)
-            .ok_or(PgWireError::ParameterIndexOutOfBound(idx))?;
+            .ok_or_else(|| PgWireError::ParameterIndexOutOfBound(idx))?;
 
         let _format = self.parameter_format().parameter_format_of(idx);
 
         let ty = self
             .parameter_types()
             .get(idx)
-            .ok_or(PgWireError::ParameterTypeIndexOutOfBound(idx))?;
+            .ok_or_else(|| PgWireError::ParameterTypeIndexOutOfBound(idx))?;
 
         if !T::accepts(ty) {
             return Err(PgWireError::InvalidRustTypeForParameter(
