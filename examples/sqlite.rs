@@ -34,7 +34,7 @@ struct DummyPasswordVerifier;
 #[async_trait]
 impl PasswordVerifier for DummyPasswordVerifier {
     async fn verify_password(&self, password: &str) -> PgWireResult<bool> {
-        Ok(password == "test")
+        Ok(true)
     }
 }
 
