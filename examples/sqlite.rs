@@ -268,6 +268,7 @@ pub async fn main() {
         tokio::spawn(async move {
             process_socket(
                 incoming_socket.0,
+                None,
                 authenticator_ref.clone(),
                 processor_ref.clone(),
                 processor_ref.clone(),
