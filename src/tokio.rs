@@ -3,7 +3,9 @@ use std::sync::Arc;
 use bytes::Buf;
 use futures::SinkExt;
 use futures::StreamExt;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
+use tokio_rustls::TlsAcceptor;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
 use crate::api::auth::StartupHandler;
@@ -76,6 +78,10 @@ impl<T> ClientInfo for Framed<T, PgWireMessageServerCodec> {
         self.codec().client_info().socket_addr()
     }
 
+    fn is_secure(&self) -> bool {
+        *self.codec().client_info().is_secure()
+    }
+
     fn state(&self) -> &PgWireConnectionState {
         self.codec().client_info().state()
     }
@@ -109,14 +115,17 @@ impl<T> ClientInfo for Framed<T, PgWireMessageServerCodec> {
     }
 }
 
-async fn process_message<A, Q, EQ>(
+async fn process_message<S, A, Q, EQ>(
     message: PgWireFrontendMessage,
-    socket: &mut Framed<TcpStream, PgWireMessageServerCodec>,
+    socket: &mut Framed<S, PgWireMessageServerCodec>,
+    ssl_supported: bool,
+
     authenticator: Arc<A>,
     query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
 ) -> PgWireResult<()>
 where
+    S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
     A: StartupHandler + 'static,
     Q: SimpleQueryHandler + 'static,
     EQ: ExtendedQueryHandler + 'static,
@@ -124,11 +133,20 @@ where
     match socket.codec().client_info().state() {
         PgWireConnectionState::AwaitingSslRequest => {
             if matches!(message, PgWireFrontendMessage::SslRequest(_)) {
-                socket
-                    .codec_mut()
-                    .client_info_mut()
-                    .set_state(PgWireConnectionState::AwaitingStartup);
-                socket.send(PgWireBackendMessage::SslResponse(b'N')).await?;
+                if ssl_supported {
+                    socket
+                        .codec_mut()
+                        .client_info_mut()
+                        .set_state(PgWireConnectionState::AwaitingSslHandshake);
+                    socket.send(PgWireBackendMessage::SslResponse(b'S')).await?;
+                    // upgrade socket to secure socket
+                } else {
+                    socket
+                        .codec_mut()
+                        .client_info_mut()
+                        .set_state(PgWireConnectionState::AwaitingStartup);
+                    socket.send(PgWireBackendMessage::SslResponse(b'N')).await?;
+                }
             } else {
                 // TODO: raise error here for invalid packet read
                 debug!("invalid packet received, expected sslrequest");
@@ -170,10 +188,10 @@ where
     Ok(())
 }
 
-async fn process_error(
-    socket: &mut Framed<TcpStream, PgWireMessageServerCodec>,
-    error: PgWireError,
-) {
+async fn process_error<S>(socket: &mut Framed<S, PgWireMessageServerCodec>, error: PgWireError)
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
+{
     match error {
         PgWireError::UserError(error_info) => {
             let _ = socket
@@ -212,6 +230,7 @@ async fn process_error(
 
 pub async fn process_socket<A, Q, EQ>(
     tcp_socket: TcpStream,
+    tls_acceptor: Option<TlsAcceptor>,
     authenticator: Arc<A>,
     query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
@@ -221,7 +240,7 @@ pub async fn process_socket<A, Q, EQ>(
     EQ: ExtendedQueryHandler + 'static,
 {
     if let Ok(addr) = tcp_socket.peer_addr() {
-        let client_info = ClientInfoHolder::new(addr);
+        let client_info = ClientInfoHolder::new(addr, false);
         let mut socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
 
         loop {
@@ -230,6 +249,7 @@ pub async fn process_socket<A, Q, EQ>(
                     if let Err(e) = process_message(
                         msg,
                         &mut socket,
+                        tls_acceptor.is_some(),
                         authenticator.clone(),
                         query_handler.clone(),
                         extended_query_handler.clone(),
@@ -243,6 +263,18 @@ pub async fn process_socket<A, Q, EQ>(
                     break;
                 }
                 None => break,
+            }
+
+            if matches!(socket.state(), PgWireConnectionState::AwaitingSslHandshake) {
+                // safe to unwrap tls_acceptor here
+                if let Ok(ssl_socket) = tls_acceptor.unwrap().accept(tcp_socket).await {
+                    let client_info = ClientInfoHolder::new(addr, true);
+                    // TODO: socket type
+                    socket = Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
+                    socket.set_state(PgWireConnectionState::AwaitingStartup);
+                } else {
+                    break;
+                }
             }
         }
     }
