@@ -256,7 +256,8 @@ impl Message for BackendKeyData {
 pub struct SslRequest {}
 
 impl SslRequest {
-    const BODY_MAGIC_NUMBER: i32 = 80877103;
+    pub const BODY_MAGIC_NUMBER: i32 = 80877103;
+    pub const BODY_SIZE: usize = 8;
 }
 
 impl Message for SslRequest {
@@ -267,7 +268,7 @@ impl Message for SslRequest {
 
     #[inline]
     fn message_length(&self) -> usize {
-        8
+        Self::BODY_SIZE
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {

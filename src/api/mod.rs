@@ -15,8 +15,6 @@ pub const DEFAULT_NAME: &str = "POSTGRESQL_DEFAULT_NAME";
 
 #[derive(Debug, Clone)]
 pub enum PgWireConnectionState {
-    AwaitingSslRequest,
-    AwaitingSslHandshake,
     AwaitingStartup,
     AuthenticationInProgress,
     ReadyForQuery,
@@ -25,7 +23,7 @@ pub enum PgWireConnectionState {
 
 impl Default for PgWireConnectionState {
     fn default() -> PgWireConnectionState {
-        PgWireConnectionState::AwaitingSslRequest
+        PgWireConnectionState::AwaitingStartup
     }
 }
 
