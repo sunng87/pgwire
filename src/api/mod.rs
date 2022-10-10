@@ -13,7 +13,7 @@ pub mod store;
 
 pub const DEFAULT_NAME: &str = "POSTGRESQL_DEFAULT_NAME";
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PgWireConnectionState {
     AwaitingSslRequest,
     AwaitingSslHandshake,

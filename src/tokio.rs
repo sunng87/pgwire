@@ -240,40 +240,87 @@ pub async fn process_socket<A, Q, EQ>(
     EQ: ExtendedQueryHandler + 'static,
 {
     if let Ok(addr) = tcp_socket.peer_addr() {
-        let client_info = ClientInfoHolder::new(addr, false);
-        let mut socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
+        let state = {
+            let client_info = ClientInfoHolder::new(addr, false);
+            let mut socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
 
-        loop {
-            match socket.next().await {
-                Some(Ok(msg)) => {
-                    if let Err(e) = process_message(
-                        msg,
-                        &mut socket,
-                        tls_acceptor.is_some(),
-                        authenticator.clone(),
-                        query_handler.clone(),
-                        extended_query_handler.clone(),
-                    )
-                    .await
-                    {
-                        process_error(&mut socket, e).await;
-                    }
+            // consume first packet to see if ssl handshake is requested
+            if let Some(Ok(msg)) = socket.next().await {
+                // TODO: refactor this to process_first_message
+                if let Err(e) = process_message(
+                    msg,
+                    &mut socket,
+                    tls_acceptor.is_some(),
+                    authenticator.clone(),
+                    query_handler.clone(),
+                    extended_query_handler.clone(),
+                )
+                .await
+                {
+                    process_error(&mut socket, e).await;
                 }
-                Some(Err(_e)) => {
-                    break;
-                }
-                None => break,
             }
 
-            if matches!(socket.state(), PgWireConnectionState::AwaitingSslHandshake) {
-                // safe to unwrap tls_acceptor here
-                if let Ok(ssl_socket) = tls_acceptor.unwrap().accept(tcp_socket).await {
-                    let client_info = ClientInfoHolder::new(addr, true);
-                    // TODO: socket type
-                    socket = Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
-                    socket.set_state(PgWireConnectionState::AwaitingStartup);
-                } else {
-                    break;
+            socket.state().clone()
+        };
+
+        if matches!(state, PgWireConnectionState::AwaitingSslHandshake) {
+            // safe to unwrap tls_acceptor here
+            if let Ok(ssl_socket) = tls_acceptor.unwrap().accept(tcp_socket).await {
+                let client_info = ClientInfoHolder::new(addr, true);
+                let mut socket =
+                    Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
+                socket.set_state(PgWireConnectionState::AwaitingStartup);
+
+                loop {
+                    match socket.next().await {
+                        Some(Ok(msg)) => {
+                            if let Err(e) = process_message(
+                                msg,
+                                &mut socket,
+                                true,
+                                authenticator.clone(),
+                                query_handler.clone(),
+                                extended_query_handler.clone(),
+                            )
+                            .await
+                            {
+                                process_error(&mut socket, e).await;
+                            }
+                        }
+                        Some(Err(_e)) => {
+                            break;
+                        }
+                        None => break,
+                    }
+                }
+            } else {
+                return;
+            }
+        } else {
+            let client_info = ClientInfoHolder::new(addr, false);
+            let mut socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
+            socket.set_state(state);
+            loop {
+                match socket.next().await {
+                    Some(Ok(msg)) => {
+                        if let Err(e) = process_message(
+                            msg,
+                            &mut socket,
+                            false,
+                            authenticator.clone(),
+                            query_handler.clone(),
+                            extended_query_handler.clone(),
+                        )
+                        .await
+                        {
+                            process_error(&mut socket, e).await;
+                        }
+                    }
+                    Some(Err(_e)) => {
+                        break;
+                    }
+                    None => break,
                 }
             }
         }
