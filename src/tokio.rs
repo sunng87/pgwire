@@ -222,7 +222,7 @@ async fn peek_for_sslrequest(
 
 pub async fn process_socket<A, Q, EQ>(
     mut tcp_socket: TcpStream,
-    tls_acceptor: Option<TlsAcceptor>,
+    tls_acceptor: Option<Arc<TlsAcceptor>>,
     authenticator: Arc<A>,
     query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
