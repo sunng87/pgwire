@@ -67,9 +67,9 @@ pub async fn main() {
             process_socket(
                 incoming_socket.0,
                 None,
-                authenticator_ref.clone(),
+                authenticator_ref,
                 processor_ref.clone(),
-                processor_ref.clone(),
+                processor_ref,
             )
             .await
         });
