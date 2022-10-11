@@ -71,7 +71,7 @@ pub async fn main() {
                 processor_ref.clone(),
                 processor_ref.clone(),
             )
-            .await;
+            .await
         });
     }
 }

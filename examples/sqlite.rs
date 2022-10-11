@@ -33,7 +33,7 @@ struct DummyPasswordVerifier;
 
 #[async_trait]
 impl PasswordVerifier for DummyPasswordVerifier {
-    async fn verify_password(&self, password: &str) -> PgWireResult<bool> {
+    async fn verify_password(&self, _password: &str) -> PgWireResult<bool> {
         Ok(true)
     }
 }
@@ -273,7 +273,7 @@ pub async fn main() {
                 processor_ref.clone(),
                 processor_ref.clone(),
             )
-            .await;
+            .await
         });
     }
 }

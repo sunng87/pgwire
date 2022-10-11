@@ -1,3 +1,4 @@
+use std::io::Error as IOError;
 use std::sync::Arc;
 
 use bytes::Buf;
@@ -188,83 +189,88 @@ where
     }
 }
 
+async fn peek_for_sslrequest(
+    tcp_socket: &mut TcpStream,
+    ssl_supported: bool,
+) -> Result<bool, IOError> {
+    let mut ssl = false;
+    let mut buf = [0u8; SslRequest::BODY_SIZE];
+    loop {
+        let size = tcp_socket.peek(&mut buf).await?;
+        if size == SslRequest::BODY_SIZE {
+            let mut buf_ref = buf.as_ref();
+            // skip first 4 bytes
+            let _ = buf_ref.get_i32();
+            if buf_ref.get_i32() == SslRequest::BODY_MAGIC_NUMBER {
+                // the socket is sending sslrequest, read the first 8 bytes
+                // skip first 8 bytes
+                let _ = tcp_socket.read(&mut [0u8; SslRequest::BODY_SIZE]).await;
+                // ssl supported
+                if ssl_supported {
+                    ssl = true;
+                    let _ = tcp_socket.write(b"S").await;
+                } else {
+                    let _ = tcp_socket.write(b"N").await;
+                }
+            }
+            break;
+        }
+    }
+
+    Ok(ssl)
+}
+
 pub async fn process_socket<A, Q, EQ>(
     mut tcp_socket: TcpStream,
     tls_acceptor: Option<TlsAcceptor>,
     authenticator: Arc<A>,
     query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
-) where
+) -> Result<(), IOError>
+where
     A: StartupHandler + 'static,
     Q: SimpleQueryHandler + 'static,
     EQ: ExtendedQueryHandler + 'static,
 {
-    if let Ok(addr) = tcp_socket.peer_addr() {
-        let mut ssl = false;
-        let mut buf = [0u8; SslRequest::BODY_SIZE];
-        loop {
-            if let Ok(size) = tcp_socket.peek(&mut buf).await {
-                if size == SslRequest::BODY_SIZE {
-                    let mut buf_ref = buf.as_ref();
-                    // skip first 4 bytes
-                    let _ = buf_ref.get_i32();
-                    if buf_ref.get_i32() == SslRequest::BODY_MAGIC_NUMBER {
-                        // the socket is sending sslrequest, read the first 8 bytes
-                        // skip first 8 bytes
-                        let _ = tcp_socket.read(&mut [0u8; SslRequest::BODY_SIZE]).await;
-                        // ssl supported
-                        if tls_acceptor.is_some() {
-                            ssl = true;
-                            let _ = tcp_socket.write(b"S").await;
-                        } else {
-                            let _ = tcp_socket.write(b"N").await;
-                        }
-                    }
-                    break;
-                }
-            } else {
-                return;
+    let addr = tcp_socket.peer_addr()?;
+    let ssl = peek_for_sslrequest(&mut tcp_socket, tls_acceptor.is_some()).await?;
+
+    let client_info = ClientInfoHolder::new(addr, ssl);
+    if ssl {
+        // safe to unwrap tls_acceptor here
+        let ssl_socket = tls_acceptor.unwrap().accept(tcp_socket).await?;
+        let mut socket = Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
+
+        while let Some(Ok(msg)) = socket.next().await {
+            if let Err(e) = process_message(
+                msg,
+                &mut socket,
+                authenticator.clone(),
+                query_handler.clone(),
+                extended_query_handler.clone(),
+            )
+            .await
+            {
+                process_error(&mut socket, e).await;
             }
         }
+    } else {
+        let mut socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
 
-        if ssl {
-            // safe to unwrap tls_acceptor here
-            if let Ok(ssl_socket) = tls_acceptor.unwrap().accept(tcp_socket).await {
-                let client_info = ClientInfoHolder::new(addr, true);
-                let mut socket =
-                    Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
-
-                while let Some(Ok(msg)) = socket.next().await {
-                    if let Err(e) = process_message(
-                        msg,
-                        &mut socket,
-                        authenticator.clone(),
-                        query_handler.clone(),
-                        extended_query_handler.clone(),
-                    )
-                    .await
-                    {
-                        process_error(&mut socket, e).await;
-                    }
-                }
-            }
-        } else {
-            let client_info = ClientInfoHolder::new(addr, false);
-            let mut socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
-
-            while let Some(Ok(msg)) = socket.next().await {
-                if let Err(e) = process_message(
-                    msg,
-                    &mut socket,
-                    authenticator.clone(),
-                    query_handler.clone(),
-                    extended_query_handler.clone(),
-                )
-                .await
-                {
-                    process_error(&mut socket, e).await;
-                }
+        while let Some(Ok(msg)) = socket.next().await {
+            if let Err(e) = process_message(
+                msg,
+                &mut socket,
+                authenticator.clone(),
+                query_handler.clone(),
+                extended_query_handler.clone(),
+            )
+            .await
+            {
+                process_error(&mut socket, e).await;
             }
         }
     }
+
+    Ok(())
 }
