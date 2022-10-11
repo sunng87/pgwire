@@ -234,52 +234,35 @@ pub async fn process_socket<A, Q, EQ>(
                 let mut socket =
                     Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
 
-                loop {
-                    match socket.next().await {
-                        Some(Ok(msg)) => {
-                            if let Err(e) = process_message(
-                                msg,
-                                &mut socket,
-                                authenticator.clone(),
-                                query_handler.clone(),
-                                extended_query_handler.clone(),
-                            )
-                            .await
-                            {
-                                process_error(&mut socket, e).await;
-                            }
-                        }
-                        Some(Err(_e)) => {
-                            break;
-                        }
-                        None => break,
+                while let Some(Ok(msg)) = socket.next().await {
+                    if let Err(e) = process_message(
+                        msg,
+                        &mut socket,
+                        authenticator.clone(),
+                        query_handler.clone(),
+                        extended_query_handler.clone(),
+                    )
+                    .await
+                    {
+                        process_error(&mut socket, e).await;
                     }
                 }
-            } else {
-                return;
             }
         } else {
             let client_info = ClientInfoHolder::new(addr, false);
             let mut socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
-            loop {
-                match socket.next().await {
-                    Some(Ok(msg)) => {
-                        if let Err(e) = process_message(
-                            msg,
-                            &mut socket,
-                            authenticator.clone(),
-                            query_handler.clone(),
-                            extended_query_handler.clone(),
-                        )
-                        .await
-                        {
-                            process_error(&mut socket, e).await;
-                        }
-                    }
-                    Some(Err(_e)) => {
-                        break;
-                    }
-                    None => break,
+
+            while let Some(Ok(msg)) = socket.next().await {
+                if let Err(e) = process_message(
+                    msg,
+                    &mut socket,
+                    authenticator.clone(),
+                    query_handler.clone(),
+                    extended_query_handler.clone(),
+                )
+                .await
+                {
+                    process_error(&mut socket, e).await;
                 }
             }
         }
