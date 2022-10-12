@@ -24,17 +24,22 @@ rand = "0.8"
 thiserror = "1"
 postgres-types = "0.2"
 
-tokio = { version = "1.19", features = ["net", "rt"], optional = true}
+tokio = { version = "1.19", features = ["net", "rt", "io-util"], optional = true}
 tokio-util = { version = "0.7.3", features = ["codec", "io"], optional = true }
+tokio-rustls = { version = "0.23", optional = true }
 
 [dev-dependencies]
-tokio = { version = "1.19", features = ["rt-multi-thread", "net", "io-util", "macros"]}
+tokio = { version = "1.19", features = ["rt-multi-thread", "net", "macros"]}
 rusqlite = { version = "0.28.0", features = ["bundled", "column_decltype"] }
 hex = "0.4"
+## for loading custom cert files
+rustls-pemfile = { version = "1.0" }
+## webpki-roots has mozilla's set of roots
+## rustls-native-certs loads roots from current system
 
 [features]
 default = ["tokio_support"]
-tokio_support = ["tokio", "tokio-util"]
+tokio_support = ["tokio", "tokio-util", "tokio-rustls"]
 
 [[example]]
 name = "server"

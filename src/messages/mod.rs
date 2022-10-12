@@ -51,7 +51,6 @@ pub mod terminate;
 /// Messages sent from Frontend
 #[derive(Debug)]
 pub enum PgWireFrontendMessage {
-    SslRequest(startup::SslRequest),
     Startup(startup::Startup),
     Password(startup::Password),
 
@@ -70,7 +69,6 @@ pub enum PgWireFrontendMessage {
 impl PgWireFrontendMessage {
     pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         match self {
-            Self::SslRequest(msg) => msg.encode(buf),
             Self::Startup(msg) => msg.encode(buf),
             Self::Password(msg) => msg.encode(buf),
 
@@ -123,7 +121,6 @@ impl PgWireFrontendMessage {
                 }
                 _ => {
                     // messages have no type byte, manual decoding required
-                    // sslrequest
                     // startup
                     Ok(None)
                 }
@@ -138,7 +135,6 @@ impl PgWireFrontendMessage {
 #[derive(Debug)]
 pub enum PgWireBackendMessage {
     // startup
-    SslResponse(u8), // a single byte N or S
     Authentication(startup::Authentication),
     ParameterStatus(startup::ParameterStatus),
     BackendKeyData(startup::BackendKeyData),
@@ -181,11 +177,6 @@ impl PgWireBackendMessage {
 
             Self::RowDescription(msg) => msg.encode(buf),
             Self::DataRow(msg) => msg.encode(buf),
-
-            Self::SslResponse(b) => {
-                buf.put_u8(*b);
-                Ok(())
-            }
         }
     }
 
@@ -242,7 +233,6 @@ impl PgWireBackendMessage {
                 }
                 _ => {
                     // messages have no type byte, manual decoding required
-                    // sslrequest/sslresponse
                     // startup
                     Ok(None)
                 }

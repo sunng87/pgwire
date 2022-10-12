@@ -1,9 +1,12 @@
+use std::io::Error as IOError;
 use std::sync::Arc;
 
 use bytes::Buf;
 use futures::SinkExt;
 use futures::StreamExt;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio_rustls::TlsAcceptor;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
 use crate::api::auth::StartupHandler;
@@ -31,22 +34,6 @@ impl Decoder for PgWireMessageServerCodec {
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         match self.client_info.state() {
-            PgWireConnectionState::AwaitingSslRequest => {
-                if let Some(ssl_request) = SslRequest::decode(src)? {
-                    Ok(Some(PgWireFrontendMessage::SslRequest(ssl_request)))
-                } else {
-                    // the packet is longer than 8 bytes and is not a
-                    // `SslRequest`, so it should be a client without SSL
-                    // capability, goto next state directly and try to decode it
-                    // as a `Startup` message
-                    if src.remaining() >= 8 {
-                        *self.client_info.state_mut() = PgWireConnectionState::AwaitingStartup;
-                        // re-attempt to decode immediately
-                        return self.decode(src);
-                    }
-                    Ok(None)
-                }
-            }
             PgWireConnectionState::AwaitingStartup => {
                 if let Some(startup) = Startup::decode(src)? {
                     Ok(Some(PgWireFrontendMessage::Startup(startup)))
@@ -74,6 +61,10 @@ impl Encoder<PgWireBackendMessage> for PgWireMessageServerCodec {
 impl<T> ClientInfo for Framed<T, PgWireMessageServerCodec> {
     fn socket_addr(&self) -> &std::net::SocketAddr {
         self.codec().client_info().socket_addr()
+    }
+
+    fn is_secure(&self) -> bool {
+        *self.codec().client_info().is_secure()
     }
 
     fn state(&self) -> &PgWireConnectionState {
@@ -109,32 +100,20 @@ impl<T> ClientInfo for Framed<T, PgWireMessageServerCodec> {
     }
 }
 
-async fn process_message<A, Q, EQ>(
+async fn process_message<S, A, Q, EQ>(
     message: PgWireFrontendMessage,
-    socket: &mut Framed<TcpStream, PgWireMessageServerCodec>,
+    socket: &mut Framed<S, PgWireMessageServerCodec>,
     authenticator: Arc<A>,
     query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
 ) -> PgWireResult<()>
 where
+    S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
     A: StartupHandler + 'static,
     Q: SimpleQueryHandler + 'static,
     EQ: ExtendedQueryHandler + 'static,
 {
     match socket.codec().client_info().state() {
-        PgWireConnectionState::AwaitingSslRequest => {
-            if matches!(message, PgWireFrontendMessage::SslRequest(_)) {
-                socket
-                    .codec_mut()
-                    .client_info_mut()
-                    .set_state(PgWireConnectionState::AwaitingStartup);
-                socket.send(PgWireBackendMessage::SslResponse(b'N')).await?;
-            } else {
-                // TODO: raise error here for invalid packet read
-                debug!("invalid packet received, expected sslrequest");
-                socket.close().await?;
-            }
-        }
         PgWireConnectionState::AwaitingStartup
         | PgWireConnectionState::AuthenticationInProgress => {
             authenticator.on_startup(socket, &message).await?;
@@ -170,10 +149,10 @@ where
     Ok(())
 }
 
-async fn process_error(
-    socket: &mut Framed<TcpStream, PgWireMessageServerCodec>,
-    error: PgWireError,
-) {
+async fn process_error<S>(socket: &mut Framed<S, PgWireMessageServerCodec>, error: PgWireError)
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
+{
     match error {
         PgWireError::UserError(error_info) => {
             let _ = socket
@@ -210,40 +189,88 @@ async fn process_error(
     }
 }
 
+async fn peek_for_sslrequest(
+    tcp_socket: &mut TcpStream,
+    ssl_supported: bool,
+) -> Result<bool, IOError> {
+    let mut ssl = false;
+    let mut buf = [0u8; SslRequest::BODY_SIZE];
+    loop {
+        let size = tcp_socket.peek(&mut buf).await?;
+        if size == SslRequest::BODY_SIZE {
+            let mut buf_ref = buf.as_ref();
+            // skip first 4 bytes
+            let _ = buf_ref.get_i32();
+            if buf_ref.get_i32() == SslRequest::BODY_MAGIC_NUMBER {
+                // the socket is sending sslrequest, read the first 8 bytes
+                // skip first 8 bytes
+                let _ = tcp_socket.read(&mut [0u8; SslRequest::BODY_SIZE]).await;
+                // ssl supported
+                if ssl_supported {
+                    ssl = true;
+                    let _ = tcp_socket.write(b"S").await;
+                } else {
+                    let _ = tcp_socket.write(b"N").await;
+                }
+            }
+            break;
+        }
+    }
+
+    Ok(ssl)
+}
+
 pub async fn process_socket<A, Q, EQ>(
-    tcp_socket: TcpStream,
+    mut tcp_socket: TcpStream,
+    tls_acceptor: Option<Arc<TlsAcceptor>>,
     authenticator: Arc<A>,
     query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
-) where
+) -> Result<(), IOError>
+where
     A: StartupHandler + 'static,
     Q: SimpleQueryHandler + 'static,
     EQ: ExtendedQueryHandler + 'static,
 {
-    if let Ok(addr) = tcp_socket.peer_addr() {
-        let client_info = ClientInfoHolder::new(addr);
+    let addr = tcp_socket.peer_addr()?;
+    let ssl = peek_for_sslrequest(&mut tcp_socket, tls_acceptor.is_some()).await?;
+
+    let client_info = ClientInfoHolder::new(addr, ssl);
+    if ssl {
+        // safe to unwrap tls_acceptor here
+        let ssl_socket = tls_acceptor.unwrap().accept(tcp_socket).await?;
+        let mut socket = Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
+
+        while let Some(Ok(msg)) = socket.next().await {
+            if let Err(e) = process_message(
+                msg,
+                &mut socket,
+                authenticator.clone(),
+                query_handler.clone(),
+                extended_query_handler.clone(),
+            )
+            .await
+            {
+                process_error(&mut socket, e).await;
+            }
+        }
+    } else {
         let mut socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
 
-        loop {
-            match socket.next().await {
-                Some(Ok(msg)) => {
-                    if let Err(e) = process_message(
-                        msg,
-                        &mut socket,
-                        authenticator.clone(),
-                        query_handler.clone(),
-                        extended_query_handler.clone(),
-                    )
-                    .await
-                    {
-                        process_error(&mut socket, e).await;
-                    }
-                }
-                Some(Err(_e)) => {
-                    break;
-                }
-                None => break,
+        while let Some(Ok(msg)) = socket.next().await {
+            if let Err(e) = process_message(
+                msg,
+                &mut socket,
+                authenticator.clone(),
+                query_handler.clone(),
+                extended_query_handler.clone(),
+            )
+            .await
+            {
+                process_error(&mut socket, e).await;
             }
         }
     }
+
+    Ok(())
 }

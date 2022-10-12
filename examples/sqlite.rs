@@ -33,7 +33,7 @@ struct DummyPasswordVerifier;
 
 #[async_trait]
 impl PasswordVerifier for DummyPasswordVerifier {
-    async fn verify_password(&self, password: &str) -> PgWireResult<bool> {
+    async fn verify_password(&self, _password: &str) -> PgWireResult<bool> {
         Ok(true)
     }
 }
@@ -268,11 +268,12 @@ pub async fn main() {
         tokio::spawn(async move {
             process_socket(
                 incoming_socket.0,
-                authenticator_ref.clone(),
+                None,
+                authenticator_ref,
                 processor_ref.clone(),
-                processor_ref.clone(),
+                processor_ref,
             )
-            .await;
+            .await
         });
     }
 }

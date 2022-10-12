@@ -13,9 +13,8 @@ pub mod store;
 
 pub const DEFAULT_NAME: &str = "POSTGRESQL_DEFAULT_NAME";
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PgWireConnectionState {
-    AwaitingSslRequest,
     AwaitingStartup,
     AuthenticationInProgress,
     ReadyForQuery,
@@ -24,13 +23,15 @@ pub enum PgWireConnectionState {
 
 impl Default for PgWireConnectionState {
     fn default() -> PgWireConnectionState {
-        PgWireConnectionState::AwaitingSslRequest
+        PgWireConnectionState::AwaitingStartup
     }
 }
 
 /// Describe a client infomation holder
 pub trait ClientInfo {
     fn socket_addr(&self) -> &SocketAddr;
+
+    fn is_secure(&self) -> bool;
 
     fn state(&self) -> &PgWireConnectionState;
 
@@ -53,6 +54,7 @@ pub trait ClientInfo {
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct ClientInfoHolder {
     socket_addr: SocketAddr,
+    is_secure: bool,
     #[new(default)]
     state: PgWireConnectionState,
     #[new(default)]
