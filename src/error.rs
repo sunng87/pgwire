@@ -1,3 +1,5 @@
+use std::io::{Error as IOError, ErrorKind};
+
 use postgres_types::Oid;
 use thiserror::Error;
 
@@ -22,13 +24,19 @@ pub enum PgWireError {
     #[error("Cannot convert postgre type {0:?} to given rust type")]
     InvalidRustTypeForParameter(String),
     #[error("Failed to parse parameter: {0:?}")]
-    FailedToParseParameter(#[from] Box<dyn std::error::Error + Send + Sync>),
+    FailedToParseParameter(Box<dyn std::error::Error + Send + Sync>),
 
     #[error(transparent)]
-    ApiError(#[from] Box<dyn std::error::Error + 'static + Send>),
+    ApiError(#[from] Box<dyn std::error::Error + 'static + Send + Sync>),
 
     #[error("User provided error: {0:?}")]
     UserError(Box<ErrorInfo>),
+}
+
+impl Into<IOError> for PgWireError {
+    fn into(self) -> IOError {
+        IOError::new(ErrorKind::Other, self)
+    }
 }
 
 pub type PgWireResult<T> = Result<T, PgWireError>;

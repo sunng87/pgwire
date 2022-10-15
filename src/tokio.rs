@@ -47,14 +47,14 @@ impl Decoder for PgWireMessageServerCodec {
 }
 
 impl Encoder<PgWireBackendMessage> for PgWireMessageServerCodec {
-    type Error = PgWireError;
+    type Error = IOError;
 
     fn encode(
         &mut self,
         item: PgWireBackendMessage,
         dst: &mut bytes::BytesMut,
     ) -> Result<(), Self::Error> {
-        item.encode(dst)
+        item.encode(dst).map_err(Into::into)
     }
 }
 
@@ -149,44 +149,50 @@ where
     Ok(())
 }
 
-async fn process_error<S>(socket: &mut Framed<S, PgWireMessageServerCodec>, error: PgWireError)
+async fn process_error<S>(
+    socket: &mut Framed<S, PgWireMessageServerCodec>,
+    error: PgWireError,
+) -> Result<(), IOError>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
 {
     match error {
         PgWireError::UserError(error_info) => {
-            let _ = socket
+            socket
                 .feed(PgWireBackendMessage::ErrorResponse((*error_info).into()))
-                .await;
-            let _ = socket
+                .await?;
+
+            socket
                 .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
                     READY_STATUS_IDLE,
                 )))
-                .await;
-            let _ = socket.flush().await;
+                .await?;
+            socket.flush().await?;
         }
         PgWireError::ApiError(e) => {
             let error_info = ErrorInfo::new("ERROR".to_owned(), "XX000".to_owned(), e.to_string());
-            let _ = socket
+            socket
                 .feed(PgWireBackendMessage::ErrorResponse(error_info.into()))
-                .await;
-            let _ = socket
+                .await?;
+            socket
                 .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
                     READY_STATUS_IDLE,
                 )))
-                .await;
-            let _ = socket.flush().await;
+                .await?;
+            socket.flush().await?;
         }
         _ => {
             // Internal error
             let error_info =
                 ErrorInfo::new("FATAL".to_owned(), "XX000".to_owned(), error.to_string());
-            let _ = socket
+            socket
                 .send(PgWireBackendMessage::ErrorResponse(error_info.into()))
-                .await;
-            let _ = socket.close().await;
+                .await?;
+            socket.close().await?;
         }
     }
+
+    Ok(())
 }
 
 async fn peek_for_sslrequest(
@@ -200,17 +206,17 @@ async fn peek_for_sslrequest(
         if size == SslRequest::BODY_SIZE {
             let mut buf_ref = buf.as_ref();
             // skip first 4 bytes
-            let _ = buf_ref.get_i32();
+            drop(buf_ref.get_i32());
             if buf_ref.get_i32() == SslRequest::BODY_MAGIC_NUMBER {
                 // the socket is sending sslrequest, read the first 8 bytes
                 // skip first 8 bytes
-                let _ = tcp_socket.read(&mut [0u8; SslRequest::BODY_SIZE]).await;
+                tcp_socket.read(&mut [0u8; SslRequest::BODY_SIZE]).await?;
                 // ssl supported
                 if ssl_supported {
                     ssl = true;
-                    let _ = tcp_socket.write(b"S").await;
+                    tcp_socket.write(b"S").await?;
                 } else {
-                    let _ = tcp_socket.write(b"N").await;
+                    tcp_socket.write(b"N").await?;
                 }
             }
             break;
@@ -251,7 +257,7 @@ where
             )
             .await
             {
-                process_error(&mut socket, e).await;
+                process_error(&mut socket, e).await?;
             }
         }
     } else {
@@ -267,7 +273,7 @@ where
             )
             .await
             {
-                process_error(&mut socket, e).await;
+                process_error(&mut socket, e).await?;
             }
         }
     }
