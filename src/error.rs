@@ -33,9 +33,9 @@ pub enum PgWireError {
     UserError(Box<ErrorInfo>),
 }
 
-impl Into<IOError> for PgWireError {
-    fn into(self) -> IOError {
-        IOError::new(ErrorKind::Other, self)
+impl From<PgWireError> for IOError {
+    fn from(e: PgWireError) -> Self {
+        IOError::new(ErrorKind::Other, e)
     }
 }
 

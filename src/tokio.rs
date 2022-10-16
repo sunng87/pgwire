@@ -206,17 +206,19 @@ async fn peek_for_sslrequest(
         if size == SslRequest::BODY_SIZE {
             let mut buf_ref = buf.as_ref();
             // skip first 4 bytes
-            drop(buf_ref.get_i32());
+            buf_ref.get_i32();
             if buf_ref.get_i32() == SslRequest::BODY_MAGIC_NUMBER {
                 // the socket is sending sslrequest, read the first 8 bytes
                 // skip first 8 bytes
-                tcp_socket.read(&mut [0u8; SslRequest::BODY_SIZE]).await?;
-                // ssl supported
+                tcp_socket
+                    .read_exact(&mut [0u8; SslRequest::BODY_SIZE])
+                    .await?;
+                // ssl configured
                 if ssl_supported {
                     ssl = true;
-                    tcp_socket.write(b"S").await?;
+                    tcp_socket.write_all(b"S").await?;
                 } else {
-                    tcp_socket.write(b"N").await?;
+                    tcp_socket.write_all(b"N").await?;
                 }
             }
             break;
