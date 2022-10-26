@@ -36,7 +36,7 @@ impl Tag {
 impl From<Tag> for CommandComplete {
     fn from(tag: Tag) -> CommandComplete {
         let tag_string = if let Some(rows) = tag.rows {
-            format!("{:?} {:?}", tag.command, rows)
+            format!("{} {rows}", tag.command)
         } else {
             tag.command
         };
@@ -228,4 +228,17 @@ pub enum Response {
     Query(QueryResponse),
     Execution(Tag),
     Error(Box<ErrorInfo>),
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_command_complete() {
+        let tag = Tag::new_for_execution("INSERT", Some(100));
+        let cc = CommandComplete::from(tag);
+
+        assert_eq!(cc.tag(), "INSERT 100");
+    }
 }
