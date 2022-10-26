@@ -25,80 +25,86 @@ impl SimpleQueryHandler for GluesqlProcessor {
     {
         println!("{:?}", query);
         let mut glue = self.glue.lock().unwrap();
-        let result = glue.execute(query);
+        glue.execute(query)
+            .map_err(|err| PgWireError::ApiError(Box::new(err)))
+            .and_then(|payloads| {
+                payloads
+                    .iter()
+                    .map(|payload| match payload {
+                        Payload::Select { labels, rows } => {
+                            let fields = labels
+                                .iter()
+                                .map(|label| {
+                                    FieldInfo::new(label.into(), None, None, Type::UNKNOWN)
+                                })
+                                .collect();
+                            let mut result_builder = TextQueryResponseBuilder::new(fields);
 
-        match result {
-            Ok(payloads) => Ok(payloads
-                .iter()
-                .map(|payload| match payload {
-                    Payload::Select { labels, rows } => {
-                        let fields = labels
-                            .iter()
-                            .map(|label| FieldInfo::new(label.into(), None, None, Type::UNKNOWN))
-                            .collect();
-                        let mut result_builder = TextQueryResponseBuilder::new(fields);
-
-                        for row in rows {
-                            for field in row.iter() {
-                                match field {
-                                    Value::Bool(v) => {
-                                        result_builder.append_field(Some(*v)).unwrap()
+                            for row in rows {
+                                for field in row.iter() {
+                                    match field {
+                                        Value::Bool(v) => result_builder.append_field(Some(*v))?,
+                                        Value::I8(v) => result_builder.append_field(Some(*v))?,
+                                        Value::I16(v) => result_builder.append_field(Some(*v))?,
+                                        Value::I32(v) => result_builder.append_field(Some(*v))?,
+                                        Value::I64(v) => result_builder.append_field(Some(*v))?,
+                                        Value::I128(v) => result_builder.append_field(Some(*v))?,
+                                        Value::U8(v) => result_builder.append_field(Some(*v))?,
+                                        Value::F64(v) => result_builder.append_field(Some(*v))?,
+                                        Value::Str(v) => result_builder.append_field(Some(v))?,
+                                        Value::Bytea(v) => {
+                                            result_builder.append_field(Some(hex::encode(v)))?
+                                        }
+                                        Value::Date(v) => result_builder.append_field(Some(v))?,
+                                        Value::Time(v) => result_builder.append_field(Some(v))?,
+                                        Value::Timestamp(v) => {
+                                            result_builder.append_field(Some(v))?
+                                        }
+                                        _ => unimplemented!(),
                                     }
-                                    Value::I8(v) => result_builder.append_field(Some(*v)).unwrap(),
-                                    Value::I16(v) => result_builder.append_field(Some(*v)).unwrap(),
-                                    Value::I32(v) => result_builder.append_field(Some(*v)).unwrap(),
-                                    Value::I64(v) => result_builder.append_field(Some(*v)).unwrap(),
-                                    Value::I128(v) => {
-                                        result_builder.append_field(Some(*v)).unwrap()
-                                    }
-                                    Value::U8(v) => result_builder.append_field(Some(*v)).unwrap(),
-                                    Value::F64(v) => result_builder.append_field(Some(*v)).unwrap(),
-                                    Value::Str(v) => result_builder.append_field(Some(v)).unwrap(),
-                                    Value::Bytea(v) => {
-                                        result_builder.append_field(Some(hex::encode(v))).unwrap()
-                                    }
-                                    Value::Date(v) => result_builder.append_field(Some(v)).unwrap(),
-                                    Value::Time(v) => result_builder.append_field(Some(v)).unwrap(),
-                                    Value::Timestamp(v) => {
-                                        result_builder.append_field(Some(v)).unwrap()
-                                    }
-                                    _ => unimplemented!(),
                                 }
+                                result_builder.finish_row();
                             }
-                            result_builder.finish_row();
-                        }
 
-                        Response::Query(result_builder.build())
-                    }
-                    Payload::Insert(rows) => {
-                        Response::Execution(Tag::new_for_execution("Insert", Some(*rows)))
-                    }
-                    Payload::Delete(rows) => {
-                        Response::Execution(Tag::new_for_execution("Delete", Some(*rows)))
-                    }
-                    Payload::Update(rows) => {
-                        Response::Execution(Tag::new_for_execution("Update", Some(*rows)))
-                    }
-                    Payload::Create => Response::Execution(Tag::new_for_execution("Create", None)),
-                    Payload::AlterTable => {
-                        Response::Execution(Tag::new_for_execution("Alter Table", None))
-                    }
-                    Payload::DropTable => {
-                        Response::Execution(Tag::new_for_execution("Drop Table", None))
-                    }
-                    Payload::CreateIndex => {
-                        Response::Execution(Tag::new_for_execution("Create Index", None))
-                    }
-                    Payload::DropIndex => {
-                        Response::Execution(Tag::new_for_execution("Drop Index", None))
-                    }
-                    _ => {
-                        unimplemented!()
-                    }
-                })
-                .collect()),
-            Err(err) => Err(PgWireError::ApiError(Box::new(err))),
-        }
+                            Ok(Response::Query(result_builder.build()))
+                        }
+                        Payload::Insert(rows) => Ok(Response::Execution(Tag::new_for_execution(
+                            "Insert",
+                            Some(*rows),
+                        ))),
+                        Payload::Delete(rows) => Ok(Response::Execution(Tag::new_for_execution(
+                            "Delete",
+                            Some(*rows),
+                        ))),
+                        Payload::Update(rows) => Ok(Response::Execution(Tag::new_for_execution(
+                            "Update",
+                            Some(*rows),
+                        ))),
+                        Payload::Create => {
+                            Ok(Response::Execution(Tag::new_for_execution("Create", None)))
+                        }
+                        Payload::AlterTable => Ok(Response::Execution(Tag::new_for_execution(
+                            "Alter Table",
+                            None,
+                        ))),
+                        Payload::DropTable => Ok(Response::Execution(Tag::new_for_execution(
+                            "Drop Table",
+                            None,
+                        ))),
+                        Payload::CreateIndex => Ok(Response::Execution(Tag::new_for_execution(
+                            "Create Index",
+                            None,
+                        ))),
+                        Payload::DropIndex => Ok(Response::Execution(Tag::new_for_execution(
+                            "Drop Index",
+                            None,
+                        ))),
+                        _ => {
+                            unimplemented!()
+                        }
+                    })
+                    .collect::<Result<Vec<Response>, PgWireError>>()
+            })
     }
 }
 
