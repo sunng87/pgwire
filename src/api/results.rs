@@ -125,7 +125,7 @@ impl QueryResponseBuilder {
         self.col_index = 0;
     }
 
-    fn build<S: Stream<Item = DataRow>>(mut self) -> QueryResponse<S> {
+    fn build(mut self) -> QueryResponse<stream::Iter<std::vec::IntoIter<DataRow>>> {
         let row_count = self.rows.len();
 
         // set column format
@@ -135,7 +135,7 @@ impl QueryResponseBuilder {
 
         QueryResponse {
             row_schema: self.row_schema,
-            data_rows: stream::iter(self.rows.iter()),
+            data_rows: stream::iter(self.rows.into_iter()),
             tag: Tag::new_for_query(row_count),
         }
     }
@@ -177,7 +177,7 @@ impl BinaryQueryResponseBuilder {
         self.inner.finish_row();
     }
 
-    pub fn build<S: Stream<Item = DataRow>>(self) -> QueryResponse<S> {
+    pub fn build(self) -> QueryResponse<stream::Iter<std::vec::IntoIter<DataRow>>> {
         self.inner.build()
     }
 }
@@ -214,7 +214,7 @@ impl TextQueryResponseBuilder {
         self.inner.finish_row();
     }
 
-    pub fn build<S: Stream<Item = DataRow>>(self) -> QueryResponse<S> {
+    pub fn build(self) -> QueryResponse<stream::Iter<std::vec::IntoIter<DataRow>>> {
         self.inner.build()
     }
 }

@@ -23,7 +23,7 @@ use crate::messages::PgWireBackendMessage;
 /// handler for processing simple query.
 #[async_trait]
 pub trait SimpleQueryHandler: Send + Sync {
-    type DataStream: Stream<Item = DataRow> + Send;
+    type DataStream: Stream<Item = DataRow> + Unpin + Send;
 
     /// Executed on `Query` request arrived. This is how postgres respond to
     /// simple query. The default implementation calls `do_query` with the
@@ -82,7 +82,7 @@ pub trait SimpleQueryHandler: Send + Sync {
 
 #[async_trait]
 pub trait ExtendedQueryHandler: Send + Sync {
-    type DataStream: Stream<Item = DataRow> + Send;
+    type DataStream: Stream<Item = DataRow> + Unpin + Send;
 
     async fn on_parse<C>(&self, client: &mut C, message: &Parse) -> PgWireResult<()>
     where
@@ -210,7 +210,7 @@ where
     C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
-    S: Stream<Item = DataRow> + Send,
+    S: Stream<Item = DataRow> + Unpin + Send,
 {
     let QueryResponse {
         row_schema,
@@ -225,10 +225,9 @@ where
             .await?;
     }
 
-    // TODO: error handling
-    data_rows
-        .map(|row| client.send(PgWireBackendMessage::DataRow(row)))
-        .await;
+    client
+        .send_all(&mut data_rows.map(|r| Ok(PgWireBackendMessage::DataRow(r))))
+        .await?;
 
     client
         .send(PgWireBackendMessage::CommandComplete(tag.into()))
