@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
-use futures::stream;
+use futures::stream::{Stream, StreamExt};
 
 use super::portal::Portal;
 use super::results::{into_row_description, Tag};
@@ -11,6 +11,7 @@ use super::stmt::Statement;
 use super::{ClientInfo, DEFAULT_NAME};
 use crate::api::results::{QueryResponse, Response};
 use crate::error::{PgWireError, PgWireResult};
+use crate::messages::data::DataRow;
 use crate::messages::extendedquery::{
     Bind, Close, Describe, Execute, Parse, Sync as PgSync, TARGET_TYPE_BYTE_PORTAL,
     TARGET_TYPE_BYTE_STATEMENT,
@@ -22,6 +23,8 @@ use crate::messages::PgWireBackendMessage;
 /// handler for processing simple query.
 #[async_trait]
 pub trait SimpleQueryHandler: Send + Sync {
+    type DataStream: Stream<Item = DataRow> + Send;
+
     /// Executed on `Query` request arrived. This is how postgres respond to
     /// simple query. The default implementation calls `do_query` with the
     /// incoming query string.
@@ -68,13 +71,19 @@ pub trait SimpleQueryHandler: Send + Sync {
     }
 
     /// Provide your query implementation using the incoming query string.
-    async fn do_query<C>(&self, client: &C, query: &str) -> PgWireResult<Vec<Response>>
+    async fn do_query<C>(
+        &self,
+        client: &C,
+        query: &str,
+    ) -> PgWireResult<Vec<Response<Self::DataStream>>>
     where
         C: ClientInfo + Unpin + Send + Sync;
 }
 
 #[async_trait]
 pub trait ExtendedQueryHandler: Send + Sync {
+    type DataStream: Stream<Item = DataRow> + Send;
+
     async fn on_parse<C>(&self, client: &mut C, message: &Parse) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -183,20 +192,25 @@ pub trait ExtendedQueryHandler: Send + Sync {
         Ok(())
     }
 
-    async fn do_query<C>(&self, client: &mut C, portal: &Portal) -> PgWireResult<Response>
+    async fn do_query<C>(
+        &self,
+        client: &mut C,
+        portal: &Portal,
+    ) -> PgWireResult<Response<Self::DataStream>>
     where
         C: ClientInfo + Unpin + Send + Sync;
 }
 
-async fn send_query_response<C>(
+async fn send_query_response<C, S>(
     client: &mut C,
-    results: QueryResponse,
+    results: QueryResponse<S>,
     row_desc_required: bool,
 ) -> PgWireResult<()>
 where
     C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    S: Stream<Item = DataRow> + Send,
 {
     let QueryResponse {
         row_schema,
@@ -211,15 +225,10 @@ where
             .await?;
     }
 
-    if !data_rows.is_empty() {
-        client
-            .send_all(&mut stream::iter(
-                data_rows
-                    .into_iter()
-                    .map(|r| Ok(PgWireBackendMessage::DataRow(r))),
-            ))
-            .await?;
-    }
+    // TODO: error handling
+    data_rows
+        .map(|row| client.send(PgWireBackendMessage::DataRow(row)))
+        .await;
 
     client
         .send(PgWireBackendMessage::CommandComplete(tag.into()))

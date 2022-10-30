@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 use bytes::{Bytes, BytesMut};
+use futures::stream::{self, Stream};
 use postgres_types::{IsNull, ToSql, Type};
 
 use crate::{
@@ -73,11 +74,11 @@ pub(crate) fn into_row_description(fields: Vec<FieldInfo>) -> RowDescription {
     RowDescription::new(fields.into_iter().map(Into::into).collect())
 }
 
-#[derive(Debug, Getters, Eq, PartialEq)]
+#[derive(Getters)]
 #[getset(get = "pub")]
-pub struct QueryResponse {
+pub struct QueryResponse<S: Stream<Item = DataRow>> {
     pub(crate) row_schema: Vec<FieldInfo>,
-    pub(crate) data_rows: Vec<DataRow>,
+    pub(crate) data_rows: S,
     pub(crate) tag: Tag,
 }
 
@@ -124,7 +125,7 @@ impl QueryResponseBuilder {
         self.col_index = 0;
     }
 
-    fn build(mut self) -> QueryResponse {
+    fn build<S: Stream<Item = DataRow>>(mut self) -> QueryResponse<S> {
         let row_count = self.rows.len();
 
         // set column format
@@ -134,7 +135,7 @@ impl QueryResponseBuilder {
 
         QueryResponse {
             row_schema: self.row_schema,
-            data_rows: self.rows,
+            data_rows: stream::iter(self.rows.iter()),
             tag: Tag::new_for_query(row_count),
         }
     }
@@ -176,7 +177,7 @@ impl BinaryQueryResponseBuilder {
         self.inner.finish_row();
     }
 
-    pub fn build(self) -> QueryResponse {
+    pub fn build<S: Stream<Item = DataRow>>(self) -> QueryResponse<S> {
         self.inner.build()
     }
 }
@@ -213,7 +214,7 @@ impl TextQueryResponseBuilder {
         self.inner.finish_row();
     }
 
-    pub fn build(self) -> QueryResponse {
+    pub fn build<S: Stream<Item = DataRow>>(self) -> QueryResponse<S> {
         self.inner.build()
     }
 }
@@ -223,9 +224,8 @@ impl TextQueryResponseBuilder {
 /// * Query: the response contains data rows
 /// * Execution: response for ddl/dml execution
 /// * Error: error response
-#[derive(Debug)]
-pub enum Response {
-    Query(QueryResponse),
+pub enum Response<S: Stream<Item = DataRow>> {
+    Query(QueryResponse<S>),
     Execution(Tag),
     Error(Box<ErrorInfo>),
 }
