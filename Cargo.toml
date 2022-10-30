@@ -36,6 +36,7 @@ hex = "0.4"
 rustls-pemfile = { version = "1.0" }
 ## webpki-roots has mozilla's set of roots
 ## rustls-native-certs loads roots from current system
+gluesql = "0.13"
 
 [features]
 default = ["tokio_support"]
