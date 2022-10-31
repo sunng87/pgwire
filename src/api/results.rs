@@ -76,9 +76,9 @@ pub(crate) fn into_row_description(fields: Vec<FieldInfo>) -> RowDescription {
 
 #[derive(Getters)]
 #[getset(get = "pub")]
-pub struct QueryResponse<S: Stream<Item = DataRow>> {
+pub struct QueryResponse {
     pub(crate) row_schema: Vec<FieldInfo>,
-    pub(crate) data_rows: S,
+    pub(crate) data_rows: Box<dyn Stream<Item = DataRow> + Send + Unpin>,
     pub(crate) tag: Tag,
 }
 
@@ -125,7 +125,7 @@ impl QueryResponseBuilder {
         self.col_index = 0;
     }
 
-    fn build(mut self) -> QueryResponse<stream::Iter<std::vec::IntoIter<DataRow>>> {
+    fn build(mut self) -> QueryResponse {
         let row_count = self.rows.len();
 
         // set column format
@@ -135,7 +135,7 @@ impl QueryResponseBuilder {
 
         QueryResponse {
             row_schema: self.row_schema,
-            data_rows: stream::iter(self.rows.into_iter()),
+            data_rows: Box::new(stream::iter(self.rows.into_iter())),
             tag: Tag::new_for_query(row_count),
         }
     }
@@ -177,7 +177,7 @@ impl BinaryQueryResponseBuilder {
         self.inner.finish_row();
     }
 
-    pub fn build(self) -> QueryResponse<stream::Iter<std::vec::IntoIter<DataRow>>> {
+    pub fn build(self) -> QueryResponse {
         self.inner.build()
     }
 }
@@ -214,7 +214,7 @@ impl TextQueryResponseBuilder {
         self.inner.finish_row();
     }
 
-    pub fn build(self) -> QueryResponse<stream::Iter<std::vec::IntoIter<DataRow>>> {
+    pub fn build(self) -> QueryResponse {
         self.inner.build()
     }
 }
@@ -224,8 +224,8 @@ impl TextQueryResponseBuilder {
 /// * Query: the response contains data rows
 /// * Execution: response for ddl/dml execution
 /// * Error: error response
-pub enum Response<S: Stream<Item = DataRow>> {
-    Query(QueryResponse<S>),
+pub enum Response {
+    Query(QueryResponse),
     Execution(Tag),
     Error(Box<ErrorInfo>),
 }
