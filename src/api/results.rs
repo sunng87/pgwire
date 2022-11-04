@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 
 use bytes::{Bytes, BytesMut};
-use futures::stream::{self, Stream};
+use futures::stream::{self, BoxStream, StreamExt};
 use postgres_types::{IsNull, ToSql, Type};
 
 use crate::{
@@ -78,7 +78,7 @@ pub(crate) fn into_row_description(fields: Vec<FieldInfo>) -> RowDescription {
 #[getset(get = "pub")]
 pub struct QueryResponse {
     pub(crate) row_schema: Vec<FieldInfo>,
-    pub(crate) data_rows: Box<dyn Stream<Item = DataRow> + Send + Unpin>,
+    pub(crate) data_rows: BoxStream<'static, DataRow>,
     pub(crate) tag: Tag,
 }
 
@@ -135,7 +135,7 @@ impl QueryResponseBuilder {
 
         QueryResponse {
             row_schema: self.row_schema,
-            data_rows: Box::new(stream::iter(self.rows.into_iter())),
+            data_rows: stream::iter(self.rows.into_iter()).boxed(),
             tag: Tag::new_for_query(row_count),
         }
     }
