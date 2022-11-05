@@ -1,7 +1,12 @@
 use std::fmt::Debug;
+use std::pin::Pin;
+use std::task::Poll;
 
 use bytes::{Bytes, BytesMut};
-use futures::stream::{self, BoxStream, StreamExt};
+use futures::{
+    stream::{BoxStream, StreamExt},
+    Stream,
+};
 use postgres_types::{IsNull, ToSql, Type};
 
 use crate::{
@@ -45,7 +50,7 @@ impl From<Tag> for CommandComplete {
     }
 }
 
-#[derive(Debug, new, Eq, PartialEq)]
+#[derive(Debug, new, Eq, PartialEq, Clone)]
 pub struct FieldInfo {
     name: String,
     table_id: Option<i32>,
@@ -78,144 +83,156 @@ pub(crate) fn into_row_description(fields: Vec<FieldInfo>) -> RowDescription {
 #[getset(get = "pub")]
 pub struct QueryResponse {
     pub(crate) row_schema: Vec<FieldInfo>,
-    pub(crate) data_rows: BoxStream<'static, DataRow>,
-    pub(crate) tag: Tag,
+    pub(crate) data_rows: BoxStream<'static, PgWireResult<DataRow>>,
 }
 
-struct QueryResponseBuilder {
+pub struct BinaryQueryResponseBuilder<S> {
     row_schema: Vec<FieldInfo>,
-    rows: Vec<DataRow>,
-    format: i16,
-
-    buffer: BytesMut,
-    current_row: DataRow,
-    col_index: usize,
+    row_counter: usize,
+    row_stream: S,
 }
 
-impl QueryResponseBuilder {
-    fn new(fields: Vec<FieldInfo>) -> QueryResponseBuilder {
-        let fields_count = fields.len();
-        let current_row = DataRow::new(Vec::with_capacity(fields_count));
-        QueryResponseBuilder {
-            row_schema: fields,
-            rows: Vec::new(),
-            buffer: BytesMut::with_capacity(8),
-            format: FORMAT_CODE_BINARY,
+impl<S, R, F> BinaryQueryResponseBuilder<S>
+where
+    S: Stream<Item = R> + Send + Unpin + 'static,
+    R: IntoIterator<Item = F> + 'static,
+    F: ToSql + Sized,
+{
+    pub fn new(mut field_defs: Vec<FieldInfo>, row_stream: S) -> BinaryQueryResponseBuilder<S> {
+        field_defs
+            .iter_mut()
+            .for_each(|f| f.format = FORMAT_CODE_BINARY);
 
-            current_row,
-            col_index: 0,
+        BinaryQueryResponseBuilder {
+            row_schema: field_defs,
+            row_counter: 0,
+            row_stream,
         }
     }
 
-    fn text_format(&mut self) {
-        self.format = FORMAT_CODE_TEXT;
-    }
+    fn map_row(&self, from_row: R) -> PgWireResult<DataRow>
+where {
+        let mut buffer = BytesMut::with_capacity(8);
+        let mut row = DataRow::new(Vec::with_capacity(self.row_schema.len()));
+        for (idx, field) in from_row.into_iter().enumerate() {
+            let col_type = &self.row_schema[idx].datatype;
+            if let IsNull::No = field.to_sql(col_type, &mut buffer)? {
+                row.fields_mut().push(Some(buffer.split().freeze()));
+            } else {
+                row.fields_mut().push(None);
+            };
 
-    fn binary_format(&mut self) {
-        self.format = FORMAT_CODE_BINARY;
-    }
-
-    fn finish_row(&mut self) {
-        let row = std::mem::replace(
-            &mut self.current_row,
-            DataRow::new(Vec::with_capacity(self.row_schema.len())),
-        );
-        self.rows.push(row);
-
-        self.col_index = 0;
-    }
-
-    fn build(mut self) -> QueryResponse {
-        let row_count = self.rows.len();
-
-        // set column format
-        for r in self.row_schema.iter_mut() {
-            r.format = self.format;
+            buffer.clear();
         }
+        Ok(row)
+    }
 
+    pub fn into_response(self) -> QueryResponse {
         QueryResponse {
-            row_schema: self.row_schema,
-            data_rows: stream::iter(self.rows.into_iter()).boxed(),
-            tag: Tag::new_for_query(row_count),
+            row_schema: self.row_schema.clone(),
+            data_rows: self.boxed(),
         }
     }
 }
 
-pub struct BinaryQueryResponseBuilder {
-    inner: QueryResponseBuilder,
-}
+impl<S, R, F> Stream for BinaryQueryResponseBuilder<S>
+where
+    S: Stream<Item = R> + Unpin + Send + 'static,
+    R: IntoIterator<Item = F> + 'static,
+    F: ToSql + Sized,
+{
+    type Item = PgWireResult<DataRow>;
 
-impl BinaryQueryResponseBuilder {
-    pub fn new(fields: Vec<FieldInfo>) -> BinaryQueryResponseBuilder {
-        let mut qrb = QueryResponseBuilder::new(fields);
-        qrb.binary_format();
-
-        BinaryQueryResponseBuilder { inner: qrb }
-    }
-
-    pub fn append_field<T>(&mut self, t: T) -> PgWireResult<()>
-    where
-        T: ToSql + Sized,
-    {
-        let col_type = &self.inner.row_schema[self.inner.col_index].datatype;
-        if let IsNull::No = t.to_sql(col_type, &mut self.inner.buffer)? {
-            self.inner
-                .current_row
-                .fields_mut()
-                .push(Some(self.inner.buffer.split().freeze()));
-        } else {
-            self.inner.current_row.fields_mut().push(None);
-        };
-
-        self.inner.buffer.clear();
-        self.inner.col_index += 1;
-
-        Ok(())
-    }
-
-    pub fn finish_row(&mut self) {
-        self.inner.finish_row();
-    }
-
-    pub fn build(self) -> QueryResponse {
-        self.inner.build()
-    }
-}
-
-pub struct TextQueryResponseBuilder {
-    inner: QueryResponseBuilder,
-}
-
-impl TextQueryResponseBuilder {
-    pub fn new(fields: Vec<FieldInfo>) -> TextQueryResponseBuilder {
-        let mut qrb = QueryResponseBuilder::new(fields);
-        qrb.text_format();
-
-        TextQueryResponseBuilder { inner: qrb }
-    }
-
-    pub fn append_field<T>(&mut self, data: Option<T>) -> PgWireResult<()>
-    where
-        T: ToString,
-    {
-        if let Some(data) = data {
-            self.inner
-                .current_row
-                .fields_mut()
-                .push(Some(Bytes::copy_from_slice(data.to_string().as_ref())));
-        } else {
-            self.inner.current_row.fields_mut().push(None);
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        let s = Pin::new(&mut self.row_stream);
+        match s.poll_next(cx) {
+            Poll::Ready(Some(item)) => {
+                self.row_counter = self.row_counter + 1;
+                Poll::Ready(Some(self.map_row(item)))
+            }
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
         }
-
-        Ok(())
     }
 
-    pub fn finish_row(&mut self) {
-        self.inner.finish_row();
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.row_stream.size_hint()
+    }
+}
+
+pub struct TextQueryResponseBuilder<S> {
+    row_schema: Vec<FieldInfo>,
+    row_counter: usize,
+    row_stream: S,
+}
+
+impl<S, R, F> TextQueryResponseBuilder<S>
+where
+    S: Stream<Item = R> + Send + Unpin + 'static,
+    R: IntoIterator<Item = Option<F>> + 'static,
+    F: ToString,
+{
+    pub fn new(mut field_defs: Vec<FieldInfo>, row_stream: S) -> TextQueryResponseBuilder<S> {
+        field_defs
+            .iter_mut()
+            .for_each(|f| f.format = FORMAT_CODE_TEXT);
+
+        TextQueryResponseBuilder {
+            row_schema: field_defs,
+            row_counter: 0,
+            row_stream,
+        }
     }
 
-    pub fn build(self) -> QueryResponse {
-        self.inner.build()
+    fn map_row(&self, from_row: R) -> PgWireResult<DataRow> {
+        let mut row = DataRow::new(Vec::with_capacity(self.row_schema.len()));
+        for field in from_row.into_iter() {
+            if let Some(data) = field {
+                row.fields_mut()
+                    .push(Some(Bytes::copy_from_slice(data.to_string().as_ref())));
+            } else {
+                row.fields_mut().push(None);
+            }
+        }
+        Ok(row)
+    }
+
+    pub fn into_response(self) -> QueryResponse {
+        QueryResponse {
+            row_schema: self.row_schema.clone(),
+            data_rows: self.boxed(),
+        }
+    }
+}
+
+impl<S, R, F> Stream for TextQueryResponseBuilder<S>
+where
+    S: Stream<Item = R> + Unpin + Send + 'static,
+    R: IntoIterator<Item = Option<F>> + 'static,
+    F: ToString,
+{
+    type Item = PgWireResult<DataRow>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        let s = Pin::new(&mut self.row_stream);
+        match s.poll_next(cx) {
+            Poll::Ready(Some(item)) => {
+                self.row_counter = self.row_counter + 1;
+                Poll::Ready(Some(self.map_row(item)))
+            }
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.row_stream.size_hint()
     }
 }
 
