@@ -3,6 +3,7 @@ use std::io::{BufReader, Error as IOError, ErrorKind};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::stream;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use tokio::net::TcpListener;
 use tokio_rustls::rustls::{Certificate, PrivateKey, ServerConfig};
@@ -26,17 +27,13 @@ impl SimpleQueryHandler for DummyProcessor {
     {
         println!("{:?}", query);
         if query.starts_with("SELECT") {
-            // column 0
             let f1 = FieldInfo::new("id".into(), None, None, Type::INT4);
             let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR);
 
-            let mut result_builder = TextQueryResponseBuilder::new(vec![f1, f2]);
-            for _ in 0..3 {
-                result_builder.append_field(Some(1i32))?;
-                result_builder.append_field(Some("Tom"))?;
-                result_builder.finish_row();
-            }
-            Ok(vec![Response::Query(result_builder.build())])
+            let data = vec![vec![Some("0"), Some("Tom")], vec![Some("1"), Some("Jerry")]];
+            let result_builder =
+                TextQueryResponseBuilder::new(vec![f1, f2], stream::iter(data.into_iter()));
+            Ok(vec![Response::Query(result_builder.into_response())])
         } else {
             Ok(vec![Response::Execution(Tag::new_for_execution(
                 "OK",
