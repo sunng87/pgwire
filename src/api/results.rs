@@ -172,8 +172,8 @@ pub struct TextQueryResponseBuilder<S> {
 impl<S, R, F> TextQueryResponseBuilder<S>
 where
     S: Stream<Item = R> + Send + Unpin + 'static,
-    R: IntoIterator<Item = Option<F>> + 'static,
-    F: ToString,
+    R: IntoIterator<Item = F> + 'static,
+    F: Into<Option<String>>,
 {
     pub fn new(mut field_defs: Vec<FieldInfo>, row_stream: S) -> TextQueryResponseBuilder<S> {
         field_defs
@@ -190,9 +190,9 @@ where
     fn map_row(&self, from_row: R) -> PgWireResult<DataRow> {
         let mut row = DataRow::new(Vec::with_capacity(self.row_schema.len()));
         for field in from_row.into_iter() {
-            if let Some(data) = field {
+            if let Some(data) = field.into() {
                 row.fields_mut()
-                    .push(Some(Bytes::copy_from_slice(data.to_string().as_ref())));
+                    .push(Some(Bytes::copy_from_slice(data.as_ref())));
             } else {
                 row.fields_mut().push(None);
             }
@@ -211,8 +211,8 @@ where
 impl<S, R, F> Stream for TextQueryResponseBuilder<S>
 where
     S: Stream<Item = R> + Unpin + Send + 'static,
-    R: IntoIterator<Item = Option<F>> + 'static,
-    F: ToString,
+    R: IntoIterator<Item = F> + 'static,
+    F: Into<Option<String>>,
 {
     type Item = PgWireResult<DataRow>;
 
