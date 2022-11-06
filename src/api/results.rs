@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 
 use bytes::{Bytes, BytesMut};
+use futures::stream::{self, BoxStream, StreamExt};
 use postgres_types::{IsNull, ToSql, Type};
 
 use crate::{
@@ -73,11 +74,11 @@ pub(crate) fn into_row_description(fields: Vec<FieldInfo>) -> RowDescription {
     RowDescription::new(fields.into_iter().map(Into::into).collect())
 }
 
-#[derive(Debug, Getters, Eq, PartialEq)]
+#[derive(Getters)]
 #[getset(get = "pub")]
 pub struct QueryResponse {
     pub(crate) row_schema: Vec<FieldInfo>,
-    pub(crate) data_rows: Vec<DataRow>,
+    pub(crate) data_rows: BoxStream<'static, DataRow>,
     pub(crate) tag: Tag,
 }
 
@@ -134,7 +135,7 @@ impl QueryResponseBuilder {
 
         QueryResponse {
             row_schema: self.row_schema,
-            data_rows: self.rows,
+            data_rows: stream::iter(self.rows.into_iter()).boxed(),
             tag: Tag::new_for_query(row_count),
         }
     }
@@ -223,7 +224,6 @@ impl TextQueryResponseBuilder {
 /// * Query: the response contains data rows
 /// * Execution: response for ddl/dml execution
 /// * Error: error response
-#[derive(Debug)]
 pub enum Response {
     Query(QueryResponse),
     Execution(Tag),

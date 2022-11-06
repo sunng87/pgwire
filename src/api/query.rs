@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
-use futures::stream;
+use futures::stream::StreamExt;
 
 use super::portal::Portal;
 use super::results::{into_row_description, Tag};
@@ -62,7 +62,6 @@ pub trait SimpleQueryHandler: Send + Sync {
             )))
             .await?;
         client.flush().await?;
-
         client.set_state(super::PgWireConnectionState::ReadyForQuery);
         Ok(())
     }
@@ -211,15 +210,9 @@ where
             .await?;
     }
 
-    if !data_rows.is_empty() {
-        client
-            .send_all(&mut stream::iter(
-                data_rows
-                    .into_iter()
-                    .map(|r| Ok(PgWireBackendMessage::DataRow(r))),
-            ))
-            .await?;
-    }
+    client
+        .send_all(&mut data_rows.map(|r| Ok(PgWireBackendMessage::DataRow(r))))
+        .await?;
 
     client
         .send(PgWireBackendMessage::CommandComplete(tag.into()))

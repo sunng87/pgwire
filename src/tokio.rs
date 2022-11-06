@@ -2,8 +2,7 @@ use std::io::Error as IOError;
 use std::sync::Arc;
 
 use bytes::Buf;
-use futures::SinkExt;
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsAcceptor;
