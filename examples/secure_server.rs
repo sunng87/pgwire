@@ -30,7 +30,11 @@ impl SimpleQueryHandler for DummyProcessor {
             let f1 = FieldInfo::new("id".into(), None, None, Type::INT4);
             let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR);
 
-            let data = vec![vec![Some("0"), Some("Tom")], vec![Some("1"), Some("Jerry")]];
+            let data = vec![
+                vec![Some("0".to_string()), Some("Tom".to_string())],
+                vec![Some("1".to_string()), Some("Jerry".to_string())],
+                vec![Some("2".to_string()), None],
+            ];
             let result_builder =
                 TextQueryResponseBuilder::new(vec![f1, f2], stream::iter(data.into_iter()));
             Ok(vec![Response::Query(result_builder.into_response())])
