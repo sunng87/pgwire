@@ -12,7 +12,7 @@ use tokio_rustls::TlsAcceptor;
 use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
-use pgwire::api::results::{FieldInfo, Response, Tag, TextQueryResponseBuilder};
+use pgwire::api::results::{text_query_response, FieldInfo, Response, Tag, TextDataRowEncoder};
 use pgwire::api::{ClientInfo, Type};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
@@ -31,13 +31,22 @@ impl SimpleQueryHandler for DummyProcessor {
             let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR);
 
             let data = vec![
-                vec![Some("0".to_string()), Some("Tom".to_string())],
-                vec![Some("1".to_string()), Some("Jerry".to_string())],
-                vec![Some("2".to_string()), None],
+                (Some(0), Some("Tom".to_string())),
+                (Some(1), Some("Jerry".to_string())),
+                (Some(2), None),
             ];
-            let result_builder =
-                TextQueryResponseBuilder::new(vec![f1, f2], stream::iter(data.into_iter()));
-            Ok(vec![Response::Query(result_builder.into_response())])
+            let data_row_stream = stream::iter(data.into_iter().map(|r| {
+                let mut encoder = TextDataRowEncoder::new(2);
+                encoder.add_field(r.0.as_ref())?;
+                encoder.add_field(r.1.as_ref())?;
+
+                encoder.finish()
+            }));
+
+            Ok(vec![Response::Query(text_query_response(
+                vec![f1, f2],
+                data_row_stream,
+            ))])
         } else {
             Ok(vec![Response::Execution(Tag::new_for_execution(
                 "OK",
