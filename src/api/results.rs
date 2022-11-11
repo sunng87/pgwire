@@ -1,6 +1,5 @@
 use std::fmt::Debug;
-use std::pin::Pin;
-use std::task::Poll;
+use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
 use futures::{
@@ -86,153 +85,96 @@ pub struct QueryResponse {
     pub(crate) data_rows: BoxStream<'static, PgWireResult<DataRow>>,
 }
 
-pub struct BinaryQueryResponseBuilder<S> {
-    row_schema: Vec<FieldInfo>,
-    row_counter: usize,
-    row_stream: S,
+pub struct BinaryDataRowEncoder {
+    row_schema: Arc<Vec<FieldInfo>>,
+    col_index: usize,
+    buffer: DataRow,
 }
 
-impl<S, R, F> BinaryQueryResponseBuilder<S>
-where
-    S: Stream<Item = R> + Send + Unpin + 'static,
-    R: IntoIterator<Item = F> + 'static,
-    F: ToSql + Sized,
-{
-    pub fn new(mut field_defs: Vec<FieldInfo>, row_stream: S) -> BinaryQueryResponseBuilder<S> {
-        field_defs
-            .iter_mut()
-            .for_each(|f| f.format = FORMAT_CODE_BINARY);
-
-        BinaryQueryResponseBuilder {
-            row_schema: field_defs,
-            row_counter: 0,
-            row_stream,
+impl BinaryDataRowEncoder {
+    pub fn new(row_schema: Arc<Vec<FieldInfo>>) -> BinaryDataRowEncoder {
+        BinaryDataRowEncoder {
+            buffer: DataRow::new(Vec::with_capacity(row_schema.len())),
+            col_index: 0,
+            row_schema,
         }
     }
 
-    fn map_row(&self, from_row: R) -> PgWireResult<DataRow>
-where {
+    pub fn add_field<T>(&mut self, value: &T) -> PgWireResult<()>
+    where
+        T: ToSql + Sized,
+    {
         let mut buffer = BytesMut::with_capacity(8);
-        let mut row = DataRow::new(Vec::with_capacity(self.row_schema.len()));
-        for (idx, field) in from_row.into_iter().enumerate() {
-            let col_type = &self.row_schema[idx].datatype;
-            if let IsNull::No = field.to_sql(col_type, &mut buffer)? {
-                row.fields_mut().push(Some(buffer.split().freeze()));
-            } else {
-                row.fields_mut().push(None);
-            };
-
-            buffer.clear();
-        }
-        Ok(row)
+        if let IsNull::No = value.to_sql(&self.row_schema[self.col_index].datatype, &mut buffer)? {
+            self.buffer.fields_mut().push(Some(buffer.split().freeze()));
+        } else {
+            self.buffer.fields_mut().push(None);
+        };
+        self.col_index += 1;
+        Ok(())
     }
 
-    pub fn into_response(self) -> QueryResponse {
-        QueryResponse {
-            row_schema: self.row_schema.clone(),
-            data_rows: self.boxed(),
-        }
+    pub fn finish(self) -> PgWireResult<DataRow> {
+        Ok(self.buffer)
     }
 }
 
-impl<S, R, F> Stream for BinaryQueryResponseBuilder<S>
+pub struct TextDataRowEncoder {
+    buffer: DataRow,
+}
+
+impl TextDataRowEncoder {
+    pub fn new(nfields: usize) -> TextDataRowEncoder {
+        TextDataRowEncoder {
+            buffer: DataRow::new(Vec::with_capacity(nfields)),
+        }
+    }
+
+    pub fn add_field<T>(&mut self, value: Option<&T>) -> PgWireResult<()>
+    where
+        T: ToString,
+    {
+        if let Some(value) = value {
+            self.buffer
+                .fields_mut()
+                .push(Some(Bytes::copy_from_slice(value.to_string().as_bytes())));
+        } else {
+            self.buffer.fields_mut().push(None);
+        }
+        Ok(())
+    }
+
+    pub fn finish(self) -> PgWireResult<DataRow> {
+        Ok(self.buffer)
+    }
+}
+
+pub fn text_query_response<S>(mut field_defs: Vec<FieldInfo>, row_stream: S) -> QueryResponse
 where
-    S: Stream<Item = R> + Unpin + Send + 'static,
-    R: IntoIterator<Item = F> + 'static,
-    F: ToSql + Sized,
+    S: Stream<Item = PgWireResult<DataRow>> + Send + Unpin + 'static,
 {
-    type Item = PgWireResult<DataRow>;
+    field_defs
+        .iter_mut()
+        .for_each(|f| f.format = FORMAT_CODE_TEXT);
 
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        let s = Pin::new(&mut self.row_stream);
-        match s.poll_next(cx) {
-            Poll::Ready(Some(item)) => {
-                self.row_counter = self.row_counter + 1;
-                Poll::Ready(Some(self.map_row(item)))
-            }
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.row_stream.size_hint()
+    QueryResponse {
+        row_schema: field_defs,
+        data_rows: row_stream.boxed(),
     }
 }
 
-pub struct TextQueryResponseBuilder<S> {
-    row_schema: Vec<FieldInfo>,
-    row_counter: usize,
-    row_stream: S,
-}
-
-impl<S, R, F> TextQueryResponseBuilder<S>
+pub fn binary_query_response<S>(field_defs: Arc<Vec<FieldInfo>>, row_stream: S) -> QueryResponse
 where
-    S: Stream<Item = R> + Send + Unpin + 'static,
-    R: IntoIterator<Item = F> + 'static,
-    F: Into<Option<String>>,
+    S: Stream<Item = PgWireResult<DataRow>> + Send + Unpin + 'static,
 {
-    pub fn new(mut field_defs: Vec<FieldInfo>, row_stream: S) -> TextQueryResponseBuilder<S> {
-        field_defs
-            .iter_mut()
-            .for_each(|f| f.format = FORMAT_CODE_TEXT);
+    let mut row_schema = (*field_defs).clone();
+    row_schema
+        .iter_mut()
+        .for_each(|f| f.format = FORMAT_CODE_BINARY);
 
-        TextQueryResponseBuilder {
-            row_schema: field_defs,
-            row_counter: 0,
-            row_stream,
-        }
-    }
-
-    fn map_row(&self, from_row: R) -> PgWireResult<DataRow> {
-        let mut row = DataRow::new(Vec::with_capacity(self.row_schema.len()));
-        for field in from_row.into_iter() {
-            if let Some(data) = field.into() {
-                row.fields_mut()
-                    .push(Some(Bytes::copy_from_slice(data.as_ref())));
-            } else {
-                row.fields_mut().push(None);
-            }
-        }
-        Ok(row)
-    }
-
-    pub fn into_response(self) -> QueryResponse {
-        QueryResponse {
-            row_schema: self.row_schema.clone(),
-            data_rows: self.boxed(),
-        }
-    }
-}
-
-impl<S, R, F> Stream for TextQueryResponseBuilder<S>
-where
-    S: Stream<Item = R> + Unpin + Send + 'static,
-    R: IntoIterator<Item = F> + 'static,
-    F: Into<Option<String>>,
-{
-    type Item = PgWireResult<DataRow>;
-
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        let s = Pin::new(&mut self.row_stream);
-        match s.poll_next(cx) {
-            Poll::Ready(Some(item)) => {
-                self.row_counter = self.row_counter + 1;
-                Poll::Ready(Some(self.map_row(item)))
-            }
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.row_stream.size_hint()
+    QueryResponse {
+        row_schema,
+        data_rows: row_stream.boxed(),
     }
 }
 
