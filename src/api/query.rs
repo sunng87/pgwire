@@ -212,7 +212,7 @@ where
     let mut rows = 0;
     while let Some(row) = data_rows.next().await {
         let row = row?;
-        rows = rows + 1;
+        rows += 1;
         client.send(PgWireBackendMessage::DataRow(row)).await?;
     }
 
