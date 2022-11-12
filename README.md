@@ -24,6 +24,9 @@ Examples are provided to demo the very basic usage of `pgwire` on server side:
 
 - `examples/sqlite.rs`: uses an in-memory sqlite database at its core and serves
   it with postgresql protocol.
+- `examples/gluesql.rs`: uses an in-memory
+  [gluesql](https://github.com/gluesql/gluesql) at its core and serves
+  it with postgresql protocol.
 - `examples/server.rs`: demos a server that always returns fixed results.
 - `examples/secure_server.rs`: demos a server with ssl support and always
   returns fixed results.
