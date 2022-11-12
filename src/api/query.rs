@@ -109,7 +109,10 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let portal_name = message.name().as_ref().map_or(DEFAULT_NAME, String::as_str);
         let store = client.portal_store();
         if let Some(portal) = store.get(portal_name) {
-            match self.do_query(client, portal.as_ref()).await? {
+            match self
+                .do_query(client, portal.as_ref(), *message.max_rows() as usize)
+                .await?
+            {
                 Response::Query(results) => {
                     send_query_response(client, results, portal.row_description_requested())
                         .await?;
@@ -182,7 +185,12 @@ pub trait ExtendedQueryHandler: Send + Sync {
         Ok(())
     }
 
-    async fn do_query<C>(&self, client: &mut C, portal: &Portal) -> PgWireResult<Response>
+    async fn do_query<C>(
+        &self,
+        client: &mut C,
+        portal: &Portal,
+        max_rows: usize,
+    ) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync;
 }

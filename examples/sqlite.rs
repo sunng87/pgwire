@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use futures::stream;
-use futures::Stream;
+use futures::{Stream, StreamExt};
 use pgwire::messages::data::DataRow;
 use rusqlite::Rows;
 use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
@@ -227,7 +227,12 @@ fn get_params(portal: &Portal) -> Vec<Box<dyn ToSql>> {
 
 #[async_trait]
 impl ExtendedQueryHandler for SqliteBackend {
-    async fn do_query<C>(&self, _client: &mut C, portal: &Portal) -> PgWireResult<Response>
+    async fn do_query<C>(
+        &self,
+        _client: &mut C,
+        portal: &Portal,
+        max_rows: usize,
+    ) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -246,7 +251,7 @@ impl ExtendedQueryHandler for SqliteBackend {
             let header = Arc::new(row_desc_from_stmt(&stmt));
             stmt.query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
                 .map(|rows| {
-                    let s = encode_binary_row_data(rows, header.clone());
+                    let s = encode_binary_row_data(rows, header.clone()).take(max_rows);
                     Response::Query(binary_query_response(header, s))
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))

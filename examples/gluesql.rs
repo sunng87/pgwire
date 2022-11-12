@@ -114,7 +114,12 @@ impl SimpleQueryHandler for GluesqlProcessor {
 
 #[async_trait]
 impl ExtendedQueryHandler for GluesqlProcessor {
-    async fn do_query<C>(&self, _client: &mut C, _portal: &Portal) -> PgWireResult<Response>
+    async fn do_query<C>(
+        &self,
+        _client: &mut C,
+        _portal: &Portal,
+        _max_rows: usize,
+    ) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
