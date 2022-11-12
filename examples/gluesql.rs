@@ -46,21 +46,21 @@ impl SimpleQueryHandler for GluesqlProcessor {
                                 let mut encoder = TextDataRowEncoder::new(nfields);
                                 for field in row.iter() {
                                     match field {
-                                        Value::Bool(v) => encoder.add_field(Some(v))?,
-                                        Value::I8(v) => encoder.add_field(Some(v))?,
-                                        Value::I16(v) => encoder.add_field(Some(v))?,
-                                        Value::I32(v) => encoder.add_field(Some(v))?,
-                                        Value::I64(v) => encoder.add_field(Some(v))?,
-                                        Value::I128(v) => encoder.add_field(Some(v))?,
-                                        Value::U8(v) => encoder.add_field(Some(v))?,
-                                        Value::F64(v) => encoder.add_field(Some(v))?,
-                                        Value::Str(v) => encoder.add_field(Some(v))?,
+                                        Value::Bool(v) => encoder.append_field(Some(v))?,
+                                        Value::I8(v) => encoder.append_field(Some(v))?,
+                                        Value::I16(v) => encoder.append_field(Some(v))?,
+                                        Value::I32(v) => encoder.append_field(Some(v))?,
+                                        Value::I64(v) => encoder.append_field(Some(v))?,
+                                        Value::I128(v) => encoder.append_field(Some(v))?,
+                                        Value::U8(v) => encoder.append_field(Some(v))?,
+                                        Value::F64(v) => encoder.append_field(Some(v))?,
+                                        Value::Str(v) => encoder.append_field(Some(v))?,
                                         Value::Bytea(v) => {
-                                            encoder.add_field(Some(&hex::encode(v)))?
+                                            encoder.append_field(Some(&hex::encode(v)))?
                                         }
-                                        Value::Date(v) => encoder.add_field(Some(v))?,
-                                        Value::Time(v) => encoder.add_field(Some(v))?,
-                                        Value::Timestamp(v) => encoder.add_field(Some(v))?,
+                                        Value::Date(v) => encoder.append_field(Some(v))?,
+                                        Value::Time(v) => encoder.append_field(Some(v))?,
+                                        Value::Timestamp(v) => encoder.append_field(Some(v))?,
                                         _ => unimplemented!(),
                                     }
                                 }

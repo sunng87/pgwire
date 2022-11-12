@@ -37,8 +37,8 @@ impl SimpleQueryHandler for DummyProcessor {
             ];
             let data_row_stream = stream::iter(data.into_iter().map(|r| {
                 let mut encoder = TextDataRowEncoder::new(2);
-                encoder.add_field(r.0.as_ref())?;
-                encoder.add_field(r.1.as_ref())?;
+                encoder.append_field(r.0.as_ref())?;
+                encoder.append_field(r.1.as_ref())?;
 
                 encoder.finish()
             }));

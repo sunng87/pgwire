@@ -100,7 +100,7 @@ impl BinaryDataRowEncoder {
         }
     }
 
-    pub fn add_field<T>(&mut self, value: &T) -> PgWireResult<()>
+    pub fn append_field<T>(&mut self, value: &T) -> PgWireResult<()>
     where
         T: ToSql + Sized,
     {
@@ -130,7 +130,7 @@ impl TextDataRowEncoder {
         }
     }
 
-    pub fn add_field<T>(&mut self, value: Option<&T>) -> PgWireResult<()>
+    pub fn append_field<T>(&mut self, value: Option<&T>) -> PgWireResult<()>
     where
         T: ToString,
     {

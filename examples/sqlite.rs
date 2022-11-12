@@ -132,20 +132,20 @@ fn encode_text_row_data(
         for idx in 0..columns {
             let data = row.get_ref_unwrap::<usize>(idx);
             match data {
-                ValueRef::Null => encoder.add_field(None::<&i8>).unwrap(),
+                ValueRef::Null => encoder.append_field(None::<&i8>).unwrap(),
                 ValueRef::Integer(i) => {
-                    encoder.add_field(Some(&i)).unwrap();
+                    encoder.append_field(Some(&i)).unwrap();
                 }
                 ValueRef::Real(f) => {
-                    encoder.add_field(Some(&f)).unwrap();
+                    encoder.append_field(Some(&f)).unwrap();
                 }
                 ValueRef::Text(t) => {
                     encoder
-                        .add_field(Some(&String::from_utf8_lossy(t)))
+                        .append_field(Some(&String::from_utf8_lossy(t)))
                         .unwrap();
                 }
                 ValueRef::Blob(b) => {
-                    encoder.add_field(Some(&hex::encode(b))).unwrap();
+                    encoder.append_field(Some(&hex::encode(b))).unwrap();
                 }
             }
         }
@@ -166,18 +166,18 @@ fn encode_binary_row_data(
         for idx in 0..headers.len() {
             let data = row.get_ref_unwrap::<usize>(idx);
             match data {
-                ValueRef::Null => encoder.add_field(&None::<i8>).unwrap(),
+                ValueRef::Null => encoder.append_field(&None::<i8>).unwrap(),
                 ValueRef::Integer(i) => {
-                    encoder.add_field(&i).unwrap();
+                    encoder.append_field(&i).unwrap();
                 }
                 ValueRef::Real(f) => {
-                    encoder.add_field(&f).unwrap();
+                    encoder.append_field(&f).unwrap();
                 }
                 ValueRef::Text(t) => {
-                    encoder.add_field(&t).unwrap();
+                    encoder.append_field(&t).unwrap();
                 }
                 ValueRef::Blob(b) => {
-                    encoder.add_field(&b).unwrap();
+                    encoder.append_field(&b).unwrap();
                 }
             }
         }
