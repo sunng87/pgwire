@@ -199,8 +199,7 @@ where
 {
     let QueryResponse {
         row_schema,
-        data_rows,
-        tag,
+        mut data_rows,
     } = results;
 
     if row_desc_required {
@@ -210,10 +209,14 @@ where
             .await?;
     }
 
-    client
-        .send_all(&mut data_rows.map(|r| Ok(PgWireBackendMessage::DataRow(r))))
-        .await?;
+    let mut rows = 0;
+    while let Some(row) = data_rows.next().await {
+        let row = row?;
+        rows += 1;
+        client.send(PgWireBackendMessage::DataRow(row)).await?;
+    }
 
+    let tag = Tag::new_for_query(rows);
     client
         .send(PgWireBackendMessage::CommandComplete(tag.into()))
         .await?;

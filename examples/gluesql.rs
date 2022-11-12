@@ -1,13 +1,14 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use futures::stream;
 use tokio::net::TcpListener;
 
 use gluesql::prelude::*;
 use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
-use pgwire::api::results::{FieldInfo, Response, Tag, TextQueryResponseBuilder};
+use pgwire::api::results::{text_query_response, FieldInfo, Response, Tag, TextDataRowEncoder};
 use pgwire::api::{ClientInfo, Type};
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
@@ -37,36 +38,39 @@ impl SimpleQueryHandler for GluesqlProcessor {
                                 .map(|label| {
                                     FieldInfo::new(label.into(), None, None, Type::UNKNOWN)
                                 })
-                                .collect();
-                            let mut result_builder = TextQueryResponseBuilder::new(fields);
+                                .collect::<Vec<_>>();
+                            let nfields = fields.len();
 
+                            let mut results = Vec::with_capacity(rows.len());
                             for row in rows {
+                                let mut encoder = TextDataRowEncoder::new(nfields);
                                 for field in row.iter() {
                                     match field {
-                                        Value::Bool(v) => result_builder.append_field(Some(*v))?,
-                                        Value::I8(v) => result_builder.append_field(Some(*v))?,
-                                        Value::I16(v) => result_builder.append_field(Some(*v))?,
-                                        Value::I32(v) => result_builder.append_field(Some(*v))?,
-                                        Value::I64(v) => result_builder.append_field(Some(*v))?,
-                                        Value::I128(v) => result_builder.append_field(Some(*v))?,
-                                        Value::U8(v) => result_builder.append_field(Some(*v))?,
-                                        Value::F64(v) => result_builder.append_field(Some(*v))?,
-                                        Value::Str(v) => result_builder.append_field(Some(v))?,
+                                        Value::Bool(v) => encoder.append_field(Some(v))?,
+                                        Value::I8(v) => encoder.append_field(Some(v))?,
+                                        Value::I16(v) => encoder.append_field(Some(v))?,
+                                        Value::I32(v) => encoder.append_field(Some(v))?,
+                                        Value::I64(v) => encoder.append_field(Some(v))?,
+                                        Value::I128(v) => encoder.append_field(Some(v))?,
+                                        Value::U8(v) => encoder.append_field(Some(v))?,
+                                        Value::F64(v) => encoder.append_field(Some(v))?,
+                                        Value::Str(v) => encoder.append_field(Some(v))?,
                                         Value::Bytea(v) => {
-                                            result_builder.append_field(Some(hex::encode(v)))?
+                                            encoder.append_field(Some(&hex::encode(v)))?
                                         }
-                                        Value::Date(v) => result_builder.append_field(Some(v))?,
-                                        Value::Time(v) => result_builder.append_field(Some(v))?,
-                                        Value::Timestamp(v) => {
-                                            result_builder.append_field(Some(v))?
-                                        }
+                                        Value::Date(v) => encoder.append_field(Some(v))?,
+                                        Value::Time(v) => encoder.append_field(Some(v))?,
+                                        Value::Timestamp(v) => encoder.append_field(Some(v))?,
                                         _ => unimplemented!(),
                                     }
                                 }
-                                result_builder.finish_row();
+                                results.push(encoder.finish());
                             }
 
-                            Ok(Response::Query(result_builder.build()))
+                            Ok(Response::Query(text_query_response(
+                                fields,
+                                stream::iter(results.into_iter()),
+                            )))
                         }
                         Payload::Insert(rows) => Ok(Response::Execution(Tag::new_for_execution(
                             "Insert",

@@ -112,7 +112,7 @@ impl Message for DataRow {
             + self
                 .fields
                 .iter()
-                .map(|b| b.as_ref().map(|b| b.len() + 4).unwrap_or(2))
+                .map(|b| b.as_ref().map(|b| b.len() + 4).unwrap_or(4))
                 .sum::<usize>()
     }
 

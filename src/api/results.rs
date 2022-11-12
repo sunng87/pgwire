@@ -1,7 +1,11 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
-use futures::stream::{self, BoxStream, StreamExt};
+use futures::{
+    stream::{BoxStream, StreamExt},
+    Stream,
+};
 use postgres_types::{IsNull, ToSql, Type};
 
 use crate::{
@@ -45,7 +49,7 @@ impl From<Tag> for CommandComplete {
     }
 }
 
-#[derive(Debug, new, Eq, PartialEq)]
+#[derive(Debug, new, Eq, PartialEq, Clone)]
 pub struct FieldInfo {
     name: String,
     table_id: Option<i32>,
@@ -78,144 +82,99 @@ pub(crate) fn into_row_description(fields: Vec<FieldInfo>) -> RowDescription {
 #[getset(get = "pub")]
 pub struct QueryResponse {
     pub(crate) row_schema: Vec<FieldInfo>,
-    pub(crate) data_rows: BoxStream<'static, DataRow>,
-    pub(crate) tag: Tag,
+    pub(crate) data_rows: BoxStream<'static, PgWireResult<DataRow>>,
 }
 
-struct QueryResponseBuilder {
-    row_schema: Vec<FieldInfo>,
-    rows: Vec<DataRow>,
-    format: i16,
-
-    buffer: BytesMut,
-    current_row: DataRow,
+pub struct BinaryDataRowEncoder {
+    row_schema: Arc<Vec<FieldInfo>>,
     col_index: usize,
+    buffer: DataRow,
 }
 
-impl QueryResponseBuilder {
-    fn new(fields: Vec<FieldInfo>) -> QueryResponseBuilder {
-        let fields_count = fields.len();
-        let current_row = DataRow::new(Vec::with_capacity(fields_count));
-        QueryResponseBuilder {
-            row_schema: fields,
-            rows: Vec::new(),
-            buffer: BytesMut::with_capacity(8),
-            format: FORMAT_CODE_BINARY,
-
-            current_row,
+impl BinaryDataRowEncoder {
+    pub fn new(row_schema: Arc<Vec<FieldInfo>>) -> BinaryDataRowEncoder {
+        BinaryDataRowEncoder {
+            buffer: DataRow::new(Vec::with_capacity(row_schema.len())),
             col_index: 0,
+            row_schema,
         }
     }
 
-    fn text_format(&mut self) {
-        self.format = FORMAT_CODE_TEXT;
-    }
-
-    fn binary_format(&mut self) {
-        self.format = FORMAT_CODE_BINARY;
-    }
-
-    fn finish_row(&mut self) {
-        let row = std::mem::replace(
-            &mut self.current_row,
-            DataRow::new(Vec::with_capacity(self.row_schema.len())),
-        );
-        self.rows.push(row);
-
-        self.col_index = 0;
-    }
-
-    fn build(mut self) -> QueryResponse {
-        let row_count = self.rows.len();
-
-        // set column format
-        for r in self.row_schema.iter_mut() {
-            r.format = self.format;
-        }
-
-        QueryResponse {
-            row_schema: self.row_schema,
-            data_rows: stream::iter(self.rows.into_iter()).boxed(),
-            tag: Tag::new_for_query(row_count),
-        }
-    }
-}
-
-pub struct BinaryQueryResponseBuilder {
-    inner: QueryResponseBuilder,
-}
-
-impl BinaryQueryResponseBuilder {
-    pub fn new(fields: Vec<FieldInfo>) -> BinaryQueryResponseBuilder {
-        let mut qrb = QueryResponseBuilder::new(fields);
-        qrb.binary_format();
-
-        BinaryQueryResponseBuilder { inner: qrb }
-    }
-
-    pub fn append_field<T>(&mut self, t: T) -> PgWireResult<()>
+    pub fn append_field<T>(&mut self, value: &T) -> PgWireResult<()>
     where
         T: ToSql + Sized,
     {
-        let col_type = &self.inner.row_schema[self.inner.col_index].datatype;
-        if let IsNull::No = t.to_sql(col_type, &mut self.inner.buffer)? {
-            self.inner
-                .current_row
-                .fields_mut()
-                .push(Some(self.inner.buffer.split().freeze()));
+        let mut buffer = BytesMut::with_capacity(8);
+        if let IsNull::No = value.to_sql(&self.row_schema[self.col_index].datatype, &mut buffer)? {
+            self.buffer.fields_mut().push(Some(buffer.split().freeze()));
         } else {
-            self.inner.current_row.fields_mut().push(None);
+            self.buffer.fields_mut().push(None);
         };
-
-        self.inner.buffer.clear();
-        self.inner.col_index += 1;
-
+        self.col_index += 1;
         Ok(())
     }
 
-    pub fn finish_row(&mut self) {
-        self.inner.finish_row();
-    }
-
-    pub fn build(self) -> QueryResponse {
-        self.inner.build()
+    pub fn finish(self) -> PgWireResult<DataRow> {
+        Ok(self.buffer)
     }
 }
 
-pub struct TextQueryResponseBuilder {
-    inner: QueryResponseBuilder,
+pub struct TextDataRowEncoder {
+    buffer: DataRow,
 }
 
-impl TextQueryResponseBuilder {
-    pub fn new(fields: Vec<FieldInfo>) -> TextQueryResponseBuilder {
-        let mut qrb = QueryResponseBuilder::new(fields);
-        qrb.text_format();
-
-        TextQueryResponseBuilder { inner: qrb }
+impl TextDataRowEncoder {
+    pub fn new(nfields: usize) -> TextDataRowEncoder {
+        TextDataRowEncoder {
+            buffer: DataRow::new(Vec::with_capacity(nfields)),
+        }
     }
 
-    pub fn append_field<T>(&mut self, data: Option<T>) -> PgWireResult<()>
+    pub fn append_field<T>(&mut self, value: Option<&T>) -> PgWireResult<()>
     where
         T: ToString,
     {
-        if let Some(data) = data {
-            self.inner
-                .current_row
+        if let Some(value) = value {
+            self.buffer
                 .fields_mut()
-                .push(Some(Bytes::copy_from_slice(data.to_string().as_ref())));
+                .push(Some(Bytes::copy_from_slice(value.to_string().as_bytes())));
         } else {
-            self.inner.current_row.fields_mut().push(None);
+            self.buffer.fields_mut().push(None);
         }
-
         Ok(())
     }
 
-    pub fn finish_row(&mut self) {
-        self.inner.finish_row();
+    pub fn finish(self) -> PgWireResult<DataRow> {
+        Ok(self.buffer)
     }
+}
 
-    pub fn build(self) -> QueryResponse {
-        self.inner.build()
+pub fn text_query_response<S>(mut field_defs: Vec<FieldInfo>, row_stream: S) -> QueryResponse
+where
+    S: Stream<Item = PgWireResult<DataRow>> + Send + Unpin + 'static,
+{
+    field_defs
+        .iter_mut()
+        .for_each(|f| f.format = FORMAT_CODE_TEXT);
+
+    QueryResponse {
+        row_schema: field_defs,
+        data_rows: row_stream.boxed(),
+    }
+}
+
+pub fn binary_query_response<S>(field_defs: Arc<Vec<FieldInfo>>, row_stream: S) -> QueryResponse
+where
+    S: Stream<Item = PgWireResult<DataRow>> + Send + Unpin + 'static,
+{
+    let mut row_schema = (*field_defs).clone();
+    row_schema
+        .iter_mut()
+        .for_each(|f| f.format = FORMAT_CODE_BINARY);
+
+    QueryResponse {
+        row_schema,
+        data_rows: row_stream.boxed(),
     }
 }
 
