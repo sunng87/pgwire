@@ -2,6 +2,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use futures::stream;
+use futures::Stream;
+use pgwire::messages::data::DataRow;
 use rusqlite::Rows;
 use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
 use tokio::net::TcpListener;
@@ -11,7 +14,8 @@ use pgwire::api::auth::ServerParameterProvider;
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
-    BinaryQueryResponseBuilder, FieldInfo, Response, Tag, TextQueryResponseBuilder,
+    binary_query_response, text_query_response, BinaryDataRowEncoder, FieldInfo, Response, Tag,
+    TextDataRowEncoder,
 };
 use pgwire::api::{ClientInfo, Type};
 use pgwire::error::{PgWireError, PgWireResult};
@@ -55,8 +59,8 @@ impl ServerParameterProvider for SqliteParameters {
     where
         C: ClientInfo,
     {
-        let mut params = HashMap::new();
-        params.insert("version".to_owned(), self.version.to_owned());
+        let mut params = HashMap::with_capacity(1);
+        params.insert("server_version".to_owned(), self.version.to_owned());
 
         Some(params)
     }
@@ -77,9 +81,8 @@ impl SimpleQueryHandler for SqliteBackend {
             let header = row_desc_from_stmt(&stmt);
             stmt.query(())
                 .map(|rows| {
-                    let mut builder = TextQueryResponseBuilder::new(header);
-                    encode_text_row_data(rows, columns, &mut builder);
-                    vec![Response::Query(builder.build())]
+                    let s = encode_text_row_data(rows, columns);
+                    vec![Response::Query(text_query_response(header, s))]
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {
@@ -119,60 +122,70 @@ fn row_desc_from_stmt(stmt: &Statement) -> Vec<FieldInfo> {
         .collect()
 }
 
-fn encode_text_row_data(mut rows: Rows, columns: usize, builder: &mut TextQueryResponseBuilder) {
+fn encode_text_row_data(
+    mut rows: Rows,
+    columns: usize,
+) -> impl Stream<Item = PgWireResult<DataRow>> {
+    let mut results = Vec::new();
     while let Ok(Some(row)) = rows.next() {
+        let mut encoder = TextDataRowEncoder::new(columns);
         for idx in 0..columns {
             let data = row.get_ref_unwrap::<usize>(idx);
             match data {
-                ValueRef::Null => builder.append_field(None::<i8>).unwrap(),
+                ValueRef::Null => encoder.add_field(None::<&i8>).unwrap(),
                 ValueRef::Integer(i) => {
-                    builder.append_field(Some(i)).unwrap();
+                    encoder.add_field(Some(&i)).unwrap();
                 }
                 ValueRef::Real(f) => {
-                    builder.append_field(Some(f)).unwrap();
+                    encoder.add_field(Some(&f)).unwrap();
                 }
                 ValueRef::Text(t) => {
-                    builder
-                        .append_field(Some(String::from_utf8_lossy(t)))
+                    encoder
+                        .add_field(Some(&String::from_utf8_lossy(t)))
                         .unwrap();
                 }
                 ValueRef::Blob(b) => {
-                    builder.append_field(Some(hex::encode(b))).unwrap();
+                    encoder.add_field(Some(&hex::encode(b))).unwrap();
                 }
             }
         }
 
-        builder.finish_row();
+        results.push(encoder.finish());
     }
+
+    stream::iter(results.into_iter())
 }
 
 fn encode_binary_row_data(
     mut rows: Rows,
-    columns: usize,
-    builder: &mut BinaryQueryResponseBuilder,
-) {
+    headers: Arc<Vec<FieldInfo>>,
+) -> impl Stream<Item = PgWireResult<DataRow>> {
+    let mut results = Vec::new();
     while let Ok(Some(row)) = rows.next() {
-        for idx in 0..columns {
+        let mut encoder = BinaryDataRowEncoder::new(headers.clone());
+        for idx in 0..headers.len() {
             let data = row.get_ref_unwrap::<usize>(idx);
             match data {
-                ValueRef::Null => builder.append_field(None::<i8>).unwrap(),
+                ValueRef::Null => encoder.add_field(&None::<i8>).unwrap(),
                 ValueRef::Integer(i) => {
-                    builder.append_field(i).unwrap();
+                    encoder.add_field(&i).unwrap();
                 }
                 ValueRef::Real(f) => {
-                    builder.append_field(f).unwrap();
+                    encoder.add_field(&f).unwrap();
                 }
                 ValueRef::Text(t) => {
-                    builder.append_field(t).unwrap();
+                    encoder.add_field(&t).unwrap();
                 }
                 ValueRef::Blob(b) => {
-                    builder.append_field(b).unwrap();
+                    encoder.add_field(&b).unwrap();
                 }
             }
         }
 
-        builder.finish_row();
+        results.push(encoder.finish());
     }
+
+    stream::iter(results.into_iter())
 }
 
 fn get_params(portal: &Portal) -> Vec<Box<dyn ToSql>> {
@@ -230,14 +243,11 @@ impl ExtendedQueryHandler for SqliteBackend {
             .collect::<Vec<&dyn rusqlite::ToSql>>();
 
         if query.to_uppercase().starts_with("SELECT") {
-            let columns = stmt.column_count();
-            let header = row_desc_from_stmt(&stmt);
+            let header = Arc::new(row_desc_from_stmt(&stmt));
             stmt.query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
                 .map(|rows| {
-                    let mut builder = BinaryQueryResponseBuilder::new(header);
-                    encode_binary_row_data(rows, columns, &mut builder);
-
-                    Response::Query(builder.build())
+                    let s = encode_binary_row_data(rows, header.clone());
+                    Response::Query(binary_query_response(header, s))
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {
