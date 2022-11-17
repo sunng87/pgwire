@@ -10,9 +10,39 @@ write PostgreSQL comptible servers and clients.
 
 This library is a work in progress.
 
+## Status
+
+- [x] Message format
+- [x] Backend TCP/TLS server on Tokio
+- [ ] Frontend-Backend interaction over TCP
+  - [x] SSL Request and Response
+  - [ ] Startup
+    - [x] No authentication
+    - [x] Clear-text password authentication
+    - [ ] Md5 Password authentication
+  - [x] Simple Query and Response
+  - [x] Extended Query and Response
+    - [x] Parse
+    - [x] Bind
+    - [x] Execute
+    - [x] Describe
+    - [x] Sync
+  - [x] Termination
+  - [ ] Cancel
+  - [x] Error and Notice
+- [ ] APIs
+  - [ ] Startup APIs
+    - [ ] Password authentication, ready but not good
+    - [ ] Server parameters API, ready but not very good
+  - [x] Simple Query API
+  - [x] Extended Query API, verification required
+  - [x] ResultSet builder/encoder API
+  - [ ] Query Cancellation API
+  - [x] Error and Notice API
+
 ## Usage
 
-### Server
+### Server/Backend
 
 To use `pgwire` in your server application, you will need to implement two key
 components: startup processor and query processor. For query processing, there
@@ -30,6 +60,13 @@ Examples are provided to demo the very basic usage of `pgwire` on server side:
 - `examples/server.rs`: demos a server that always returns fixed results.
 - `examples/secure_server.rs`: demos a server with ssl support and always
   returns fixed results.
+
+### Client/Frontend
+
+I think in most case you do not need pgwire to build a postgresql client,
+existing postgresql client like
+[rust-postgres](https://github.com/sfackler/rust-postgres) should fit your
+scenarios. Please rise an issue if there is a scenario.
 
 ## License
 
