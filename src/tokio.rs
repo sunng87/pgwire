@@ -281,3 +281,46 @@ where
 
     Ok(())
 }
+
+pub async fn process_socket_secure_required<A, Q, EQ>(
+    mut tcp_socket: TcpStream,
+    tls_acceptor: Arc<TlsAcceptor>,
+    authenticator: Arc<A>,
+    query_handler: Arc<Q>,
+    extended_query_handler: Arc<EQ>,
+) -> Result<(), IOError>
+where
+    A: StartupHandler + 'static,
+    Q: SimpleQueryHandler + 'static,
+    EQ: ExtendedQueryHandler + 'static,
+{
+    let addr = tcp_socket.peer_addr()?;
+    let ssl = peek_for_sslrequest(&mut tcp_socket, true).await?;
+
+    let client_info = ClientInfoHolder::new(addr, ssl);
+    if !ssl {
+        return Err(IOError::new(
+            std::io::ErrorKind::Other,
+            "pg server tls required",
+        ));
+    }
+
+    let ssl_socket = tls_acceptor.accept(tcp_socket).await?;
+    let mut socket = Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
+
+    while let Some(Ok(msg)) = socket.next().await {
+        if let Err(e) = process_message(
+            msg,
+            &mut socket,
+            authenticator.clone(),
+            query_handler.clone(),
+            extended_query_handler.clone(),
+        )
+        .await
+        {
+            process_error(&mut socket, e).await?;
+        }
+    }
+
+    Ok(())
+}
