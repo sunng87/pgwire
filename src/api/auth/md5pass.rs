@@ -21,8 +21,8 @@ pub struct Md5PasswordAuthStartupHandler<V, P> {
 
 fn random_salt() -> [u8; 4] {
     let mut arr = [0u8; 4];
-    for i in 0..3 {
-        arr[i] = rand::random::<u8>();
+    for v in arr.iter_mut() {
+        *v = rand::random::<u8>();
     }
 
     arr
