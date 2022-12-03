@@ -87,3 +87,36 @@ impl<V: PasswordVerifier, P: ServerParameterProvider> StartupHandler
         Ok(())
     }
 }
+
+/// this function is to compute postgres standard md5 hashed password
+///
+/// concat('md5', md5(concat(md5(concat(password, username)), random-salt)))
+///
+/// the input parameter `md5hashed_username_password` represents
+/// `md5(concat(password, username))` so that your can store hashed password in
+/// storage.
+pub fn hash_md5_password(md5hashed_username_password: &String, salt: &[u8]) -> String {
+    let hashed_bytes = md5hashed_username_password.as_bytes();
+    let mut bytes = Vec::with_capacity(hashed_bytes.len() + 4);
+    bytes.extend_from_slice(&hashed_bytes);
+    bytes.extend_from_slice(salt);
+
+    format!("md5{:x}", md5::compute(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn test_hash_md5_passwd() {
+        let salt = vec![20, 247, 107, 249];
+        let username = "zmjiang";
+        let password = "themanwhochangedchina";
+
+        let passwdhash = format!("{:x}", md5::compute(format!("{}{}", password, username)));
+
+        let result = "md521fe459d77d3e3ea9c9fcd5c11030d30";
+
+        assert_eq!(result, super::hash_md5_password(&passwdhash, &salt));
+    }
+}
