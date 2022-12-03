@@ -6,7 +6,7 @@ use futures::sink::{Sink, SinkExt};
 use futures::stream;
 use rand;
 
-use super::{ClientInfo, PgWireConnectionState};
+use super::{ClientInfo, PgWireConnectionState, METADATA_DATABASE, METADATA_USER};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::response::{ReadyForQuery, READY_STATUS_IDLE};
 use crate::messages::startup::{Authentication, BackendKeyData, ParameterStatus, Startup};
@@ -44,6 +44,49 @@ impl ServerParameterProvider for NoopServerParameterProvider {
     {
         None
     }
+}
+
+#[derive(Debug, new, Getters)]
+#[getset(get = "pub")]
+pub struct HashedPassword<'a> {
+    salt: &'a [u8],
+    hashed_password: &'a String,
+}
+
+#[derive(Debug)]
+pub enum Password<'a> {
+    ClearText(&'a String),
+    Hashed(HashedPassword<'a>),
+}
+
+#[derive(Debug, new, Getters)]
+#[getset(get = "pub")]
+pub struct LoginInfo<'a> {
+    user: Option<&'a String>,
+    database: Option<&'a String>,
+    host: String,
+}
+
+impl<'a> LoginInfo<'a> {
+    pub fn from_client_info<C>(client: &'a C) -> LoginInfo<'a>
+    where
+        C: ClientInfo,
+    {
+        LoginInfo {
+            user: client.metadata().get(METADATA_USER),
+            database: client.metadata().get(METADATA_DATABASE),
+            host: client.socket_addr().ip().to_string(),
+        }
+    }
+}
+
+#[async_trait]
+pub trait PasswordVerifier: Send + Sync {
+    async fn verify_password<'a>(
+        &self,
+        ctx: LoginInfo<'a>,
+        pwd: Password<'a>,
+    ) -> PgWireResult<bool>;
 }
 
 pub fn save_startup_parameters_to_metadata<C>(client: &mut C, startup_message: &Startup)
@@ -89,6 +132,7 @@ where
 }
 
 pub mod cleartext;
+pub mod md5pass;
 pub mod noop;
 
 // TODO: md5, scram-sha-256(sasl)
