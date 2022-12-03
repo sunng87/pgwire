@@ -98,7 +98,7 @@ impl<V: PasswordVerifier, P: ServerParameterProvider> StartupHandler
 pub fn hash_md5_password(md5hashed_username_password: &String, salt: &[u8]) -> String {
     let hashed_bytes = md5hashed_username_password.as_bytes();
     let mut bytes = Vec::with_capacity(hashed_bytes.len() + 4);
-    bytes.extend_from_slice(&hashed_bytes);
+    bytes.extend_from_slice(hashed_bytes);
     bytes.extend_from_slice(salt);
 
     format!("md5{:x}", md5::compute(bytes))
