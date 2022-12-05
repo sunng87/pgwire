@@ -3,16 +3,14 @@ use std::fmt::Debug;
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 
-use super::{ClientInfo, PgWireConnectionState, ServerParameterProvider, StartupHandler};
+use super::{
+    ClientInfo, LoginInfo, Password, PasswordVerifier, PgWireConnectionState,
+    ServerParameterProvider, StartupHandler,
+};
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::response::ErrorResponse;
 use crate::messages::startup::Authentication;
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
-
-#[async_trait]
-pub trait PasswordVerifier: Send + Sync {
-    async fn verify_password(&self, password: &str) -> PgWireResult<bool>;
-}
 
 #[derive(new)]
 pub struct CleartextPasswordAuthStartupHandler<V, P> {
@@ -45,7 +43,12 @@ impl<V: PasswordVerifier, P: ServerParameterProvider> StartupHandler
                     .await?;
             }
             PgWireFrontendMessage::Password(ref pwd) => {
-                if let Ok(true) = self.verifier.verify_password(pwd.password()).await {
+                let login_info = LoginInfo::from_client_info(client);
+                if let Ok(true) = self
+                    .verifier
+                    .verify_password(login_info, Password::ClearText(pwd.password()))
+                    .await
+                {
                     super::finish_authentication(client, &self.parameter_provider).await
                 } else {
                     let error_info = ErrorInfo::new(

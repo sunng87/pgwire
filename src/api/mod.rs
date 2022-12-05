@@ -50,6 +50,9 @@ pub trait ClientInfo {
     fn portal_store_mut(&mut self) -> &mut dyn store::SessionStore<Arc<portal::Portal>>;
 }
 
+pub const METADATA_USER: &str = "user";
+pub const METADATA_DATABASE: &str = "database";
+
 #[derive(Debug, new, Getters, Setters, MutGetters)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct ClientInfoHolder {
