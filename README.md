@@ -19,7 +19,8 @@ This library is a work in progress.
   - [ ] Startup
     - [x] No authentication
     - [x] Clear-text password authentication
-    - [ ] Md5 Password authentication
+    - [x] Md5 Password authentication
+    - [ ] SASL SCRAM authentication
   - [x] Simple Query and Response
   - [x] Extended Query and Response
     - [x] Parse
@@ -32,10 +33,11 @@ This library is a work in progress.
   - [x] Error and Notice
 - [ ] APIs
   - [ ] Startup APIs
-    - [ ] Password authentication, ready but not good
+    - [x] Password authentication
     - [ ] Server parameters API, ready but not very good
   - [x] Simple Query API
   - [x] Extended Query API, verification required
+    - [ ] Portal API, implemented but not perfect
   - [x] ResultSet builder/encoder API
   - [ ] Query Cancellation API
   - [x] Error and Notice API
