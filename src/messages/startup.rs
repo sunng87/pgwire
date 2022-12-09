@@ -4,7 +4,7 @@ use bytes::{Buf, BufMut, BytesMut};
 
 use super::codec;
 use super::Message;
-use crate::error::PgWireResult;
+use crate::error::{PgWireError, PgWireResult};
 
 /// postgresql wire protocol startup message, sent by frontend
 /// the strings are null-ternimated string, which is a string
@@ -25,6 +25,12 @@ pub struct Startup {
 impl Default for Startup {
     fn default() -> Startup {
         Startup::new()
+    }
+}
+
+impl Startup {
+    fn is_protocol_version_supported(version: i32) -> bool {
+        version == 196608
     }
 }
 
@@ -55,11 +61,27 @@ impl Message for Startup {
         Ok(())
     }
 
+    fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
+        // packet len + protocol version
+        // check if packet is valid
+        if buf.remaining() >= 8 {
+            let packet_version = (&buf[4..8]).get_i32();
+            dbg!(packet_version);
+            if !Self::is_protocol_version_supported(packet_version) {
+                return Err(PgWireError::InvalidProtocolVersion(packet_version));
+            }
+        }
+
+        codec::decode_packet(buf, 0, |buf, full_len| Self::decode_body(buf, full_len))
+    }
+
     fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
         let mut msg = Startup::default();
         // parse
         msg.set_protocol_number_major(buf.get_u16());
         msg.set_protocol_number_minor(buf.get_u16());
+
+        // check protocol number and return error if not supported
 
         // end by reading the last \0
         while let Some(key) = codec::get_cstring(buf) {

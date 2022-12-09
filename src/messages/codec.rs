@@ -24,8 +24,7 @@ pub(crate) fn get_cstring(buf: &mut BytesMut) -> Option<String> {
     if i == 0 {
         None
     } else {
-        // TODO: unwrap
-        Some(str::from_utf8(&string_buf[..i]).unwrap().to_owned())
+        Some(String::from_utf8_lossy(&string_buf[..i]).into_owned())
     }
 }
 
@@ -46,7 +45,7 @@ pub(crate) fn put_option_cstring(buf: &mut BytesMut, input: &Option<String>) {
 }
 
 /// Try to read message length from buf, without actually move the cursor
-fn get_length(buf: &BytesMut, offset: usize) -> Option<usize> {
+pub(crate) fn get_length(buf: &BytesMut, offset: usize) -> Option<usize> {
     if buf.remaining() >= 4 + offset {
         Some((&buf[offset..4 + offset]).get_i32() as usize)
     } else {

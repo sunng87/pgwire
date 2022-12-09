@@ -7,8 +7,10 @@ use crate::messages::response::{ErrorResponse, NoticeResponse};
 
 #[derive(Error, Debug)]
 pub enum PgWireError {
-    #[error("Invalid message recevied, expect {0:?}, received {1:?}")]
-    InvalidMessageType(u8, u8),
+    #[error("Invalid protocol version, received {0}")]
+    InvalidProtocolVersion(i32),
+    #[error("Invalid message recevied, received {0}")]
+    InvalidMessageType(u8),
     #[error(transparent)]
     IoError(#[from] std::io::Error),
     #[error("Portal not found for name: {0:?}")]

@@ -1,6 +1,6 @@
 use bytes::{Buf, BufMut, BytesMut};
 
-use crate::error::PgWireResult;
+use crate::error::{PgWireError, PgWireResult};
 
 pub trait Message: Sized {
     /// Return the type code of the message. In order to maintain backward
@@ -27,11 +27,6 @@ pub trait Message: Sized {
     }
 
     fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
-        // let mut offset: usize = 0;
-        // if let Some(mt) = Self::message_type() {
-        //     // codec::get_and_ensure_message_type(buf, mt)?;
-        //     offset = 1;
-        // }
         let offset = Self::message_type().is_some().into();
 
         codec::decode_packet(buf, offset, |buf, full_len| {
@@ -119,11 +114,7 @@ impl PgWireFrontendMessage {
                 terminate::MESSAGE_TYPE_BYTE_TERMINATE => {
                     terminate::Terminate::decode(buf).map(|v| v.map(Self::Terminate))
                 }
-                _ => {
-                    // messages have no type byte, manual decoding required
-                    // startup
-                    Ok(None)
-                }
+                _ => Err(PgWireError::InvalidMessageType(first_byte)),
             }
         } else {
             Ok(None)
@@ -231,11 +222,7 @@ impl PgWireBackendMessage {
                 data::MESSAGE_TYPE_BYTE_DATA_ROW => {
                     data::DataRow::decode(buf).map(|v| v.map(Self::DataRow))
                 }
-                _ => {
-                    // messages have no type byte, manual decoding required
-                    // startup
-                    Ok(None)
-                }
+                _ => Err(PgWireError::InvalidMessageType(first_byte)),
             }
         } else {
             Ok(None)
