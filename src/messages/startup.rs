@@ -66,7 +66,6 @@ impl Message for Startup {
         // check if packet is valid
         if buf.remaining() >= 8 {
             let packet_version = (&buf[4..8]).get_i32();
-            dbg!(packet_version);
             if !Self::is_protocol_version_supported(packet_version) {
                 return Err(PgWireError::InvalidProtocolVersion(packet_version));
             }
