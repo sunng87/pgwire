@@ -31,6 +31,7 @@ This library is a work in progress.
   - [x] Termination
   - [ ] Cancel
   - [x] Error and Notice
+  - [ ] Copy
 - [ ] APIs
   - [ ] Startup APIs
     - [x] Password authentication
