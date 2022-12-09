@@ -80,8 +80,6 @@ impl Message for Startup {
         msg.set_protocol_number_major(buf.get_u16());
         msg.set_protocol_number_minor(buf.get_u16());
 
-        // check protocol number and return error if not supported
-
         // end by reading the last \0
         while let Some(key) = codec::get_cstring(buf) {
             let value = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
