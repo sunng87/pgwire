@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use bytes::Buf;
 use futures::{SinkExt, StreamExt};
+use tokio::io::Interest;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsAcceptor;
@@ -200,27 +201,32 @@ async fn peek_for_sslrequest(
 ) -> Result<bool, IOError> {
     let mut ssl = false;
     let mut buf = [0u8; SslRequest::BODY_SIZE];
+    let ready = tcp_socket
+        .ready(Interest::READABLE | Interest::WRITABLE)
+        .await?;
     loop {
-        let size = tcp_socket.peek(&mut buf).await?;
-        if size == SslRequest::BODY_SIZE {
-            let mut buf_ref = buf.as_ref();
-            // skip first 4 bytes
-            buf_ref.get_i32();
-            if buf_ref.get_i32() == SslRequest::BODY_MAGIC_NUMBER {
-                // the socket is sending sslrequest, read the first 8 bytes
-                // skip first 8 bytes
-                tcp_socket
-                    .read_exact(&mut [0u8; SslRequest::BODY_SIZE])
-                    .await?;
-                // ssl configured
-                if ssl_supported {
-                    ssl = true;
-                    tcp_socket.write_all(b"S").await?;
-                } else {
-                    tcp_socket.write_all(b"N").await?;
+        if ready.is_readable() {
+            let size = tcp_socket.peek(&mut buf).await?;
+            if size == SslRequest::BODY_SIZE {
+                let mut buf_ref = buf.as_ref();
+                // skip first 4 bytes
+                buf_ref.get_i32();
+                if buf_ref.get_i32() == SslRequest::BODY_MAGIC_NUMBER {
+                    // the socket is sending sslrequest, read the first 8 bytes
+                    // skip first 8 bytes
+                    tcp_socket
+                        .read_exact(&mut [0u8; SslRequest::BODY_SIZE])
+                        .await?;
+                    // ssl configured
+                    if ssl_supported {
+                        ssl = true;
+                        tcp_socket.write_all(b"S").await?;
+                    } else {
+                        tcp_socket.write_all(b"N").await?;
+                    }
                 }
+                break;
             }
-            break;
         }
     }
 
