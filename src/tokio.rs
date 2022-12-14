@@ -1,10 +1,12 @@
 use std::io::Error as IOError;
 use std::sync::Arc;
+use std::time::Duration;
 
 use bytes::Buf;
 use futures::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::TcpStream;
+use tokio::time;
 use tokio_rustls::TlsAcceptor;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
@@ -194,13 +196,17 @@ where
     Ok(())
 }
 
+const MAX_PEEK_ATTEMPTS: usize = 20;
+
 async fn peek_for_sslrequest(
     tcp_socket: &mut TcpStream,
     ssl_supported: bool,
 ) -> Result<bool, IOError> {
     let mut ssl = false;
     let mut buf = [0u8; SslRequest::BODY_SIZE];
-    loop {
+
+    let mut peek_counter = 0;
+    while peek_counter < MAX_PEEK_ATTEMPTS {
         tcp_socket.readable().await?;
         let size = tcp_socket.peek(&mut buf).await?;
         if size == SslRequest::BODY_SIZE {
@@ -221,11 +227,18 @@ async fn peek_for_sslrequest(
                     tcp_socket.write_all(b"N").await?;
                 }
             }
-            break;
+
+            return Ok(ssl);
+        } else {
+            peek_counter += 1;
+            time::sleep(Duration::from_millis(50)).await;
         }
     }
 
-    Ok(ssl)
+    Err(IOError::new(
+        std::io::ErrorKind::TimedOut,
+        "Timed out waiting for first packet.",
+    ))
 }
 
 pub async fn process_socket<A, Q, EQ>(
