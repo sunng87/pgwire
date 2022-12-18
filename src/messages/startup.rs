@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 use super::codec;
 use super::Message;
@@ -93,20 +93,21 @@ impl Message for Startup {
 /// authentication response family, sent by backend
 #[derive(PartialEq, Eq, Debug)]
 pub enum Authentication {
-    Ok,                // code 0
-    CleartextPassword, // code 3
-    KerberosV5,        // code 2
+    Ok,                   // code 0
+    CleartextPassword,    // code 3
+    KerberosV5,           // code 2
     MD5Password([u8; 4]), // code 5, with 4 bytes of md5 salt
 
-                       // TODO: more types
-                       // AuthenticationSCMCredential
-                       //
-                       // AuthenticationGSS
-                       // AuthenticationGSSContinue
-                       // AuthenticationSSPI
-                       // AuthenticationSASL
-                       // AuthenticationSASLContinue
-                       // AuthenticationSASLFinal
+    SASL(Vec<String>),   // code 10, with server supported sasl mechanisms
+    SASLContinue(Bytes), // code 11, with authentication data
+    SASLFinal(Bytes),    // code 12, with additional authentication data
+
+                         // TODO: more types
+                         // AuthenticationSCMCredential
+                         //
+                         // AuthenticationGSS
+                         // AuthenticationGSSContinue
+                         // AuthenticationSSPI
 }
 
 pub const MESSAGE_TYPE_BYTE_AUTHENTICATION: u8 = b'R';
@@ -124,6 +125,11 @@ impl Message for Authentication {
                 8
             }
             Authentication::MD5Password(_) => 12,
+            Authentication::SASL(methods) => {
+                8 + methods.iter().map(|v| v.len() + 1).sum::<usize>() + 1
+            }
+            Authentication::SASLContinue(data) => 8 + data.len(),
+            Authentication::SASLFinal(data) => 8 + data.len(),
         }
     }
 
@@ -136,11 +142,26 @@ impl Message for Authentication {
                 buf.put_i32(5);
                 buf.put_slice(salt.as_ref());
             }
+            Authentication::SASL(methods) => {
+                buf.put_i32(10);
+                for method in methods {
+                    codec::put_cstring(buf, method);
+                }
+                buf.put_u8(b'\0');
+            }
+            Authentication::SASLContinue(data) => {
+                buf.put_i32(11);
+                buf.put_slice(data.as_ref());
+            }
+            Authentication::SASLFinal(data) => {
+                buf.put_i32(11);
+                buf.put_slice(data.as_ref());
+            }
         }
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, msg_len: usize) -> PgWireResult<Self> {
         let code = buf.get_i32();
         let msg = match code {
             0 => Authentication::Ok,
@@ -151,6 +172,21 @@ impl Message for Authentication {
                 let mut salt_array = [0u8; 4];
                 salt.copy_to_slice(&mut salt_array);
                 Authentication::MD5Password(salt_array)
+            }
+            10 => {
+                let mut methods = Vec::new();
+                while let Some(method) = codec::get_cstring(buf) {
+                    methods.push(method);
+                }
+                Authentication::SASL(methods)
+            }
+            11 => {
+                let data = buf.split_to(msg_len - 4).freeze();
+                Authentication::SASLContinue(data)
+            }
+            12 => {
+                let data = buf.split_to(msg_len - 4).freeze();
+                Authentication::SASLFinal(data)
             }
             _ => unreachable!(),
         };
