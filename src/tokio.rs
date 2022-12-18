@@ -1,12 +1,11 @@
 use std::io::Error as IOError;
 use std::sync::Arc;
-use std::time::Duration;
 
 use bytes::Buf;
+use futures::future::poll_fn;
 use futures::{SinkExt, StreamExt};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
-use tokio::time;
 use tokio_rustls::TlsAcceptor;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
@@ -196,21 +195,21 @@ where
     Ok(())
 }
 
-const MAX_PEEK_ATTEMPTS: usize = 20;
-
 async fn peek_for_sslrequest(
     tcp_socket: &mut TcpStream,
     ssl_supported: bool,
 ) -> Result<bool, IOError> {
     let mut ssl = false;
     let mut buf = [0u8; SslRequest::BODY_SIZE];
-
-    let mut peek_counter = 0;
-    while peek_counter < MAX_PEEK_ATTEMPTS {
-        tcp_socket.readable().await?;
-        let size = tcp_socket.peek(&mut buf).await?;
+    let mut buf = ReadBuf::new(&mut buf);
+    loop {
+        let size = poll_fn(|cx| tcp_socket.poll_peek(cx, &mut buf)).await?;
+        if size == 0 {
+            // the tcp_stream has ended
+            return Ok(false);
+        }
         if size == SslRequest::BODY_SIZE {
-            let mut buf_ref = buf.as_ref();
+            let mut buf_ref = buf.filled();
             // skip first 4 bytes
             buf_ref.get_i32();
             if buf_ref.get_i32() == SslRequest::BODY_MAGIC_NUMBER {
@@ -229,16 +228,8 @@ async fn peek_for_sslrequest(
             }
 
             return Ok(ssl);
-        } else {
-            peek_counter += 1;
-            time::sleep(Duration::from_millis(50)).await;
         }
     }
-
-    Err(IOError::new(
-        std::io::ErrorKind::TimedOut,
-        "Timed out waiting for first packet.",
-    ))
 }
 
 pub async fn process_socket<A, Q, EQ>(
