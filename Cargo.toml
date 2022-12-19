@@ -26,7 +26,7 @@ postgres-types = "0.2"
 hex = "0.4"
 md5 = "0.7"
 
-tokio = { version = "1.19", features = ["net", "rt", "io-util", "time"], optional = true}
+tokio = { version = "1.19", features = ["net", "rt", "io-util"], optional = true}
 tokio-util = { version = "0.7.3", features = ["codec", "io"], optional = true }
 tokio-rustls = { version = "0.23", optional = true }
 
