@@ -418,4 +418,14 @@ mod test {
         let sslreq = SslRequest::new();
         roundtrip!(sslreq, SslRequest);
     }
+
+    #[test]
+    fn test_saslresponse() {
+        let saslinitialresp =
+            SASLInitialResponse::new("SCRAM-SHA-256".to_owned(), Some(Bytes::from_static(b"abc")));
+        roundtrip!(saslinitialresp, SASLInitialResponse);
+
+        let saslresp = SASLResponse::new(Bytes::from_static(b"abc"));
+        roundtrip!(saslresp, SASLResponse);
+    }
 }
