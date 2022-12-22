@@ -345,3 +345,76 @@ impl Message for SslRequest {
         }
     }
 }
+
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct SASLInitialResponse {
+    auth_method: String,
+    data: Option<Bytes>,
+}
+
+impl Message for SASLInitialResponse {
+    #[inline]
+    fn message_type() -> Option<u8> {
+        Some(b'p')
+    }
+
+    #[inline]
+    fn message_length(&self) -> usize {
+        4 + self.auth_method.as_bytes().len()
+            + 1
+            + 4
+            + self.data.as_ref().map(|b| b.len()).unwrap_or(0)
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        codec::put_cstring(buf, &self.auth_method);
+        if let Some(ref data) = self.data {
+            buf.put_i32(data.len() as i32);
+            buf.put_slice(data.as_ref());
+        } else {
+            buf.put_i32(-1);
+        }
+        Ok(())
+    }
+
+    fn decode_body(buf: &mut BytesMut, _full_len: usize) -> PgWireResult<Self> {
+        let auth_method = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
+        let data_len = buf.get_i32();
+        let data = if data_len == -1 {
+            None
+        } else {
+            Some(buf.split_to(data_len as usize).freeze())
+        };
+
+        Ok(SASLInitialResponse { auth_method, data })
+    }
+}
+
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct SASLResponse {
+    data: Bytes,
+}
+
+impl Message for SASLResponse {
+    #[inline]
+    fn message_type() -> Option<u8> {
+        Some(b'p')
+    }
+
+    #[inline]
+    fn message_length(&self) -> usize {
+        4 + self.data.len()
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        buf.put_slice(self.data.as_ref());
+        Ok(())
+    }
+
+    fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self> {
+        let data = buf.split_to(full_len - 4).freeze();
+        Ok(SASLResponse { data })
+    }
+}

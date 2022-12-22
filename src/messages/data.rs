@@ -71,7 +71,7 @@ impl Message for RowDescription {
 
         for _ in 0..fields_len {
             let field = FieldDescription {
-                name: codec::get_cstring(buf).unwrap(),
+                name: codec::get_cstring(buf).unwrap_or_else(|| "".to_owned()),
                 table_id: buf.get_i32(),
                 column_id: buf.get_i16(),
                 type_id: buf.get_u32(),
