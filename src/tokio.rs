@@ -15,7 +15,7 @@ use crate::api::query::ExtendedQueryHandler;
 use crate::api::query::SimpleQueryHandler;
 use crate::api::stmt::Statement;
 use crate::api::store::SessionStore;
-use crate::api::{ClientInfo, ClientInfoHolder, PgWireConnectionState};
+use crate::api::{ClientInfo, ClientInfoHolder, MakeHandler, PgWireConnectionState};
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::response::ReadyForQuery;
 use crate::messages::response::READY_STATUS_IDLE;
@@ -232,22 +232,29 @@ async fn peek_for_sslrequest(
     }
 }
 
-pub async fn process_socket<A, Q, EQ>(
+pub async fn process_socket<A, AM, Q, QM, EQ, EQM>(
     mut tcp_socket: TcpStream,
     tls_acceptor: Option<Arc<TlsAcceptor>>,
-    authenticator: Arc<A>,
-    query_handler: Arc<Q>,
-    extended_query_handler: Arc<EQ>,
+    make_startup_handler: Arc<AM>,
+    make_query_handler: Arc<QM>,
+    make_extended_query_handler: Arc<EQM>,
 ) -> Result<(), IOError>
 where
     A: StartupHandler + 'static,
+    AM: MakeHandler<Handler = Arc<A>>,
     Q: SimpleQueryHandler + 'static,
+    QM: MakeHandler<Handler = Arc<Q>>,
     EQ: ExtendedQueryHandler + 'static,
+    EQM: MakeHandler<Handler = Arc<EQ>>,
 {
     let addr = tcp_socket.peer_addr()?;
     let ssl = peek_for_sslrequest(&mut tcp_socket, tls_acceptor.is_some()).await?;
 
     let client_info = ClientInfoHolder::new(addr, ssl);
+    let startup_handler = make_startup_handler.make();
+    let query_handler = make_query_handler.make();
+    let extended_query_handler = make_extended_query_handler.make();
+
     if ssl {
         // safe to unwrap tls_acceptor here
         let ssl_socket = tls_acceptor.unwrap().accept(tcp_socket).await?;
@@ -257,7 +264,7 @@ where
             if let Err(e) = process_message(
                 msg,
                 &mut socket,
-                authenticator.clone(),
+                startup_handler.clone(),
                 query_handler.clone(),
                 extended_query_handler.clone(),
             )
@@ -273,7 +280,7 @@ where
             if let Err(e) = process_message(
                 msg,
                 &mut socket,
-                authenticator.clone(),
+                startup_handler.clone(),
                 query_handler.clone(),
                 extended_query_handler.clone(),
             )

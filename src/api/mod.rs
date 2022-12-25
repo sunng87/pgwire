@@ -67,3 +67,20 @@ pub struct ClientInfoHolder {
     #[new(default)]
     stmt_store: store::MemSessionStore<stmt::Statement>,
 }
+
+pub trait MakeHandler {
+    type Handler;
+
+    fn make(&self) -> Self::Handler;
+}
+
+#[derive(new)]
+pub struct StatelessMakeHandler<H>(Arc<H>);
+
+impl<H> MakeHandler for StatelessMakeHandler<H> {
+    type Handler = Arc<H>;
+
+    fn make(&self) -> Self::Handler {
+        self.0.clone()
+    }
+}

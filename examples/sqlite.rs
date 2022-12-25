@@ -10,7 +10,9 @@ use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
 use tokio::net::TcpListener;
 
 // use pgwire::api::auth::cleartext::CleartextPasswordAuthStartupHandler;
-use pgwire::api::auth::md5pass::Md5PasswordAuthStartupHandler;
+use pgwire::api::auth::md5pass::{
+    MakeMd5PasswordAuthStartupHandler, Md5PasswordAuthStartupHandler,
+};
 use pgwire::api::auth::{LoginInfo, Password, PasswordVerifier, ServerParameterProvider};
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
@@ -18,7 +20,7 @@ use pgwire::api::results::{
     binary_query_response, text_query_response, BinaryDataRowEncoder, FieldInfo, Response, Tag,
     TextDataRowEncoder,
 };
-use pgwire::api::{ClientInfo, Type};
+use pgwire::api::{ClientInfo, StatelessMakeHandler, Type};
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
 
@@ -274,11 +276,11 @@ impl ExtendedQueryHandler for SqliteBackend {
 
 #[tokio::main]
 pub async fn main() {
-    let authenticator = Arc::new(Md5PasswordAuthStartupHandler::new(
-        DummyPasswordVerifier,
-        SqliteParameters::new(),
+    let authenticator = Arc::new(MakeMd5PasswordAuthStartupHandler::new(
+        Arc::new(DummyPasswordVerifier),
+        Arc::new(SqliteParameters::new()),
     ));
-    let processor = Arc::new(SqliteBackend::new());
+    let processor = Arc::new(StatelessMakeHandler::new(Arc::new(SqliteBackend::new())));
 
     let server_addr = "127.0.0.1:5432";
     let listener = TcpListener::bind(server_addr).await.unwrap();

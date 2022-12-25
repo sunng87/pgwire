@@ -1,9 +1,11 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::sink::Sink;
 
 use super::{ClientInfo, NoopServerParameterProvider, StartupHandler};
+use crate::api::StatelessMakeHandler;
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
@@ -26,5 +28,11 @@ impl StartupHandler for NoopStartupHandler {
             super::finish_authentication(client, &NoopServerParameterProvider).await;
         }
         Ok(())
+    }
+}
+
+impl Into<StatelessMakeHandler<NoopStartupHandler>> for NoopStartupHandler {
+    fn into(self) -> StatelessMakeHandler<NoopStartupHandler> {
+        StatelessMakeHandler(Arc::new(self))
     }
 }

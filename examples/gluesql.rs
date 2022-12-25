@@ -9,7 +9,7 @@ use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{text_query_response, FieldInfo, Response, Tag, TextDataRowEncoder};
-use pgwire::api::{ClientInfo, Type};
+use pgwire::api::{ClientInfo, StatelessMakeHandler, Type};
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
 
@@ -133,8 +133,8 @@ pub async fn main() {
         glue: Arc::new(Mutex::new(Glue::new(MemoryStorage::default()))),
     };
 
-    let processor = Arc::new(gluesql);
-    let authenticator = Arc::new(NoopStartupHandler);
+    let processor = Arc::new(StatelessMakeHandler::new(Arc::new(gluesql)));
+    let authenticator = Arc::new(StatelessMakeHandler::new(Arc::new(NoopStartupHandler)));
 
     let server_addr = "127.0.0.1:5432";
     let listener = TcpListener::bind(server_addr).await.unwrap();

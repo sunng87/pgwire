@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
@@ -7,6 +8,7 @@ use super::{
     ClientInfo, LoginInfo, Password, PasswordVerifier, PgWireConnectionState,
     ServerParameterProvider, StartupHandler,
 };
+use crate::api::StatelessMakeHandler;
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::response::ErrorResponse;
 use crate::messages::startup::Authentication;
@@ -68,5 +70,13 @@ impl<V: PasswordVerifier, P: ServerParameterProvider> StartupHandler
             _ => {}
         }
         Ok(())
+    }
+}
+
+impl<V, P> Into<StatelessMakeHandler<CleartextPasswordAuthStartupHandler<V, P>>>
+    for CleartextPasswordAuthStartupHandler<V, P>
+{
+    fn into(self) -> StatelessMakeHandler<CleartextPasswordAuthStartupHandler<V, P>> {
+        StatelessMakeHandler(Arc::new(self))
     }
 }
