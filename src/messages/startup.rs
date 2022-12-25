@@ -195,6 +195,64 @@ impl Message for Authentication {
     }
 }
 
+pub const MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY: u8 = b'p';
+
+/// In postgres wire protocol, there are several message types share the same
+/// message type 'p':
+///
+/// * Password
+/// * SASLInitialResponse
+/// * SASLResponse
+/// * GSSResponse
+///
+/// We cannot decode these messages without a context. So here we define this
+/// `PasswordMessageFamily` to include all of theme and provide methods to
+/// coerce it into particular concrete type.
+///
+/// This message type is for decoder only. Use concrete types when encoding
+/// them.
+#[derive(Debug)]
+pub struct PasswordMessageFamily {
+    body: BytesMut,
+}
+
+impl Message for PasswordMessageFamily {
+    fn message_type() -> Option<u8> {
+        Some(MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY)
+    }
+
+    fn message_length(&self) -> usize {
+        4 + self.body.len()
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        buf.put_slice(self.body.as_ref());
+        Ok(())
+    }
+
+    fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self> {
+        let body = buf.split_to(full_len - 4);
+        Ok(PasswordMessageFamily { body })
+    }
+}
+
+impl PasswordMessageFamily {
+    pub fn into_password(mut self) -> PgWireResult<Password> {
+        let len = self.body.len();
+        Password::decode_body(&mut self.body, len)
+    }
+
+    pub fn into_sasl_initial_response(mut self) -> PgWireResult<SASLInitialResponse> {
+        let len = self.body.len();
+        SASLInitialResponse::decode_body(&mut self.body, len)
+    }
+
+    pub fn into_sasl_response(mut self) -> PgWireResult<SASLResponse> {
+        let len = self.body.len();
+        SASLResponse::decode_body(&mut self.body, len)
+    }
+}
+
 /// password packet sent from frontend
 #[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
@@ -202,12 +260,10 @@ pub struct Password {
     password: String,
 }
 
-pub const MESSAGE_TYPE_BYTE_PASWORD: u8 = b'p';
-
 impl Message for Password {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(MESSAGE_TYPE_BYTE_PASWORD)
+        Some(MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY)
     }
 
     fn message_length(&self) -> usize {
@@ -356,7 +412,7 @@ pub struct SASLInitialResponse {
 impl Message for SASLInitialResponse {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(b'p')
+        Some(MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY)
     }
 
     #[inline]
@@ -400,7 +456,7 @@ pub struct SASLResponse {
 impl Message for SASLResponse {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(b'p')
+        Some(MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY)
     }
 
     #[inline]
