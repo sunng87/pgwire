@@ -37,7 +37,7 @@ impl<V: PasswordVerifier, P: ServerParameterProvider> StartupHandler
     async fn on_startup<C>(
         &self,
         client: &mut C,
-        message: &PgWireFrontendMessage,
+        message: PgWireFrontendMessage,
     ) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
@@ -58,7 +58,8 @@ impl<V: PasswordVerifier, P: ServerParameterProvider> StartupHandler
                     ))
                     .await?;
             }
-            PgWireFrontendMessage::Password(ref pwd) => {
+            PgWireFrontendMessage::PasswordMessageFamily(pwd) => {
+                let pwd = pwd.into_password()?;
                 let login_info = LoginInfo::from_client_info(client);
                 // extract salt from client context
                 let salt = client.metadata().get(PGWIRE_AUTH_SALT).unwrap();

@@ -21,7 +21,7 @@ pub trait StartupHandler: Send + Sync {
     async fn on_startup<C>(
         &self,
         client: &mut C,
-        message: &PgWireFrontendMessage,
+        message: PgWireFrontendMessage,
     ) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
@@ -134,5 +134,4 @@ where
 pub mod cleartext;
 pub mod md5pass;
 pub mod noop;
-
-// TODO: md5, scram-sha-256(sasl)
+pub mod scram;

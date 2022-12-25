@@ -116,30 +116,30 @@ where
     match socket.codec().client_info().state() {
         PgWireConnectionState::AwaitingStartup
         | PgWireConnectionState::AuthenticationInProgress => {
-            authenticator.on_startup(socket, &message).await?;
+            authenticator.on_startup(socket, message).await?;
         }
         _ => {
             // query or query in progress
             match message {
-                PgWireFrontendMessage::Query(ref query) => {
+                PgWireFrontendMessage::Query(query) => {
                     query_handler.on_query(socket, query).await?;
                 }
-                PgWireFrontendMessage::Parse(ref parse) => {
+                PgWireFrontendMessage::Parse(parse) => {
                     extended_query_handler.on_parse(socket, parse).await?;
                 }
-                PgWireFrontendMessage::Bind(ref bind) => {
+                PgWireFrontendMessage::Bind(bind) => {
                     extended_query_handler.on_bind(socket, bind).await?;
                 }
-                PgWireFrontendMessage::Execute(ref execute) => {
+                PgWireFrontendMessage::Execute(execute) => {
                     extended_query_handler.on_execute(socket, execute).await?;
                 }
-                PgWireFrontendMessage::Describe(ref describe) => {
+                PgWireFrontendMessage::Describe(describe) => {
                     extended_query_handler.on_describe(socket, describe).await?;
                 }
-                PgWireFrontendMessage::Sync(ref sync) => {
+                PgWireFrontendMessage::Sync(sync) => {
                     extended_query_handler.on_sync(socket, sync).await?;
                 }
-                PgWireFrontendMessage::Close(ref close) => {
+                PgWireFrontendMessage::Close(close) => {
                     extended_query_handler.on_close(socket, close).await?;
                 }
                 _ => {}
