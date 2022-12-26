@@ -1,6 +1,8 @@
 use std::fmt::Debug;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use futures::{Sink, SinkExt};
 
 use crate::messages::startup::Authentication;
@@ -16,6 +18,7 @@ use super::{PasswordVerifier, ServerParameterProvider, StartupHandler};
 pub struct SASLScramAuthStartupHandler<V, P> {
     verifier: V,
     parameter_provider: P,
+    state: AtomicU8,
 }
 
 #[async_trait]
@@ -41,7 +44,18 @@ impl<V: PasswordVerifier, P: ServerParameterProvider> StartupHandler
                     )))
                     .await?;
             }
-            PgWireFrontendMessage::PasswordMessageFamily(msg) => {}
+            PgWireFrontendMessage::PasswordMessageFamily(msg) => {
+                if self.state.load(Ordering::Relaxed) == 0 {
+                    // initial response, client_first
+                    let resp = msg.into_sasl_initial_response()?;
+                    let method = resp.auth_method();
+                    let client_first = resp.data();
+                } else {
+                    // second response, client_final
+                    let resp = msg.into_sasl_response()?;
+                    let client_final = resp.data();
+                }
+            }
 
             _ => {}
         }
