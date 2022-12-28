@@ -27,6 +27,8 @@ pub enum PgWireError {
     InvalidRustTypeForParameter(String),
     #[error("Failed to parse parameter: {0:?}")]
     FailedToParseParameter(Box<dyn std::error::Error + Send + Sync>),
+    #[error("Failed to parse scram message: {0}")]
+    InvalidScramMessage(String),
 
     #[error(transparent)]
     ApiError(#[from] Box<dyn std::error::Error + 'static + Send + Sync>),
