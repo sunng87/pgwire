@@ -118,9 +118,7 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                                 salt,
                                 format!("{},{}", client_first.bare(), &server_first_message),
                             );
-                            PgWireBackendMessage::Authentication(Authentication::SASLContinue(
-                                Bytes::from(server_first_message),
-                            ))
+                            Authentication::SASLContinue(Bytes::from(server_first_message))
                         }
                         ScramState::ServerFirstSent(ref salted_pass, ref server_first) => {
                             // second response, client_final
@@ -131,15 +129,15 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
 
                             // TODO: validate client proof and compute server verifier
 
-                            let server_final = ServerFinal::new("verifier".to_owned());
-                            PgWireBackendMessage::Authentication(Authentication::SASLFinal(
-                                Bytes::from(server_final.message()),
-                            ))
+                            let server_final = ServerFinalSuccess::new("verifier".to_owned());
+                            Authentication::SASLFinal(Bytes::from(server_final.message()))
                         }
                     }
                 };
 
-                client.send(resp).await?;
+                client
+                    .send(PgWireBackendMessage::Authentication(resp))
+                    .await?;
             }
 
             _ => {}
@@ -236,12 +234,23 @@ impl ClientFinal {
 }
 
 #[derive(Debug, new)]
-struct ServerFinal {
+struct ServerFinalSuccess {
     verifier: String,
 }
 
-impl ServerFinal {
+impl ServerFinalSuccess {
     fn message(&self) -> String {
         format!("v={}", self.verifier)
+    }
+}
+
+#[derive(Debug, new)]
+struct ServerFinalError {
+    error: String,
+}
+
+impl ServerFinalError {
+    fn message(&self) -> String {
+        format!("e={}", self.error)
     }
 }
