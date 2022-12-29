@@ -16,12 +16,8 @@ use super::{ServerParameterProvider, StartupHandler};
 
 pub enum ScramState {
     Initial,
-    // cache client-first-message-bare
-    ClientFirstReceived(String),
-    // cache salted-password and server-first-message
+    // cache salt and partial auth-message
     ServerFirstSent(Vec<u8>, String),
-    ClientFinalReceived,
-    ServerFinalSent,
 }
 
 #[derive(new)]
@@ -53,6 +49,16 @@ pub fn salt_password(password: &[u8], salt: &[u8], iters: usize) -> Vec<u8> {
     todo!()
 }
 
+pub fn random_salt() -> Vec<u8> {
+    todo!()
+}
+
+pub fn random_nonce() -> String {
+    todo!()
+}
+
+const DEFAULT_ITERATIONS: usize = 4096;
+
 #[async_trait]
 impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStartupHandler<A, P> {
     async fn on_startup<C>(
@@ -75,37 +81,70 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                     .await?;
             }
             PgWireFrontendMessage::PasswordMessageFamily(msg) => {
-                // this should never block
-                let state = self.state.lock().unwrap();
-                if matches!(*state, ScramState::Initial) {
-                    // initial response, client_first
-                    let resp = msg.into_sasl_initial_response()?;
-                    let method = resp.auth_method();
-                    // parse into client_first
-                    let client_first = resp
-                        .data()
-                        .ok_or_else(|| {
-                            PgWireError::InvalidScramMessage("Empty client-first".to_owned())
-                        })
-                        .and_then(|data| {
-                            ClientFirst::try_new(String::from_utf8_lossy(data.as_ref()).as_ref())
-                        })?;
-                    *state = ScramState::ClientFirstReceived(client_first.bare());
+                let resp = {
+                    // this should never block
+                    let mut state = self.state.lock().unwrap();
+                    match *state {
+                        ScramState::Initial => {
+                            // initial response, client_first
+                            let resp = msg.into_sasl_initial_response()?;
+                            let method = resp.auth_method();
+                            // parse into client_first
+                            let client_first = resp
+                                .data()
+                                .as_ref()
+                                .ok_or_else(|| {
+                                    PgWireError::InvalidScramMessage(
+                                        "Empty client-first".to_owned(),
+                                    )
+                                })
+                                .and_then(|data| {
+                                    ClientFirst::try_new(String::from_utf8_lossy(data).as_ref())
+                                })?;
 
-                    // create server_first and send
-                } else if let ScramState::ServerFirstSent(ref salted_pass, ref server_first) =
-                    *state
-                {
-                    // second response, client_final
-                    let resp = msg.into_sasl_response()?;
-                    let client_final = resp.data();
+                            // create server_first and send
+                            let mut new_nonce = client_first.nonce.clone();
+                            new_nonce.push_str(random_nonce().as_str());
 
-                    self.state = ScramState::ClientFinalReceived;
-                }
+                            let salt = random_salt();
+                            let server_first = ServerFirst::new(
+                                new_nonce,
+                                base64::encode(&salt),
+                                DEFAULT_ITERATIONS,
+                            );
+                            let server_first_message = server_first.message();
+
+                            *state = ScramState::ServerFirstSent(
+                                salt,
+                                format!("{},{}", client_first.bare(), &server_first_message),
+                            );
+                            PgWireBackendMessage::Authentication(Authentication::SASLContinue(
+                                Bytes::from(server_first_message),
+                            ))
+                        }
+                        ScramState::ServerFirstSent(ref salted_pass, ref server_first) => {
+                            // second response, client_final
+                            let resp = msg.into_sasl_response()?;
+                            let client_final = ClientFinal::try_new(
+                                String::from_utf8_lossy(resp.data().as_ref()).as_ref(),
+                            )?;
+
+                            // TODO: validate client proof and compute server verifier
+
+                            let server_final = ServerFinal::new("verifier".to_owned());
+                            PgWireBackendMessage::Authentication(Authentication::SASLFinal(
+                                Bytes::from(server_final.message()),
+                            ))
+                        }
+                    }
+                };
+
+                client.send(resp).await?;
             }
 
             _ => {}
         }
+
         Ok(())
     }
 }
@@ -155,7 +194,7 @@ struct ServerFirst {
 }
 
 impl ServerFirst {
-    fn server_first_message(&self) -> String {
+    fn message(&self) -> String {
         format!("r={},s={},i={}", self.nonce, self.salt, self.iteration)
     }
 }
@@ -196,13 +235,13 @@ impl ClientFinal {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, new)]
 struct ServerFinal {
     verifier: String,
 }
 
 impl ServerFinal {
-    fn server_final_message(&self) -> String {
+    fn message(&self) -> String {
         format!("v={}", self.verifier)
     }
 }
