@@ -4,7 +4,11 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use bytes::Bytes;
 use futures::{Sink, SinkExt};
+use hmac::{Hmac, Mac};
+use pbkdf2::pbkdf2;
+use sha2::{Digest, Sha256};
 
+use crate::api::auth::METADATA_USER;
 use crate::messages::startup::Authentication;
 use crate::{
     api::ClientInfo,
@@ -41,12 +45,17 @@ pub trait AuthDB: Send + Sync {
     ///
     /// The implementation should first retrieve password from its storage and
     /// compute it into SaltedPassword
-    async fn get_salted_password(&self, username: &str, salt: &[u8], iterations: usize) -> Vec<u8>;
+    async fn get_salted_password(
+        &self,
+        username: &str,
+        salt: &[u8],
+        iterations: usize,
+    ) -> PgWireResult<Vec<u8>>;
 }
 
 /// compute salted password from raw password
 pub fn salt_password(password: &[u8], salt: &[u8], iters: usize) -> Vec<u8> {
-    todo!()
+    hi(password, salt, iters)
 }
 
 pub fn random_salt() -> Vec<u8> {
@@ -120,14 +129,21 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                             );
                             Authentication::SASLContinue(Bytes::from(server_first_message))
                         }
-                        ScramState::ServerFirstSent(ref salted_pass, ref server_first) => {
+                        ScramState::ServerFirstSent(ref salt, ref partial_auth_msg) => {
                             // second response, client_final
                             let resp = msg.into_sasl_response()?;
                             let client_final = ClientFinal::try_new(
                                 String::from_utf8_lossy(resp.data().as_ref()).as_ref(),
                             )?;
 
-                            // TODO: validate client proof and compute server verifier
+                            let username = client
+                                .metadata()
+                                .get(METADATA_USER)
+                                .ok_or(PgWireError::UserNameRequired)?;
+                            let salted_password = self
+                                .auth_db
+                                .get_salted_password(username, salt, DEFAULT_ITERATIONS)
+                                .await?;
 
                             let server_final = ServerFinalSuccess::new("verifier".to_owned());
                             Authentication::SASLFinal(Bytes::from(server_final.message()))
@@ -253,4 +269,31 @@ impl ServerFinalError {
     fn message(&self) -> String {
         format!("e={}", self.error)
     }
+}
+
+fn hi(normalized_password: &[u8], salt: &[u8], iterations: usize) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(32);
+    pbkdf2::<Hmac<Sha256>>(
+        normalized_password,
+        salt,
+        iterations as u32,
+        buf.as_mut_slice(),
+    );
+    buf
+}
+
+fn hmac(msg: &[u8], key: &[u8]) -> Vec<u8> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(key).unwrap();
+    mac.update(msg);
+    mac.finalize().into_bytes().to_vec()
+}
+
+fn hmac_verify(msg: &[u8], key: &[u8], sig: &[u8]) -> bool {
+    let mut mac = Hmac::<Sha256>::new_from_slice(key).unwrap();
+    mac.update(msg);
+    mac.verify_slice(sig).is_ok()
+}
+
+fn h(msg: &[u8]) -> Vec<u8> {
+    Sha256::digest(msg).as_slice().to_vec()
 }
