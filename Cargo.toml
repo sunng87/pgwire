@@ -29,6 +29,7 @@ base64 = "0.20"
 pbkdf2 = "0.11.0"
 hmac = "0.12.1"
 sha2 = "0.10.6"
+stringprep = "0.1.2"
 
 tokio = { version = "1.19", features = ["net", "rt", "io-util", "time"], optional = true}
 tokio-util = { version = "0.7.3", features = ["codec", "io"], optional = true }

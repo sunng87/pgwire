@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::ops::BitXor;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -9,27 +10,36 @@ use pbkdf2::pbkdf2;
 use sha2::{Digest, Sha256};
 
 use crate::api::auth::METADATA_USER;
+use crate::api::{ClientInfo, MakeHandler};
+use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::Authentication;
-use crate::{
-    api::ClientInfo,
-    error::{PgWireError, PgWireResult},
-    messages::{PgWireBackendMessage, PgWireFrontendMessage},
-};
+use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 use super::{ServerParameterProvider, StartupHandler};
 
+#[derive(Debug)]
 pub enum ScramState {
     Initial,
     // cache salt and partial auth-message
     ServerFirstSent(Vec<u8>, String),
 }
 
-#[derive(new)]
+#[derive(Debug)]
 pub struct SASLScramAuthStartupHandler<A, P> {
     auth_db: Arc<A>,
-    parameter_provider: P,
+    parameter_provider: Arc<P>,
     /// state of the client-server communication
     state: Mutex<ScramState>,
+}
+
+impl<A, P> SASLScramAuthStartupHandler<A, P> {
+    pub fn new(auth_db: Arc<A>, parameter_provider: Arc<P>) -> SASLScramAuthStartupHandler<A, P> {
+        SASLScramAuthStartupHandler {
+            auth_db,
+            parameter_provider,
+            state: Mutex::new(ScramState::Initial),
+        }
+    }
 }
 
 /// This trait abstracts an authentication database for SCRAM authentication
@@ -54,16 +64,30 @@ pub trait AuthDB: Send + Sync {
 }
 
 /// compute salted password from raw password
-pub fn salt_password(password: &[u8], salt: &[u8], iters: usize) -> Vec<u8> {
-    hi(password, salt, iters)
+pub fn salt_password(password: &str, salt: &[u8], iters: usize) -> Vec<u8> {
+    // TODO: check unwrap here
+    hi(
+        stringprep::saslprep(password).unwrap().as_bytes(),
+        salt,
+        iters,
+    )
 }
 
 pub fn random_salt() -> Vec<u8> {
-    todo!()
+    let mut buf = vec![0u8; 10];
+    for v in buf.iter_mut() {
+        *v = rand::random::<u8>();
+    }
+    buf
 }
 
 pub fn random_nonce() -> String {
-    todo!()
+    let mut buf = [0u8; 10];
+    for v in buf.iter_mut() {
+        *v = rand::random::<u8>();
+    }
+
+    base64::encode(&buf)
 }
 
 const DEFAULT_ITERATIONS: usize = 4096;
@@ -90,6 +114,31 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                     .await?;
             }
             PgWireFrontendMessage::PasswordMessageFamily(msg) => {
+                let salt = {
+                    // this should never block
+                    let state0 = self.state.lock().unwrap();
+                    if let ScramState::ServerFirstSent(ref salt, _) = *state0 {
+                        Some(salt.to_vec())
+                    } else {
+                        None
+                    }
+                };
+
+                let salted_password = if let Some(ref salt) = salt {
+                    let username = client
+                        .metadata()
+                        .get(METADATA_USER)
+                        .ok_or(PgWireError::UserNameRequired)?;
+                    Some(
+                        self.auth_db
+                            .get_salted_password(username, salt, DEFAULT_ITERATIONS)
+                            .await?,
+                    )
+                } else {
+                    None
+                };
+
+                let mut success = false;
                 let resp = {
                     // this should never block
                     let mut state = self.state.lock().unwrap();
@@ -97,7 +146,6 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                         ScramState::Initial => {
                             // initial response, client_first
                             let resp = msg.into_sasl_initial_response()?;
-                            let method = resp.auth_method();
                             // parse into client_first
                             let client_first = resp
                                 .data()
@@ -129,24 +177,37 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                             );
                             Authentication::SASLContinue(Bytes::from(server_first_message))
                         }
-                        ScramState::ServerFirstSent(ref salt, ref partial_auth_msg) => {
+                        ScramState::ServerFirstSent(_, ref partial_auth_msg) => {
                             // second response, client_final
                             let resp = msg.into_sasl_response()?;
                             let client_final = ClientFinal::try_new(
                                 String::from_utf8_lossy(resp.data().as_ref()).as_ref(),
                             )?;
 
-                            let username = client
-                                .metadata()
-                                .get(METADATA_USER)
-                                .ok_or(PgWireError::UserNameRequired)?;
-                            let salted_password = self
-                                .auth_db
-                                .get_salted_password(username, salt, DEFAULT_ITERATIONS)
-                                .await?;
+                            let salted_password = salted_password.unwrap();
+                            let client_key = hmac(salted_password.as_ref(), b"Client Key");
+                            let stored_key = h(client_key.as_ref());
+                            let auth_msg =
+                                format!("{},{}", partial_auth_msg, client_final.with_proof());
+                            let client_signature = hmac(stored_key.as_ref(), auth_msg.as_bytes());
+                            let computed_client_proof = base64::encode(&xor(
+                                client_key.as_ref(),
+                                client_signature.as_ref(),
+                            ));
 
-                            let server_final = ServerFinalSuccess::new("verifier".to_owned());
-                            Authentication::SASLFinal(Bytes::from(server_final.message()))
+                            if computed_client_proof == client_final.proof {
+                                let server_key = hmac(salted_password.as_ref(), b"Server Key");
+                                let server_signature =
+                                    hmac(server_key.as_ref(), auth_msg.as_bytes());
+                                let server_final =
+                                    ServerFinalSuccess::new(base64::encode(&server_signature));
+                                success = true;
+                                Authentication::SASLFinal(Bytes::from(server_final.message()))
+                            } else {
+                                let server_final =
+                                    ServerFinalError::new("client proof mismatch".to_owned());
+                                Authentication::SASLFinal(Bytes::from(server_final.message()))
+                            }
                         }
                     }
                 };
@@ -154,8 +215,11 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                 client
                     .send(PgWireBackendMessage::Authentication(resp))
                     .await?;
-            }
 
+                if success {
+                    super::finish_authentication(client, self.parameter_provider.as_ref()).await
+                }
+            }
             _ => {}
         }
 
@@ -163,6 +227,25 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
     }
 }
 
+#[derive(Debug, new)]
+pub struct MakeSASLScramAuthStartupHandler<A, P> {
+    auth_db: Arc<A>,
+    parameter_provider: Arc<P>,
+}
+
+impl<A, P> MakeHandler for MakeSASLScramAuthStartupHandler<A, P> {
+    type Handler = Arc<SASLScramAuthStartupHandler<A, P>>;
+
+    fn make(&self) -> Self::Handler {
+        Arc::new(SASLScramAuthStartupHandler {
+            auth_db: self.auth_db.clone(),
+            parameter_provider: self.parameter_provider.clone(),
+            state: Mutex::new(ScramState::Initial),
+        })
+    }
+}
+
+#[allow(dead_code)]
 #[derive(Debug)]
 struct ClientFirst {
     cbind_flag: char,
@@ -282,13 +365,14 @@ fn hi(normalized_password: &[u8], salt: &[u8], iterations: usize) -> Vec<u8> {
     buf
 }
 
-fn hmac(msg: &[u8], key: &[u8]) -> Vec<u8> {
+fn hmac(key: &[u8], msg: &[u8]) -> Vec<u8> {
     let mut mac = Hmac::<Sha256>::new_from_slice(key).unwrap();
     mac.update(msg);
     mac.finalize().into_bytes().to_vec()
 }
 
-fn hmac_verify(msg: &[u8], key: &[u8], sig: &[u8]) -> bool {
+#[allow(dead_code)]
+fn hmac_verify(key: &[u8], msg: &[u8], sig: &[u8]) -> bool {
     let mut mac = Hmac::<Sha256>::new_from_slice(key).unwrap();
     mac.update(msg);
     mac.verify_slice(sig).is_ok()
@@ -296,4 +380,11 @@ fn hmac_verify(msg: &[u8], key: &[u8], sig: &[u8]) -> bool {
 
 fn h(msg: &[u8]) -> Vec<u8> {
     Sha256::digest(msg).as_slice().to_vec()
+}
+
+fn xor(lhs: &[u8], rhs: &[u8]) -> Vec<u8> {
+    lhs.iter()
+        .zip(rhs.iter())
+        .map(|(l, r)| l.bitxor(r))
+        .collect()
 }
