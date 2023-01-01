@@ -25,7 +25,7 @@ pub trait SimpleQueryHandler: Send + Sync {
     /// Executed on `Query` request arrived. This is how postgres respond to
     /// simple query. The default implementation calls `do_query` with the
     /// incoming query string.
-    async fn on_query<C>(&self, client: &mut C, query: &Query) -> PgWireResult<()>
+    async fn on_query<C>(&self, client: &mut C, query: Query) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -74,33 +74,33 @@ pub trait SimpleQueryHandler: Send + Sync {
 
 #[async_trait]
 pub trait ExtendedQueryHandler: Send + Sync {
-    async fn on_parse<C>(&self, client: &mut C, message: &Parse) -> PgWireResult<()>
+    async fn on_parse<C>(&self, client: &mut C, message: Parse) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let stmt = Statement::from(message);
+        let stmt = Statement::from(&message);
         let id = stmt.id().clone();
         client.stmt_store_mut().put(&id, Arc::new(stmt));
 
         Ok(())
     }
 
-    async fn on_bind<C>(&self, client: &mut C, message: &Bind) -> PgWireResult<()>
+    async fn on_bind<C>(&self, client: &mut C, message: Bind) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let portal = Portal::try_new(message, client)?;
+        let portal = Portal::try_new(&message, client)?;
         let id = portal.name().clone();
         client.portal_store_mut().put(&id, Arc::new(portal));
 
         Ok(())
     }
 
-    async fn on_execute<C>(&self, client: &mut C, message: &Execute) -> PgWireResult<()>
+    async fn on_execute<C>(&self, client: &mut C, message: Execute) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -139,7 +139,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         // TODO: clear/remove portal?
     }
 
-    async fn on_describe<C>(&self, client: &mut C, message: &Describe) -> PgWireResult<()>
+    async fn on_describe<C>(&self, client: &mut C, message: Describe) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -156,7 +156,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         }
     }
 
-    async fn on_sync<C>(&self, client: &mut C, _message: &PgSync) -> PgWireResult<()>
+    async fn on_sync<C>(&self, client: &mut C, _message: PgSync) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -166,7 +166,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         Ok(())
     }
 
-    async fn on_close<C>(&self, client: &mut C, message: &Close) -> PgWireResult<()>
+    async fn on_close<C>(&self, client: &mut C, message: Close) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,

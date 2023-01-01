@@ -47,7 +47,10 @@ pub mod terminate;
 #[derive(Debug)]
 pub enum PgWireFrontendMessage {
     Startup(startup::Startup),
+    PasswordMessageFamily(startup::PasswordMessageFamily),
     Password(startup::Password),
+    SASLInitialResponse(startup::SASLInitialResponse),
+    SASLResponse(startup::SASLResponse),
 
     Query(simplequery::Query),
 
@@ -66,6 +69,9 @@ impl PgWireFrontendMessage {
         match self {
             Self::Startup(msg) => msg.encode(buf),
             Self::Password(msg) => msg.encode(buf),
+            Self::SASLInitialResponse(msg) => msg.encode(buf),
+            Self::SASLResponse(msg) => msg.encode(buf),
+            Self::PasswordMessageFamily(msg) => msg.encode(buf),
 
             Self::Query(msg) => msg.encode(buf),
 
@@ -84,8 +90,11 @@ impl PgWireFrontendMessage {
         if buf.remaining() > 1 {
             let first_byte = buf[0];
             match first_byte {
-                startup::MESSAGE_TYPE_BYTE_PASWORD => {
-                    startup::Password::decode(buf).map(|v| v.map(Self::Password))
+                // Password, SASLInitialResponse, SASLResponse can only be
+                // decoded under certain context
+                startup::MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY => {
+                    startup::PasswordMessageFamily::decode(buf)
+                        .map(|v| v.map(Self::PasswordMessageFamily))
                 }
 
                 simplequery::MESSAGE_TYPE_BYTE_QUERY => {
@@ -417,5 +426,38 @@ mod test {
     fn test_sslrequest() {
         let sslreq = SslRequest::new();
         roundtrip!(sslreq, SslRequest);
+    }
+
+    #[test]
+    fn test_saslresponse() {
+        let saslinitialresp =
+            SASLInitialResponse::new("SCRAM-SHA-256".to_owned(), Some(Bytes::from_static(b"abc")));
+        roundtrip!(saslinitialresp, SASLInitialResponse);
+
+        let saslresp = SASLResponse::new(Bytes::from_static(b"abc"));
+        roundtrip!(saslresp, SASLResponse);
+    }
+
+    #[test]
+    fn test_password_family() {
+        let password = Password::new("tomcat".to_owned());
+
+        let mut buffer = BytesMut::new();
+        password.encode(&mut buffer).unwrap();
+        assert!(buffer.remaining() > 0);
+
+        let item2 = PasswordMessageFamily::decode(&mut buffer).unwrap().unwrap();
+        assert_eq!(buffer.remaining(), 0);
+        assert_eq!(password, item2.into_password().unwrap());
+
+        let saslinitialresp =
+            SASLInitialResponse::new("SCRAM-SHA-256".to_owned(), Some(Bytes::from_static(b"abc")));
+        let mut buffer = BytesMut::new();
+        saslinitialresp.encode(&mut buffer).unwrap();
+        assert!(buffer.remaining() > 0);
+
+        let item2 = PasswordMessageFamily::decode(&mut buffer).unwrap().unwrap();
+        assert_eq!(buffer.remaining(), 0);
+        assert_eq!(saslinitialresp, item2.into_sasl_initial_response().unwrap());
     }
 }

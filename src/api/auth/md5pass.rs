@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
@@ -8,15 +9,16 @@ use super::{
     ClientInfo, HashedPassword, LoginInfo, Password, PasswordVerifier, PgWireConnectionState,
     ServerParameterProvider, StartupHandler,
 };
+use crate::api::MakeHandler;
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::response::ErrorResponse;
 use crate::messages::startup::Authentication;
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
-#[derive(new)]
 pub struct Md5PasswordAuthStartupHandler<V, P> {
-    verifier: V,
-    parameter_provider: P,
+    verifier: Arc<V>,
+    parameter_provider: Arc<P>,
+    salt: [u8; 4],
 }
 
 fn random_salt() -> [u8; 4] {
@@ -28,8 +30,6 @@ fn random_salt() -> [u8; 4] {
     arr
 }
 
-const PGWIRE_AUTH_SALT: &str = "pgwire_auth_salt";
-
 #[async_trait]
 impl<V: PasswordVerifier, P: ServerParameterProvider> StartupHandler
     for Md5PasswordAuthStartupHandler<V, P>
@@ -37,7 +37,7 @@ impl<V: PasswordVerifier, P: ServerParameterProvider> StartupHandler
     async fn on_startup<C>(
         &self,
         client: &mut C,
-        message: &PgWireFrontendMessage,
+        message: PgWireFrontendMessage,
     ) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
@@ -48,26 +48,19 @@ impl<V: PasswordVerifier, P: ServerParameterProvider> StartupHandler
             PgWireFrontendMessage::Startup(ref startup) => {
                 super::save_startup_parameters_to_metadata(client, startup);
                 client.set_state(PgWireConnectionState::AuthenticationInProgress);
-                let salt = random_salt();
-                client
-                    .metadata_mut()
-                    .insert(PGWIRE_AUTH_SALT.to_owned(), hex::encode(salt));
                 client
                     .send(PgWireBackendMessage::Authentication(
-                        Authentication::MD5Password(salt),
+                        Authentication::MD5Password(self.salt),
                     ))
                     .await?;
             }
-            PgWireFrontendMessage::Password(ref pwd) => {
+            PgWireFrontendMessage::PasswordMessageFamily(pwd) => {
+                let pwd = pwd.into_password()?;
                 let login_info = LoginInfo::from_client_info(client);
-                // extract salt from client context
-                let salt = client.metadata().get(PGWIRE_AUTH_SALT).unwrap();
-                let salt_array = hex::decode(salt).unwrap();
 
-                let passwd = Password::Hashed(HashedPassword::new(&salt_array, pwd.password()));
+                let passwd = Password::Hashed(HashedPassword::new(&self.salt, pwd.password()));
                 if let Ok(true) = self.verifier.verify_password(login_info, passwd).await {
-                    client.metadata_mut().remove(PGWIRE_AUTH_SALT);
-                    super::finish_authentication(client, &self.parameter_provider).await
+                    super::finish_authentication(client, self.parameter_provider.as_ref()).await
                 } else {
                     let error_info = ErrorInfo::new(
                         "FATAL".to_owned(),
@@ -102,6 +95,24 @@ pub fn hash_md5_password(md5hashed_username_password: &String, salt: &[u8]) -> S
     bytes.extend_from_slice(salt);
 
     format!("md5{:x}", md5::compute(bytes))
+}
+
+#[derive(Debug, new)]
+pub struct MakeMd5PasswordAuthStartupHandler<V, P> {
+    verifier: Arc<V>,
+    parameter_provider: Arc<P>,
+}
+
+impl<V, P> MakeHandler for MakeMd5PasswordAuthStartupHandler<V, P> {
+    type Handler = Arc<Md5PasswordAuthStartupHandler<V, P>>;
+
+    fn make(&self) -> Self::Handler {
+        Arc::new(Md5PasswordAuthStartupHandler {
+            verifier: self.verifier.clone(),
+            parameter_provider: self.parameter_provider.clone(),
+            salt: random_salt(),
+        })
+    }
 }
 
 #[cfg(test)]

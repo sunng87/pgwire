@@ -13,7 +13,7 @@ use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{text_query_response, FieldInfo, Response, Tag, TextDataRowEncoder};
-use pgwire::api::{ClientInfo, Type};
+use pgwire::api::{ClientInfo, StatelessMakeHandler, Type};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 
@@ -90,8 +90,8 @@ fn setup_tls() -> Result<TlsAcceptor, IOError> {
 
 #[tokio::main]
 pub async fn main() {
-    let processor = Arc::new(DummyProcessor);
-    let authenticator = Arc::new(NoopStartupHandler);
+    let processor = Arc::new(StatelessMakeHandler::new(Arc::new(DummyProcessor)));
+    let authenticator = Arc::new(StatelessMakeHandler::new(Arc::new(NoopStartupHandler)));
 
     let server_addr = "127.0.0.1:5433";
     let tls_acceptor = Arc::new(setup_tls().unwrap());

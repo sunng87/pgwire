@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 use super::codec;
 use super::Message;
@@ -93,20 +93,21 @@ impl Message for Startup {
 /// authentication response family, sent by backend
 #[derive(PartialEq, Eq, Debug)]
 pub enum Authentication {
-    Ok,                // code 0
-    CleartextPassword, // code 3
-    KerberosV5,        // code 2
+    Ok,                   // code 0
+    CleartextPassword,    // code 3
+    KerberosV5,           // code 2
     MD5Password([u8; 4]), // code 5, with 4 bytes of md5 salt
 
-                       // TODO: more types
-                       // AuthenticationSCMCredential
-                       //
-                       // AuthenticationGSS
-                       // AuthenticationGSSContinue
-                       // AuthenticationSSPI
-                       // AuthenticationSASL
-                       // AuthenticationSASLContinue
-                       // AuthenticationSASLFinal
+    SASL(Vec<String>),   // code 10, with server supported sasl mechanisms
+    SASLContinue(Bytes), // code 11, with authentication data
+    SASLFinal(Bytes),    // code 12, with additional authentication data
+
+                         // TODO: more types
+                         // AuthenticationSCMCredential
+                         //
+                         // AuthenticationGSS
+                         // AuthenticationGSSContinue
+                         // AuthenticationSSPI
 }
 
 pub const MESSAGE_TYPE_BYTE_AUTHENTICATION: u8 = b'R';
@@ -124,6 +125,11 @@ impl Message for Authentication {
                 8
             }
             Authentication::MD5Password(_) => 12,
+            Authentication::SASL(methods) => {
+                8 + methods.iter().map(|v| v.len() + 1).sum::<usize>() + 1
+            }
+            Authentication::SASLContinue(data) => 8 + data.len(),
+            Authentication::SASLFinal(data) => 8 + data.len(),
         }
     }
 
@@ -136,11 +142,26 @@ impl Message for Authentication {
                 buf.put_i32(5);
                 buf.put_slice(salt.as_ref());
             }
+            Authentication::SASL(methods) => {
+                buf.put_i32(10);
+                for method in methods {
+                    codec::put_cstring(buf, method);
+                }
+                buf.put_u8(b'\0');
+            }
+            Authentication::SASLContinue(data) => {
+                buf.put_i32(11);
+                buf.put_slice(data.as_ref());
+            }
+            Authentication::SASLFinal(data) => {
+                buf.put_i32(12);
+                buf.put_slice(data.as_ref());
+            }
         }
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, msg_len: usize) -> PgWireResult<Self> {
         let code = buf.get_i32();
         let msg = match code {
             0 => Authentication::Ok,
@@ -152,10 +173,84 @@ impl Message for Authentication {
                 salt.copy_to_slice(&mut salt_array);
                 Authentication::MD5Password(salt_array)
             }
+            10 => {
+                let mut methods = Vec::new();
+                while let Some(method) = codec::get_cstring(buf) {
+                    methods.push(method);
+                }
+                Authentication::SASL(methods)
+            }
+            11 => {
+                let data = buf.split_to(msg_len - 4).freeze();
+                Authentication::SASLContinue(data)
+            }
+            12 => {
+                let data = buf.split_to(msg_len - 4).freeze();
+                Authentication::SASLFinal(data)
+            }
             _ => unreachable!(),
         };
 
         Ok(msg)
+    }
+}
+
+pub const MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY: u8 = b'p';
+
+/// In postgres wire protocol, there are several message types share the same
+/// message type 'p':
+///
+/// * Password
+/// * SASLInitialResponse
+/// * SASLResponse
+/// * GSSResponse
+///
+/// We cannot decode these messages without a context. So here we define this
+/// `PasswordMessageFamily` to include all of theme and provide methods to
+/// coerce it into particular concrete type.
+///
+/// This message type is for decoder only. Use concrete types when encoding
+/// them.
+#[derive(Debug)]
+pub struct PasswordMessageFamily {
+    body: BytesMut,
+}
+
+impl Message for PasswordMessageFamily {
+    fn message_type() -> Option<u8> {
+        Some(MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY)
+    }
+
+    fn message_length(&self) -> usize {
+        4 + self.body.len()
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        buf.put_slice(self.body.as_ref());
+        Ok(())
+    }
+
+    fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self> {
+        let body = buf.split_to(full_len - 4);
+        Ok(PasswordMessageFamily { body })
+    }
+}
+
+impl PasswordMessageFamily {
+    pub fn into_password(mut self) -> PgWireResult<Password> {
+        // includes length field like other message
+        let len = self.body.len() + 4;
+        Password::decode_body(&mut self.body, len)
+    }
+
+    pub fn into_sasl_initial_response(mut self) -> PgWireResult<SASLInitialResponse> {
+        let len = self.body.len() + 4;
+        SASLInitialResponse::decode_body(&mut self.body, len)
+    }
+
+    pub fn into_sasl_response(mut self) -> PgWireResult<SASLResponse> {
+        let len = self.body.len() + 4;
+        SASLResponse::decode_body(&mut self.body, len)
     }
 }
 
@@ -166,12 +261,10 @@ pub struct Password {
     password: String,
 }
 
-pub const MESSAGE_TYPE_BYTE_PASWORD: u8 = b'p';
-
 impl Message for Password {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(MESSAGE_TYPE_BYTE_PASWORD)
+        Some(MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY)
     }
 
     fn message_length(&self) -> usize {
@@ -307,5 +400,78 @@ impl Message for SslRequest {
         } else {
             Ok(None)
         }
+    }
+}
+
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct SASLInitialResponse {
+    auth_method: String,
+    data: Option<Bytes>,
+}
+
+impl Message for SASLInitialResponse {
+    #[inline]
+    fn message_type() -> Option<u8> {
+        Some(MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY)
+    }
+
+    #[inline]
+    fn message_length(&self) -> usize {
+        4 + self.auth_method.as_bytes().len()
+            + 1
+            + 4
+            + self.data.as_ref().map(|b| b.len()).unwrap_or(0)
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        codec::put_cstring(buf, &self.auth_method);
+        if let Some(ref data) = self.data {
+            buf.put_i32(data.len() as i32);
+            buf.put_slice(data.as_ref());
+        } else {
+            buf.put_i32(-1);
+        }
+        Ok(())
+    }
+
+    fn decode_body(buf: &mut BytesMut, _full_len: usize) -> PgWireResult<Self> {
+        let auth_method = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
+        let data_len = buf.get_i32();
+        let data = if data_len == -1 {
+            None
+        } else {
+            Some(buf.split_to(data_len as usize).freeze())
+        };
+
+        Ok(SASLInitialResponse { auth_method, data })
+    }
+}
+
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct SASLResponse {
+    data: Bytes,
+}
+
+impl Message for SASLResponse {
+    #[inline]
+    fn message_type() -> Option<u8> {
+        Some(MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY)
+    }
+
+    #[inline]
+    fn message_length(&self) -> usize {
+        4 + self.data.len()
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        buf.put_slice(self.data.as_ref());
+        Ok(())
+    }
+
+    fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self> {
+        let data = buf.split_to(full_len - 4).freeze();
+        Ok(SASLResponse { data })
     }
 }
