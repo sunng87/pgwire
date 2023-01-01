@@ -470,7 +470,7 @@ impl Message for SASLResponse {
     }
 
     fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self> {
-        let data = buf.split_to(full_len - 4).freeze();
+        let data = buf.split_to(full_len).freeze();
         Ok(SASLResponse { data })
     }
 }

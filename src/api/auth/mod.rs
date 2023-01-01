@@ -12,9 +12,7 @@ use crate::messages::response::{ReadyForQuery, READY_STATUS_IDLE};
 use crate::messages::startup::{Authentication, BackendKeyData, ParameterStatus, Startup};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
-// Alternative design: pass PgWireMessage into the trait and allow the
-// implementation to track and define state within itself. This allows better
-// support for other auth type like sasl.
+/// Handles startup process and frontend messages
 #[async_trait]
 pub trait StartupHandler: Send + Sync {
     /// A generic frontend message callback during startup phase.
@@ -35,7 +33,8 @@ pub trait ServerParameterProvider: Send + Sync {
         C: ClientInfo;
 }
 
-struct NoopServerParameterProvider;
+/// Default noop parameter provider
+pub struct NoopServerParameterProvider;
 
 impl ServerParameterProvider for NoopServerParameterProvider {
     fn server_parameters<C>(&self, _client: &C) -> Option<HashMap<String, String>>

@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::fmt::Debug;
 use std::ops::BitXor;
 use std::sync::{Arc, Mutex};
@@ -10,7 +11,7 @@ use pbkdf2::pbkdf2;
 use sha2::{Digest, Sha256};
 
 use crate::api::auth::METADATA_USER;
-use crate::api::{ClientInfo, MakeHandler};
+use crate::api::{ClientInfo, MakeHandler, PgWireConnectionState};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::Authentication;
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
@@ -64,13 +65,13 @@ pub trait AuthDB: Send + Sync {
 }
 
 /// compute salted password from raw password
-pub fn salt_password(password: &str, salt: &[u8], iters: usize) -> Vec<u8> {
-    // TODO: check unwrap here
-    hi(
-        stringprep::saslprep(password).unwrap().as_bytes(),
-        salt,
-        iters,
-    )
+pub fn gen_salted_password(password: &str, salt: &[u8], iters: usize) -> Vec<u8> {
+    // according to postgres doc, if we failed to normalize password, use
+    // original password instead of throwing error
+    let normalized_pass =
+        stringprep::saslprep(password).unwrap_or_else(|_| Cow::Borrowed(password));
+    let pass_bytes = normalized_pass.as_ref().as_bytes();
+    hi(pass_bytes, salt, iters)
 }
 
 pub fn random_salt() -> Vec<u8> {
@@ -82,7 +83,7 @@ pub fn random_salt() -> Vec<u8> {
 }
 
 pub fn random_nonce() -> String {
-    let mut buf = [0u8; 10];
+    let mut buf = [0u8; 18];
     for v in buf.iter_mut() {
         *v = rand::random::<u8>();
     }
@@ -107,6 +108,7 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
         match message {
             PgWireFrontendMessage::Startup(ref startup) => {
                 super::save_startup_parameters_to_metadata(client, startup);
+                client.set_state(PgWireConnectionState::AuthenticationInProgress);
                 client
                     .send(PgWireBackendMessage::Authentication(Authentication::SASL(
                         vec!["SCRAM-SHA-256".to_owned()],
@@ -188,12 +190,12 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                             let client_key = hmac(salted_password.as_ref(), b"Client Key");
                             let stored_key = h(client_key.as_ref());
                             let auth_msg =
-                                format!("{},{}", partial_auth_msg, client_final.with_proof());
+                                format!("{},{}", partial_auth_msg, client_final.without_proof());
                             let client_signature = hmac(stored_key.as_ref(), auth_msg.as_bytes());
-                            let computed_client_proof = base64::encode(&xor(
-                                client_key.as_ref(),
-                                client_signature.as_ref(),
-                            ));
+
+                            let computed_client_proof = base64::encode(
+                                xor(client_key.as_ref(), client_signature.as_ref()).as_slice(),
+                            );
 
                             if computed_client_proof == client_final.proof {
                                 let server_key = hmac(salted_password.as_ref(), b"Server Key");
@@ -205,7 +207,7 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                                 Authentication::SASLFinal(Bytes::from(server_final.message()))
                             } else {
                                 let server_final =
-                                    ServerFinalError::new("client proof mismatch".to_owned());
+                                    ServerFinalError::new("invalid-proof".to_owned());
                                 Authentication::SASLFinal(Bytes::from(server_final.message()))
                             }
                         }
@@ -327,7 +329,7 @@ impl ClientFinal {
         })
     }
 
-    fn with_proof(&self) -> String {
+    fn without_proof(&self) -> String {
         format!("c={},r={}", self.channel_binding, self.nonce)
     }
 }
@@ -355,14 +357,14 @@ impl ServerFinalError {
 }
 
 fn hi(normalized_password: &[u8], salt: &[u8], iterations: usize) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(32);
+    let mut buf = [0u8; 32];
     pbkdf2::<Hmac<Sha256>>(
         normalized_password,
         salt,
         iterations as u32,
         buf.as_mut_slice(),
     );
-    buf
+    buf.to_vec()
 }
 
 fn hmac(key: &[u8], msg: &[u8]) -> Vec<u8> {
@@ -379,7 +381,9 @@ fn hmac_verify(key: &[u8], msg: &[u8], sig: &[u8]) -> bool {
 }
 
 fn h(msg: &[u8]) -> Vec<u8> {
-    Sha256::digest(msg).as_slice().to_vec()
+    let mut hash = Sha256::new();
+    hash.update(msg);
+    hash.finalize().to_vec()
 }
 
 fn xor(lhs: &[u8], rhs: &[u8]) -> Vec<u8> {
