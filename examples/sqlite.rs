@@ -10,9 +10,7 @@ use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
 use tokio::net::TcpListener;
 
 // use pgwire::api::auth::cleartext::CleartextPasswordAuthStartupHandler;
-use pgwire::api::auth::md5pass::{
-    MakeMd5PasswordAuthStartupHandler, Md5PasswordAuthStartupHandler,
-};
+use pgwire::api::auth::md5pass::MakeMd5PasswordAuthStartupHandler;
 use pgwire::api::auth::{LoginInfo, Password, PasswordVerifier, ServerParameterProvider};
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};

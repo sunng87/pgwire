@@ -154,7 +154,7 @@ impl Message for Authentication {
                 buf.put_slice(data.as_ref());
             }
             Authentication::SASLFinal(data) => {
-                buf.put_i32(11);
+                buf.put_i32(12);
                 buf.put_slice(data.as_ref());
             }
         }
@@ -238,17 +238,18 @@ impl Message for PasswordMessageFamily {
 
 impl PasswordMessageFamily {
     pub fn into_password(mut self) -> PgWireResult<Password> {
-        let len = self.body.len();
+        // includes length field like other message
+        let len = self.body.len() + 4;
         Password::decode_body(&mut self.body, len)
     }
 
     pub fn into_sasl_initial_response(mut self) -> PgWireResult<SASLInitialResponse> {
-        let len = self.body.len();
+        let len = self.body.len() + 4;
         SASLInitialResponse::decode_body(&mut self.body, len)
     }
 
     pub fn into_sasl_response(mut self) -> PgWireResult<SASLResponse> {
-        let len = self.body.len();
+        let len = self.body.len() + 4;
         SASLResponse::decode_body(&mut self.body, len)
     }
 }
@@ -470,7 +471,7 @@ impl Message for SASLResponse {
     }
 
     fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self> {
-        let data = buf.split_to(full_len).freeze();
+        let data = buf.split_to(full_len - 4).freeze();
         Ok(SASLResponse { data })
     }
 }

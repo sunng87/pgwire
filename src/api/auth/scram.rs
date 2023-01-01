@@ -68,8 +68,7 @@ pub trait AuthDB: Send + Sync {
 pub fn gen_salted_password(password: &str, salt: &[u8], iters: usize) -> Vec<u8> {
     // according to postgres doc, if we failed to normalize password, use
     // original password instead of throwing error
-    let normalized_pass =
-        stringprep::saslprep(password).unwrap_or_else(|_| Cow::Borrowed(password));
+    let normalized_pass = stringprep::saslprep(password).unwrap_or(Cow::Borrowed(password));
     let pass_bytes = normalized_pass.as_ref().as_bytes();
     hi(pass_bytes, salt, iters)
 }
@@ -88,7 +87,7 @@ pub fn random_nonce() -> String {
         *v = rand::random::<u8>();
     }
 
-    base64::encode(&buf)
+    base64::encode(buf)
 }
 
 const DEFAULT_ITERATIONS: usize = 4096;
@@ -202,7 +201,7 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                                 let server_signature =
                                     hmac(server_key.as_ref(), auth_msg.as_bytes());
                                 let server_final =
-                                    ServerFinalSuccess::new(base64::encode(&server_signature));
+                                    ServerFinalSuccess::new(base64::encode(server_signature));
                                 success = true;
                                 Authentication::SASLFinal(Bytes::from(server_final.message()))
                             } else {
@@ -267,7 +266,7 @@ impl ClientFirst {
             return Err(PgWireError::InvalidScramMessage(s.to_owned()));
         }
         // now it's safe to unwrap
-        let cbind_flag = parts[0].chars().nth(0).unwrap();
+        let cbind_flag = parts[0].chars().next().unwrap();
         let auth_zid = parts[1].to_owned();
         let username = parts[2].strip_prefix("n=").unwrap().to_owned();
         let nonce = parts[3].strip_prefix("r=").unwrap().to_owned();
