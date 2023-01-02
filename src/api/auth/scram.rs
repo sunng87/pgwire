@@ -12,6 +12,8 @@ use futures::{Sink, SinkExt};
 use ring::digest;
 use ring::hmac;
 use ring::pbkdf2;
+use x509_certificate::certificate::X509Certificate;
+use x509_certificate::SignatureAlgorithm;
 
 use crate::api::auth::METADATA_USER;
 use crate::api::{ClientInfo, MakeHandler, PgWireConnectionState};
@@ -34,16 +36,8 @@ pub struct SASLScramAuthStartupHandler<A, P> {
     parameter_provider: Arc<P>,
     /// state of the client-server communication
     state: Mutex<ScramState>,
-}
-
-impl<A, P> SASLScramAuthStartupHandler<A, P> {
-    pub fn new(auth_db: Arc<A>, parameter_provider: Arc<P>) -> SASLScramAuthStartupHandler<A, P> {
-        SASLScramAuthStartupHandler {
-            auth_db,
-            parameter_provider,
-            state: Mutex::new(ScramState::Initial),
-        }
-    }
+    /// certificate signature for tls-server-end-point channel binding
+    server_cert_sig: Option<Arc<Vec<u8>>>,
 }
 
 /// This trait abstracts an authentication database for SCRAM authentication
@@ -111,9 +105,14 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
             PgWireFrontendMessage::Startup(ref startup) => {
                 super::save_startup_parameters_to_metadata(client, startup);
                 client.set_state(PgWireConnectionState::AuthenticationInProgress);
+                let supported_mechanisms = if self.server_cert_sig.is_some() {
+                    vec!["SCRAM-SHA-256".to_owned(), "SCRAM-SHA-256-PLUS".to_owned()]
+                } else {
+                    vec!["SCRAM-SHA-256".to_owned()]
+                };
                 client
                     .send(PgWireBackendMessage::Authentication(Authentication::SASL(
-                        vec!["SCRAM-SHA-256".to_owned(), "SCRAM-SHA-256-PLUS".to_owned()],
+                        supported_mechanisms,
                     )))
                     .await?;
             }
@@ -245,6 +244,18 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
 pub struct MakeSASLScramAuthStartupHandler<A, P> {
     auth_db: Arc<A>,
     parameter_provider: Arc<P>,
+    #[new(default)]
+    server_cert_sig: Option<Arc<Vec<u8>>>,
+}
+
+impl<A, P> MakeSASLScramAuthStartupHandler<A, P> {
+    /// enable channel binding (SCRAM-SHA-256-PLUS) by configuring server
+    /// certificate.
+    pub fn configure_certificate(&mut self, cert: &[u8]) -> PgWireResult<()> {
+        let sig = compute_cert_signature(cert)?;
+        self.server_cert_sig = Some(Arc::new(sig));
+        Ok(())
+    }
 }
 
 impl<A, P> MakeHandler for MakeSASLScramAuthStartupHandler<A, P> {
@@ -255,6 +266,7 @@ impl<A, P> MakeHandler for MakeSASLScramAuthStartupHandler<A, P> {
             auth_db: self.auth_db.clone(),
             parameter_provider: self.parameter_provider.clone(),
             state: Mutex::new(ScramState::Initial),
+            server_cert_sig: self.server_cert_sig.clone(),
         })
     }
 }
@@ -441,4 +453,32 @@ fn xor(lhs: &[u8], rhs: &[u8]) -> Vec<u8> {
         .zip(rhs.iter())
         .map(|(l, r)| l.bitxor(r))
         .collect()
+}
+
+/// Compute signature of server certificate for `tls-server-end-point` channel
+/// binding.
+///
+/// This behaviour is defined in
+/// [RFC5929](https://www.rfc-editor.org/rfc/rfc5929)
+///
+/// 1. use sha-256 if the certificate's algorithm is md5 or sha-1
+/// 2. use the certificate's algorithm if it's neither md5 or sha-1
+/// 3. if the certificate has 0 or more than 1 signature algorithm, the
+/// behaviour is undefined at the time.
+fn compute_cert_signature(cert: &[u8]) -> PgWireResult<Vec<u8>> {
+    let x509 = X509Certificate::from_pem(cert).map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+    match x509.signature_algorithm() {
+        Some(SignatureAlgorithm::RsaSha1)
+        | Some(SignatureAlgorithm::RsaSha256)
+        | Some(SignatureAlgorithm::EcdsaSha256) => {
+            Ok(digest::digest(&digest::SHA256, cert).as_ref().to_vec())
+        }
+        Some(SignatureAlgorithm::RsaSha384) | Some(SignatureAlgorithm::EcdsaSha384) => {
+            Ok(digest::digest(&digest::SHA384, cert).as_ref().to_vec())
+        }
+        Some(SignatureAlgorithm::RsaSha512) => {
+            Ok(digest::digest(&digest::SHA512, cert).as_ref().to_vec())
+        }
+        _ => Err(PgWireError::UnsupportedCertificateSignatureAlgorithm),
+    }
 }

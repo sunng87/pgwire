@@ -29,6 +29,8 @@ pub enum PgWireError {
     FailedToParseParameter(Box<dyn std::error::Error + Send + Sync>),
     #[error("Failed to parse scram message: {0}")]
     InvalidScramMessage(String),
+    #[error("Certificate algorithm is not supported")]
+    UnsupportedCertificateSignatureAlgorithm,
     #[error("Username is required")]
     UserNameRequired,
 
