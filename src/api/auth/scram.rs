@@ -368,9 +368,9 @@ impl ClientFinal {
             Ok(())
         } else {
             Err(PgWireError::InvalidScramMessage(format!(
-                "Channel binding mismatch, expect: {}, decoded: {}",
-                channel_binding,
-                String::from_utf8_lossy(decoded_channel_binding.as_slice())
+                "Channel binding mismatch, expect: {:?}, decoded: {:?}",
+                channel_binding.as_bytes(),
+                decoded_channel_binding.as_slice()
             )))
         }
     }
