@@ -1,8 +1,13 @@
+use std::fs::File;
+use std::io::{BufReader, Error as IOError, ErrorKind};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use rustls_pemfile::{certs, pkcs8_private_keys};
 use tokio::net::TcpListener;
+use tokio_rustls::rustls::{Certificate, PrivateKey, ServerConfig};
+use tokio_rustls::TlsAcceptor;
 
 use pgwire::api::auth::scram::{gen_salted_password, AuthDB, MakeSASLScramAuthStartupHandler};
 use pgwire::api::auth::NoopServerParameterProvider;
@@ -58,6 +63,23 @@ impl AuthDB for DummyAuthDB {
     }
 }
 
+fn setup_tls() -> Result<TlsAcceptor, IOError> {
+    let cert = certs(&mut BufReader::new(File::open("examples/ssl/server.crt")?))
+        .map_err(|_| IOError::new(ErrorKind::InvalidInput, "invalid cert"))
+        .map(|mut certs| certs.drain(..).map(Certificate).collect())?;
+    let key = pkcs8_private_keys(&mut BufReader::new(File::open("examples/ssl/server.key")?))
+        .map_err(|_| IOError::new(ErrorKind::InvalidInput, "invalid key"))
+        .map(|mut keys| keys.drain(..).map(PrivateKey).next().unwrap())?;
+
+    let config = ServerConfig::builder()
+        .with_safe_defaults()
+        .with_no_client_auth()
+        .with_single_cert(cert, key)
+        .map_err(|err| IOError::new(ErrorKind::InvalidInput, err))?;
+
+    Ok(TlsAcceptor::from(Arc::new(config)))
+}
+
 #[tokio::main]
 pub async fn main() {
     let processor = Arc::new(StatelessMakeHandler::new(Arc::new(DummyProcessor)));
@@ -67,16 +89,18 @@ pub async fn main() {
     ));
 
     let server_addr = "127.0.0.1:5432";
+    let tls_acceptor = Arc::new(setup_tls().unwrap());
     let listener = TcpListener::bind(server_addr).await.unwrap();
     println!("Listening to {}", server_addr);
     loop {
         let incoming_socket = listener.accept().await.unwrap();
+        let tls_acceptor_ref = tls_acceptor.clone();
         let authenticator_ref = authenticator.clone();
         let processor_ref = processor.clone();
         tokio::spawn(async move {
             process_socket(
                 incoming_socket.0,
-                None,
+                Some(tls_acceptor_ref),
                 authenticator_ref,
                 processor_ref.clone(),
                 processor_ref,

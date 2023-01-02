@@ -24,8 +24,8 @@ use super::{ServerParameterProvider, StartupHandler};
 #[derive(Debug)]
 pub enum ScramState {
     Initial,
-    // cache salt and partial auth-message
-    ServerFirstSent(Vec<u8>, String),
+    // cache salt, channel_binding and partial auth-message
+    ServerFirstSent(Vec<u8>, String, String),
 }
 
 #[derive(Debug)]
@@ -113,7 +113,7 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                 client.set_state(PgWireConnectionState::AuthenticationInProgress);
                 client
                     .send(PgWireBackendMessage::Authentication(Authentication::SASL(
-                        vec!["SCRAM-SHA-256".to_owned()],
+                        vec!["SCRAM-SHA-256".to_owned(), "SCRAM-SHA-256-PLUS".to_owned()],
                     )))
                     .await?;
             }
@@ -121,7 +121,7 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                 let salt = {
                     // this should never block
                     let state0 = self.state.lock().unwrap();
-                    if let ScramState::ServerFirstSent(ref salt, _) = *state0 {
+                    if let ScramState::ServerFirstSent(ref salt, _, _) = *state0 {
                         Some(salt.to_vec())
                     } else {
                         None
@@ -162,6 +162,7 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                                 .and_then(|data| {
                                     ClientFirst::try_new(String::from_utf8_lossy(data).as_ref())
                                 })?;
+                            dbg!(&client_first);
 
                             // create server_first and send
                             let mut new_nonce = client_first.nonce.clone();
@@ -177,16 +178,23 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
 
                             *state = ScramState::ServerFirstSent(
                                 salt,
+                                client_first.channel_binding(),
                                 format!("{},{}", client_first.bare(), &server_first_message),
                             );
                             Authentication::SASLContinue(Bytes::from(server_first_message))
                         }
-                        ScramState::ServerFirstSent(_, ref partial_auth_msg) => {
+                        ScramState::ServerFirstSent(
+                            _,
+                            ref channel_binding,
+                            ref partial_auth_msg,
+                        ) => {
                             // second response, client_final
                             let resp = msg.into_sasl_response()?;
                             let client_final = ClientFinal::try_new(
                                 String::from_utf8_lossy(resp.data().as_ref()).as_ref(),
                             )?;
+                            dbg!(&client_final);
+                            client_final.validate_channel_binding(channel_binding)?;
 
                             let salted_password = salted_password.unwrap();
                             let client_key = hmac(salted_password.as_ref(), b"Client Key");
@@ -252,7 +260,7 @@ impl<A, P> MakeHandler for MakeSASLScramAuthStartupHandler<A, P> {
 #[allow(dead_code)]
 #[derive(Debug)]
 struct ClientFirst {
-    cbind_flag: char,
+    cbind_flag: String,
     auth_zid: String,
     username: String,
     nonce: String,
@@ -262,14 +270,22 @@ impl ClientFirst {
     fn try_new(s: &str) -> PgWireResult<ClientFirst> {
         let parts: Vec<&str> = s.splitn(4, ',').collect();
         if parts.len() != 4
-            || parts[0].len() != 1
+            || !Self::validate_cbind_flag(parts[0])
             || !parts[2].starts_with("n=")
             || !parts[3].starts_with("r=")
         {
             return Err(PgWireError::InvalidScramMessage(s.to_owned()));
         }
         // now it's safe to unwrap
-        let cbind_flag = parts[0].chars().next().unwrap();
+        let cbind_flag = parts[0].to_owned();
+        // add additional check when we don't have channel binding
+        // if cbind_flag != 'n' {
+        //     return Err(PgWireError::InvalidScramMessage(format!(
+        //         "cbing_flag: {}, but channel binding not supported.",
+        //         cbind_flag
+        //     )));
+        // }
+
         let auth_zid = parts[1].to_owned();
         let username = parts[2].strip_prefix("n=").unwrap().to_owned();
         let nonce = parts[3].strip_prefix("r=").unwrap().to_owned();
@@ -282,8 +298,16 @@ impl ClientFirst {
         })
     }
 
+    fn validate_cbind_flag(flag: &str) -> bool {
+        flag == "n" || flag == "y" || flag.starts_with("p=")
+    }
+
     fn bare(&self) -> String {
         format!("n={},r={}", self.username, self.nonce)
+    }
+
+    fn channel_binding(&self) -> String {
+        format!("{},{},", self.cbind_flag, self.auth_zid)
     }
 }
 
@@ -329,6 +353,26 @@ impl ClientFinal {
             nonce,
             proof,
         })
+    }
+
+    fn validate_channel_binding(&self, channel_binding: &str) -> PgWireResult<()> {
+        // validate channel binding
+        let decoded_channel_binding = base64::decode(&self.channel_binding).map_err(|e| {
+            PgWireError::InvalidScramMessage(format!(
+                "Failed to decode channel binding: {}, {}",
+                self.channel_binding, e
+            ))
+        })?;
+        // compare
+        if decoded_channel_binding.as_slice() == channel_binding.as_bytes() {
+            Ok(())
+        } else {
+            Err(PgWireError::InvalidScramMessage(format!(
+                "Channel binding mismatch, expect: {}, decoded: {}",
+                channel_binding,
+                String::from_utf8_lossy(decoded_channel_binding.as_slice())
+            )))
+        }
     }
 
     fn without_proof(&self) -> String {
