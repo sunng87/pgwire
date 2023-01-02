@@ -185,7 +185,7 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                         }
                         ScramState::ServerFirstSent(
                             _,
-                            ref channel_binding,
+                            ref channel_binding_prefix,
                             ref partial_auth_msg,
                         ) => {
                             // second response, client_final
@@ -194,7 +194,9 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                                 String::from_utf8_lossy(resp.data().as_ref()).as_ref(),
                             )?;
                             dbg!(&client_final);
-                            client_final.validate_channel_binding(channel_binding)?;
+                            // TODO: add channel binding content
+                            client_final
+                                .validate_channel_binding(channel_binding_prefix.as_bytes())?;
 
                             let salted_password = salted_password.unwrap();
                             let client_key = hmac(salted_password.as_ref(), b"Client Key");
@@ -309,6 +311,14 @@ impl ClientFirst {
     fn channel_binding(&self) -> String {
         format!("{},{},", self.cbind_flag, self.auth_zid)
     }
+
+    /// tls channel binding types:
+    ///
+    /// - `tls-unique`
+    /// - `tls-server-end-point`
+    fn channel_binding_type(&self) -> Option<&str> {
+        self.cbind_flag.strip_prefix("p=")
+    }
 }
 
 #[derive(Debug, new)]
@@ -355,7 +365,9 @@ impl ClientFinal {
         })
     }
 
-    fn validate_channel_binding(&self, channel_binding: &str) -> PgWireResult<()> {
+    fn validate_channel_binding(&self, channel_binding: &[u8]) -> PgWireResult<()> {
+        // TODO: add support for tls-server-end-point channel binding
+
         // validate channel binding
         let decoded_channel_binding = base64::decode(&self.channel_binding).map_err(|e| {
             PgWireError::InvalidScramMessage(format!(
@@ -364,12 +376,12 @@ impl ClientFinal {
             ))
         })?;
         // compare
-        if decoded_channel_binding.as_slice() == channel_binding.as_bytes() {
+        if decoded_channel_binding.as_slice() == channel_binding {
             Ok(())
         } else {
             Err(PgWireError::InvalidScramMessage(format!(
                 "Channel binding mismatch, expect: {:?}, decoded: {:?}",
-                channel_binding.as_bytes(),
+                channel_binding,
                 decoded_channel_binding.as_slice()
             )))
         }
