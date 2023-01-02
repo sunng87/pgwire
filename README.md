@@ -20,7 +20,9 @@ This library is a work in progress.
     - [x] No authentication
     - [x] Clear-text password authentication
     - [x] Md5 Password authentication
-    - [ ] SASL SCRAM authentication
+    - [x] SASL SCRAM authentication
+      - [x] SCRAM-SHA-256
+      - [ ] SCRAM-SHA-256-PLUS
   - [x] Simple Query and Response
   - [x] Extended Query and Response
     - [x] Parse
@@ -48,10 +50,11 @@ This library is a work in progress.
 ### Server/Backend
 
 To use `pgwire` in your server application, you will need to implement two key
-components: startup processor and query processor. For query processing, there
-are two kinds of queries: simple and extended. In simple mode, the sql command
-is passed to postgresql server as a string. In extended query mode, a sql
-command follows `parse`-`bind`-`describe`(optional)-`execute` lifecycle.
+components: **startup processor*** and **query processor**. For query
+processing, there are two kinds of queries: simple and extended. In simple mode,
+the sql command is passed to postgresql server as a string. In extended query
+mode, a sql command follows `parse`-`bind`-`describe`(optional)-`execute`
+lifecycle.
 
 Examples are provided to demo the very basic usage of `pgwire` on server side:
 
