@@ -353,6 +353,32 @@ impl Message for Execute {
     }
 }
 
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct Flush;
+
+pub const MESSAGE_TYPE_BYTE_FLUSH: u8 = b'H';
+
+impl Message for Flush {
+    #[inline]
+    fn message_type() -> Option<u8> {
+        Some(MESSAGE_TYPE_BYTE_FLUSH)
+    }
+
+    #[inline]
+    fn message_length(&self) -> usize {
+        4
+    }
+
+    fn encode_body(&self, _buf: &mut bytes::BytesMut) -> PgWireResult<()> {
+        Ok(())
+    }
+
+    fn decode_body(_buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
+        Ok(Flush)
+    }
+}
+
 /// Execute portal by its name
 #[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
