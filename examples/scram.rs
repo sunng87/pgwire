@@ -1,11 +1,10 @@
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{BufReader, Error as IOError, ErrorKind};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 
 use rustls_pemfile::{certs, pkcs8_private_keys};
-use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 use tokio_rustls::rustls::{Certificate, PrivateKey, ServerConfig};
 use tokio_rustls::TlsAcceptor;
@@ -64,6 +63,7 @@ impl AuthDB for DummyAuthDB {
     }
 }
 
+/// configure TlsAcceptor and get server cert for SCRAM channel binding
 fn setup_tls() -> Result<TlsAcceptor, IOError> {
     let cert: Vec<Certificate> = certs(&mut BufReader::new(File::open("examples/ssl/server.crt")?))
         .map_err(|_| IOError::new(ErrorKind::InvalidInput, "invalid cert"))
@@ -71,8 +71,6 @@ fn setup_tls() -> Result<TlsAcceptor, IOError> {
     let key = pkcs8_private_keys(&mut BufReader::new(File::open("examples/ssl/server.key")?))
         .map_err(|_| IOError::new(ErrorKind::InvalidInput, "invalid key"))
         .map(|mut keys| keys.drain(..).map(PrivateKey).next().unwrap())?;
-
-    dbg!(base64::encode(Sha256::digest(&cert[0].0)));
 
     let config = ServerConfig::builder()
         .with_safe_defaults()
@@ -86,10 +84,14 @@ fn setup_tls() -> Result<TlsAcceptor, IOError> {
 #[tokio::main]
 pub async fn main() {
     let processor = Arc::new(StatelessMakeHandler::new(Arc::new(DummyProcessor)));
-    let authenticator = Arc::new(MakeSASLScramAuthStartupHandler::new(
+    let mut authenticator = MakeSASLScramAuthStartupHandler::new(
         Arc::new(DummyAuthDB),
         Arc::new(NoopServerParameterProvider),
-    ));
+    );
+
+    let cert = fs::read("examples/ssl/server.crt").unwrap();
+    authenticator.configure_certificate(cert.as_ref()).unwrap();
+    let authenticator = Arc::new(authenticator);
 
     let server_addr = "127.0.0.1:5432";
     let tls_acceptor = Arc::new(setup_tls().unwrap());

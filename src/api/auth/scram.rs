@@ -12,7 +12,7 @@ use futures::{Sink, SinkExt};
 use ring::digest;
 use ring::hmac;
 use ring::pbkdf2;
-use x509_certificate::certificate::X509Certificate;
+use x509_certificate::certificate::CapturedX509Certificate;
 use x509_certificate::SignatureAlgorithm;
 
 use crate::api::auth::METADATA_USER;
@@ -36,8 +36,8 @@ pub struct SASLScramAuthStartupHandler<A, P> {
     parameter_provider: Arc<P>,
     /// state of the client-server communication
     state: Mutex<ScramState>,
-    /// certificate signature for tls-server-end-point channel binding
-    server_cert_sig: Option<Arc<Vec<u8>>>,
+    /// base64 encoded certificate signature for tls-server-end-point channel binding
+    server_cert_sig: Option<Arc<String>>,
 }
 
 /// This trait abstracts an authentication database for SCRAM authentication
@@ -87,6 +87,20 @@ pub fn random_nonce() -> String {
     STANDARD.encode(buf)
 }
 
+impl<A, P> SASLScramAuthStartupHandler<A, P> {
+    fn compute_channel_binding(&self, client_channel_binding: &str) -> String {
+        if client_channel_binding.starts_with("p=tls-server-end-point") {
+            format!(
+                "{}{}",
+                base64::encode(client_channel_binding),
+                self.server_cert_sig.as_ref().unwrap()
+            )
+        } else {
+            base64::encode(client_channel_binding.as_bytes())
+        }
+    }
+}
+
 const DEFAULT_ITERATIONS: usize = 4096;
 
 #[async_trait]
@@ -108,7 +122,7 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                 let supported_mechanisms = if self.server_cert_sig.is_some() {
                     vec!["SCRAM-SHA-256".to_owned(), "SCRAM-SHA-256-PLUS".to_owned()]
                 } else {
-                    vec!["SCRAM-SHA-256".to_owned()]
+                    vec!["SCRAM-SHA-256-PLUS".to_owned()]
                 };
                 client
                     .send(PgWireBackendMessage::Authentication(Authentication::SASL(
@@ -161,7 +175,7 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                                 .and_then(|data| {
                                     ClientFirst::try_new(String::from_utf8_lossy(data).as_ref())
                                 })?;
-                            dbg!(&client_first);
+                            // dbg!(&client_first);
 
                             // create server_first and send
                             let mut new_nonce = client_first.nonce.clone();
@@ -192,10 +206,11 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                             let client_final = ClientFinal::try_new(
                                 String::from_utf8_lossy(resp.data().as_ref()).as_ref(),
                             )?;
-                            dbg!(&client_final);
-                            // TODO: add channel binding content
-                            client_final
-                                .validate_channel_binding(channel_binding_prefix.as_bytes())?;
+                            // dbg!(&client_final);
+
+                            let channel_binding =
+                                self.compute_channel_binding(channel_binding_prefix);
+                            client_final.validate_channel_binding(&channel_binding)?;
 
                             let salted_password = salted_password.unwrap();
                             let client_key = hmac(salted_password.as_ref(), b"Client Key");
@@ -245,15 +260,18 @@ pub struct MakeSASLScramAuthStartupHandler<A, P> {
     auth_db: Arc<A>,
     parameter_provider: Arc<P>,
     #[new(default)]
-    server_cert_sig: Option<Arc<Vec<u8>>>,
+    server_cert_sig: Option<Arc<String>>,
 }
 
 impl<A, P> MakeSASLScramAuthStartupHandler<A, P> {
     /// enable channel binding (SCRAM-SHA-256-PLUS) by configuring server
     /// certificate.
-    pub fn configure_certificate(&mut self, cert: &[u8]) -> PgWireResult<()> {
-        let sig = compute_cert_signature(cert)?;
-        self.server_cert_sig = Some(Arc::new(sig));
+    ///
+    /// Original pem data is required here. We will decode pem and use the first
+    /// certificate as server certificate.
+    pub fn configure_certificate(&mut self, certs_pem: &[u8]) -> PgWireResult<()> {
+        let sig = compute_cert_signature(certs_pem)?;
+        self.server_cert_sig = Some(Arc::new(base64::encode(sig)));
         Ok(())
     }
 }
@@ -323,14 +341,6 @@ impl ClientFirst {
     fn channel_binding(&self) -> String {
         format!("{},{},", self.cbind_flag, self.auth_zid)
     }
-
-    /// tls channel binding types:
-    ///
-    /// - `tls-unique`
-    /// - `tls-server-end-point`
-    fn channel_binding_type(&self) -> Option<&str> {
-        self.cbind_flag.strip_prefix("p=")
-    }
 }
 
 #[derive(Debug, new)]
@@ -377,25 +387,14 @@ impl ClientFinal {
         })
     }
 
-    fn validate_channel_binding(&self, channel_binding: &[u8]) -> PgWireResult<()> {
-        // TODO: add support for tls-server-end-point channel binding
-
-        // validate channel binding
-        let decoded_channel_binding = base64::decode(&self.channel_binding).map_err(|e| {
-            PgWireError::InvalidScramMessage(format!(
-                "Failed to decode channel binding: {}, {}",
-                self.channel_binding, e
-            ))
-        })?;
+    fn validate_channel_binding(&self, encoded_channel_binding: &str) -> PgWireResult<()> {
         // compare
-        if decoded_channel_binding.as_slice() == channel_binding {
+        if self.channel_binding == encoded_channel_binding {
             Ok(())
         } else {
-            Err(PgWireError::InvalidScramMessage(format!(
-                "Channel binding mismatch, expect: {:?}, decoded: {:?}",
-                channel_binding,
-                decoded_channel_binding.as_slice()
-            )))
+            Err(PgWireError::InvalidScramMessage(
+                "Channel binding mismatch".to_owned(),
+            ))
         }
     }
 
@@ -466,18 +465,21 @@ fn xor(lhs: &[u8], rhs: &[u8]) -> Vec<u8> {
 /// 3. if the certificate has 0 or more than 1 signature algorithm, the
 /// behaviour is undefined at the time.
 fn compute_cert_signature(cert: &[u8]) -> PgWireResult<Vec<u8>> {
-    let x509 = X509Certificate::from_pem(cert).map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+    let certs = CapturedX509Certificate::from_pem_multiple(cert)
+        .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+    let x509 = &certs[0];
+    let raw = x509.constructed_data();
     match x509.signature_algorithm() {
         Some(SignatureAlgorithm::RsaSha1)
         | Some(SignatureAlgorithm::RsaSha256)
         | Some(SignatureAlgorithm::EcdsaSha256) => {
-            Ok(digest::digest(&digest::SHA256, cert).as_ref().to_vec())
+            Ok(digest::digest(&digest::SHA256, raw).as_ref().to_vec())
         }
         Some(SignatureAlgorithm::RsaSha384) | Some(SignatureAlgorithm::EcdsaSha384) => {
-            Ok(digest::digest(&digest::SHA384, cert).as_ref().to_vec())
+            Ok(digest::digest(&digest::SHA384, raw).as_ref().to_vec())
         }
         Some(SignatureAlgorithm::RsaSha512) => {
-            Ok(digest::digest(&digest::SHA512, cert).as_ref().to_vec())
+            Ok(digest::digest(&digest::SHA512, raw).as_ref().to_vec())
         }
         _ => Err(PgWireError::UnsupportedCertificateSignatureAlgorithm),
     }
