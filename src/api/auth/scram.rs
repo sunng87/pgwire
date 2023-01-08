@@ -93,7 +93,10 @@ impl<A, P> SASLScramAuthStartupHandler<A, P> {
             format!(
                 "{}{}",
                 base64::encode(client_channel_binding),
-                self.server_cert_sig.as_ref().unwrap()
+                self.server_cert_sig
+                    .as_deref()
+                    .map(|v| &v[..])
+                    .unwrap_or("")
             )
         } else {
             base64::encode(client_channel_binding.as_bytes())
