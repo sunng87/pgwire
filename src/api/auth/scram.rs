@@ -4,6 +4,8 @@ use std::ops::BitXor;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use bytes::Bytes;
 use futures::{Sink, SinkExt};
 use hmac::{Hmac, Mac};
@@ -87,7 +89,7 @@ pub fn random_nonce() -> String {
         *v = rand::random::<u8>();
     }
 
-    base64::encode(buf)
+    STANDARD.encode(buf)
 }
 
 const DEFAULT_ITERATIONS: usize = 4096;
@@ -167,7 +169,7 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                             let salt = random_salt();
                             let server_first = ServerFirst::new(
                                 new_nonce,
-                                base64::encode(&salt),
+                                STANDARD.encode(&salt),
                                 DEFAULT_ITERATIONS,
                             );
                             let server_first_message = server_first.message();
@@ -192,7 +194,7 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                                 format!("{},{}", partial_auth_msg, client_final.without_proof());
                             let client_signature = hmac(stored_key.as_ref(), auth_msg.as_bytes());
 
-                            let computed_client_proof = base64::encode(
+                            let computed_client_proof = STANDARD.encode(
                                 xor(client_key.as_ref(), client_signature.as_ref()).as_slice(),
                             );
 
@@ -201,7 +203,7 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                                 let server_signature =
                                     hmac(server_key.as_ref(), auth_msg.as_bytes());
                                 let server_final =
-                                    ServerFinalSuccess::new(base64::encode(server_signature));
+                                    ServerFinalSuccess::new(STANDARD.encode(server_signature));
                                 success = true;
                                 Authentication::SASLFinal(Bytes::from(server_final.message()))
                             } else {
