@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::fmt::Debug;
+use std::num::NonZeroU32;
 use std::ops::BitXor;
 use std::sync::{Arc, Mutex};
 
@@ -8,9 +9,9 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use bytes::Bytes;
 use futures::{Sink, SinkExt};
-use hmac::{Hmac, Mac};
-use pbkdf2::pbkdf2;
-use sha2::{Digest, Sha256};
+use ring::digest;
+use ring::hmac;
+use ring::pbkdf2;
 
 use crate::api::auth::METADATA_USER;
 use crate::api::{ClientInfo, MakeHandler, PgWireConnectionState};
@@ -359,32 +360,24 @@ impl ServerFinalError {
 
 fn hi(normalized_password: &[u8], salt: &[u8], iterations: usize) -> Vec<u8> {
     let mut buf = [0u8; 32];
-    pbkdf2::<Hmac<Sha256>>(
-        normalized_password,
+
+    pbkdf2::derive(
+        pbkdf2::PBKDF2_HMAC_SHA256,
+        NonZeroU32::new(iterations as u32).unwrap(),
         salt,
-        iterations as u32,
-        buf.as_mut_slice(),
+        normalized_password,
+        &mut buf,
     );
     buf.to_vec()
 }
 
 fn hmac(key: &[u8], msg: &[u8]) -> Vec<u8> {
-    let mut mac = Hmac::<Sha256>::new_from_slice(key).unwrap();
-    mac.update(msg);
-    mac.finalize().into_bytes().to_vec()
-}
-
-#[allow(dead_code)]
-fn hmac_verify(key: &[u8], msg: &[u8], sig: &[u8]) -> bool {
-    let mut mac = Hmac::<Sha256>::new_from_slice(key).unwrap();
-    mac.update(msg);
-    mac.verify_slice(sig).is_ok()
+    let mac = hmac::Key::new(hmac::HMAC_SHA256, key);
+    hmac::sign(&mac, msg).as_ref().to_vec()
 }
 
 fn h(msg: &[u8]) -> Vec<u8> {
-    let mut hash = Sha256::new();
-    hash.update(msg);
-    hash.finalize().to_vec()
+    digest::digest(&digest::SHA256, msg).as_ref().to_vec()
 }
 
 fn xor(lhs: &[u8], rhs: &[u8]) -> Vec<u8> {
