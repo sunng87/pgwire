@@ -92,14 +92,14 @@ impl<A, P> SASLScramAuthStartupHandler<A, P> {
         if client_channel_binding.starts_with("p=tls-server-end-point") {
             format!(
                 "{}{}",
-                base64::encode(client_channel_binding),
+                STANDARD.encode(client_channel_binding),
                 self.server_cert_sig
                     .as_deref()
                     .map(|v| &v[..])
                     .unwrap_or("")
             )
         } else {
-            base64::encode(client_channel_binding.as_bytes())
+            STANDARD.encode(client_channel_binding.as_bytes())
         }
     }
 }
@@ -274,7 +274,7 @@ impl<A, P> MakeSASLScramAuthStartupHandler<A, P> {
     /// certificate as server certificate.
     pub fn configure_certificate(&mut self, certs_pem: &[u8]) -> PgWireResult<()> {
         let sig = compute_cert_signature(certs_pem)?;
-        self.server_cert_sig = Some(Arc::new(base64::encode(sig)));
+        self.server_cert_sig = Some(Arc::new(STANDARD.encode(sig)));
         Ok(())
     }
 }
