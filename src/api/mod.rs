@@ -13,18 +13,13 @@ pub mod store;
 
 pub const DEFAULT_NAME: &str = "POSTGRESQL_DEFAULT_NAME";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum PgWireConnectionState {
+    #[default]
     AwaitingStartup,
     AuthenticationInProgress,
     ReadyForQuery,
     QueryInProgress,
-}
-
-impl Default for PgWireConnectionState {
-    fn default() -> PgWireConnectionState {
-        PgWireConnectionState::AwaitingStartup
-    }
 }
 
 /// Describe a client infomation holder

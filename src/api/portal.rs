@@ -27,8 +27,9 @@ pub struct Portal {
     row_description_requested: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum Format {
+    #[default]
     UnifiedText,
     UnifiedBinary,
     Individual(Vec<i16>),
@@ -41,12 +42,6 @@ impl From<i16> for Format {
         } else {
             Format::UnifiedBinary
         }
-    }
-}
-
-impl Default for Format {
-    fn default() -> Self {
-        Format::UnifiedText
     }
 }
 
