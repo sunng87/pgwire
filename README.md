@@ -8,7 +8,10 @@
 This library implements PostgreSQL Wire Protocol, and provide essential APIs to
 write PostgreSQL comptible servers and clients.
 
-This library is a work in progress.
+This library is a work in progress and in its relatively early stage. There is
+no guarantee for API stability. I'm constantly introducing break changes during
+this period. And also sorry for lack of API docs, examples may get you familiar
+with its usage.
 
 ## Status
 
@@ -73,6 +76,15 @@ I think in most case you do not need pgwire to build a postgresql client,
 existing postgresql client like
 [rust-postgres](https://github.com/sfackler/rust-postgres) should fit your
 scenarios. Please rise an issue if there is a scenario.
+
+## Projects using pgwire
+
+* [GreptimeDB](https://github.com/GrepTimeTeam/greptimedb): Cloud-native
+  time-series database
+* [sqld](https://github.com/libsql/sqld): A server frontend for
+  [libSQL](https://github.com/libsql/libsql)
+* [risinglight](https://github.com/risinglightdb/risinglight): OLAP database
+  system for educational purpose
 
 ## License
 
