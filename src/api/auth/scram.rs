@@ -12,6 +12,8 @@ use futures::{Sink, SinkExt};
 use ring::digest;
 use ring::hmac;
 use ring::pbkdf2;
+use x509_certificate::certificate::CapturedX509Certificate;
+use x509_certificate::SignatureAlgorithm;
 
 use crate::api::auth::METADATA_USER;
 use crate::api::{ClientInfo, MakeHandler, PgWireConnectionState};
@@ -24,8 +26,8 @@ use super::{ServerParameterProvider, StartupHandler};
 #[derive(Debug)]
 pub enum ScramState {
     Initial,
-    // cache salt and partial auth-message
-    ServerFirstSent(Vec<u8>, String),
+    // cache salt, channel_binding and partial auth-message
+    ServerFirstSent(Vec<u8>, String, String),
 }
 
 #[derive(Debug)]
@@ -34,16 +36,8 @@ pub struct SASLScramAuthStartupHandler<A, P> {
     parameter_provider: Arc<P>,
     /// state of the client-server communication
     state: Mutex<ScramState>,
-}
-
-impl<A, P> SASLScramAuthStartupHandler<A, P> {
-    pub fn new(auth_db: Arc<A>, parameter_provider: Arc<P>) -> SASLScramAuthStartupHandler<A, P> {
-        SASLScramAuthStartupHandler {
-            auth_db,
-            parameter_provider,
-            state: Mutex::new(ScramState::Initial),
-        }
-    }
+    /// base64 encoded certificate signature for tls-server-end-point channel binding
+    server_cert_sig: Option<Arc<String>>,
 }
 
 /// This trait abstracts an authentication database for SCRAM authentication
@@ -93,6 +87,23 @@ pub fn random_nonce() -> String {
     STANDARD.encode(buf)
 }
 
+impl<A, P> SASLScramAuthStartupHandler<A, P> {
+    fn compute_channel_binding(&self, client_channel_binding: &str) -> String {
+        if client_channel_binding.starts_with("p=tls-server-end-point") {
+            format!(
+                "{}{}",
+                STANDARD.encode(client_channel_binding),
+                self.server_cert_sig
+                    .as_deref()
+                    .map(|v| &v[..])
+                    .unwrap_or("")
+            )
+        } else {
+            STANDARD.encode(client_channel_binding.as_bytes())
+        }
+    }
+}
+
 const DEFAULT_ITERATIONS: usize = 4096;
 
 #[async_trait]
@@ -111,9 +122,14 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
             PgWireFrontendMessage::Startup(ref startup) => {
                 super::save_startup_parameters_to_metadata(client, startup);
                 client.set_state(PgWireConnectionState::AuthenticationInProgress);
+                let supported_mechanisms = if self.server_cert_sig.is_some() {
+                    vec!["SCRAM-SHA-256".to_owned(), "SCRAM-SHA-256-PLUS".to_owned()]
+                } else {
+                    vec!["SCRAM-SHA-256-PLUS".to_owned()]
+                };
                 client
                     .send(PgWireBackendMessage::Authentication(Authentication::SASL(
-                        vec!["SCRAM-SHA-256".to_owned()],
+                        supported_mechanisms,
                     )))
                     .await?;
             }
@@ -121,7 +137,7 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                 let salt = {
                     // this should never block
                     let state0 = self.state.lock().unwrap();
-                    if let ScramState::ServerFirstSent(ref salt, _) = *state0 {
+                    if let ScramState::ServerFirstSent(ref salt, _, _) = *state0 {
                         Some(salt.to_vec())
                     } else {
                         None
@@ -162,6 +178,7 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
                                 .and_then(|data| {
                                     ClientFirst::try_new(String::from_utf8_lossy(data).as_ref())
                                 })?;
+                            // dbg!(&client_first);
 
                             // create server_first and send
                             let mut new_nonce = client_first.nonce.clone();
@@ -177,16 +194,26 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
 
                             *state = ScramState::ServerFirstSent(
                                 salt,
+                                client_first.channel_binding(),
                                 format!("{},{}", client_first.bare(), &server_first_message),
                             );
                             Authentication::SASLContinue(Bytes::from(server_first_message))
                         }
-                        ScramState::ServerFirstSent(_, ref partial_auth_msg) => {
+                        ScramState::ServerFirstSent(
+                            _,
+                            ref channel_binding_prefix,
+                            ref partial_auth_msg,
+                        ) => {
                             // second response, client_final
                             let resp = msg.into_sasl_response()?;
                             let client_final = ClientFinal::try_new(
                                 String::from_utf8_lossy(resp.data().as_ref()).as_ref(),
                             )?;
+                            // dbg!(&client_final);
+
+                            let channel_binding =
+                                self.compute_channel_binding(channel_binding_prefix);
+                            client_final.validate_channel_binding(&channel_binding)?;
 
                             let salted_password = salted_password.unwrap();
                             let client_key = hmac(salted_password.as_ref(), b"Client Key");
@@ -235,6 +262,21 @@ impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStar
 pub struct MakeSASLScramAuthStartupHandler<A, P> {
     auth_db: Arc<A>,
     parameter_provider: Arc<P>,
+    #[new(default)]
+    server_cert_sig: Option<Arc<String>>,
+}
+
+impl<A, P> MakeSASLScramAuthStartupHandler<A, P> {
+    /// enable channel binding (SCRAM-SHA-256-PLUS) by configuring server
+    /// certificate.
+    ///
+    /// Original pem data is required here. We will decode pem and use the first
+    /// certificate as server certificate.
+    pub fn configure_certificate(&mut self, certs_pem: &[u8]) -> PgWireResult<()> {
+        let sig = compute_cert_signature(certs_pem)?;
+        self.server_cert_sig = Some(Arc::new(STANDARD.encode(sig)));
+        Ok(())
+    }
 }
 
 impl<A, P> MakeHandler for MakeSASLScramAuthStartupHandler<A, P> {
@@ -245,6 +287,7 @@ impl<A, P> MakeHandler for MakeSASLScramAuthStartupHandler<A, P> {
             auth_db: self.auth_db.clone(),
             parameter_provider: self.parameter_provider.clone(),
             state: Mutex::new(ScramState::Initial),
+            server_cert_sig: self.server_cert_sig.clone(),
         })
     }
 }
@@ -252,7 +295,7 @@ impl<A, P> MakeHandler for MakeSASLScramAuthStartupHandler<A, P> {
 #[allow(dead_code)]
 #[derive(Debug)]
 struct ClientFirst {
-    cbind_flag: char,
+    cbind_flag: String,
     auth_zid: String,
     username: String,
     nonce: String,
@@ -262,14 +305,22 @@ impl ClientFirst {
     fn try_new(s: &str) -> PgWireResult<ClientFirst> {
         let parts: Vec<&str> = s.splitn(4, ',').collect();
         if parts.len() != 4
-            || parts[0].len() != 1
+            || !Self::validate_cbind_flag(parts[0])
             || !parts[2].starts_with("n=")
             || !parts[3].starts_with("r=")
         {
             return Err(PgWireError::InvalidScramMessage(s.to_owned()));
         }
         // now it's safe to unwrap
-        let cbind_flag = parts[0].chars().next().unwrap();
+        let cbind_flag = parts[0].to_owned();
+        // add additional check when we don't have channel binding
+        // if cbind_flag != 'n' {
+        //     return Err(PgWireError::InvalidScramMessage(format!(
+        //         "cbing_flag: {}, but channel binding not supported.",
+        //         cbind_flag
+        //     )));
+        // }
+
         let auth_zid = parts[1].to_owned();
         let username = parts[2].strip_prefix("n=").unwrap().to_owned();
         let nonce = parts[3].strip_prefix("r=").unwrap().to_owned();
@@ -282,8 +333,16 @@ impl ClientFirst {
         })
     }
 
+    fn validate_cbind_flag(flag: &str) -> bool {
+        flag == "n" || flag == "y" || flag.starts_with("p=")
+    }
+
     fn bare(&self) -> String {
         format!("n={},r={}", self.username, self.nonce)
+    }
+
+    fn channel_binding(&self) -> String {
+        format!("{},{},", self.cbind_flag, self.auth_zid)
     }
 }
 
@@ -329,6 +388,17 @@ impl ClientFinal {
             nonce,
             proof,
         })
+    }
+
+    fn validate_channel_binding(&self, encoded_channel_binding: &str) -> PgWireResult<()> {
+        // compare
+        if self.channel_binding == encoded_channel_binding {
+            Ok(())
+        } else {
+            Err(PgWireError::InvalidScramMessage(
+                "Channel binding mismatch".to_owned(),
+            ))
+        }
     }
 
     fn without_proof(&self) -> String {
@@ -385,4 +455,35 @@ fn xor(lhs: &[u8], rhs: &[u8]) -> Vec<u8> {
         .zip(rhs.iter())
         .map(|(l, r)| l.bitxor(r))
         .collect()
+}
+
+/// Compute signature of server certificate for `tls-server-end-point` channel
+/// binding.
+///
+/// This behaviour is defined in
+/// [RFC5929](https://www.rfc-editor.org/rfc/rfc5929)
+///
+/// 1. use sha-256 if the certificate's algorithm is md5 or sha-1
+/// 2. use the certificate's algorithm if it's neither md5 or sha-1
+/// 3. if the certificate has 0 or more than 1 signature algorithm, the
+/// behaviour is undefined at the time.
+fn compute_cert_signature(cert: &[u8]) -> PgWireResult<Vec<u8>> {
+    let certs = CapturedX509Certificate::from_pem_multiple(cert)
+        .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+    let x509 = &certs[0];
+    let raw = x509.constructed_data();
+    match x509.signature_algorithm() {
+        Some(SignatureAlgorithm::RsaSha1)
+        | Some(SignatureAlgorithm::RsaSha256)
+        | Some(SignatureAlgorithm::EcdsaSha256) => {
+            Ok(digest::digest(&digest::SHA256, raw).as_ref().to_vec())
+        }
+        Some(SignatureAlgorithm::RsaSha384) | Some(SignatureAlgorithm::EcdsaSha384) => {
+            Ok(digest::digest(&digest::SHA384, raw).as_ref().to_vec())
+        }
+        Some(SignatureAlgorithm::RsaSha512) => {
+            Ok(digest::digest(&digest::SHA512, raw).as_ref().to_vec())
+        }
+        _ => Err(PgWireError::UnsupportedCertificateSignatureAlgorithm),
+    }
 }
