@@ -25,7 +25,7 @@ with its usage.
     - [x] Md5 Password authentication
     - [x] SASL SCRAM authentication
       - [x] SCRAM-SHA-256
-      - [ ] SCRAM-SHA-256-PLUS
+      - [x] SCRAM-SHA-256-PLUS
   - [x] Simple Query and Response
   - [x] Extended Query and Response
     - [x] Parse
