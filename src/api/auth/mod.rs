@@ -34,14 +34,23 @@ pub trait ServerParameterProvider: Send + Sync {
 }
 
 /// Default noop parameter provider
-pub struct NoopServerParameterProvider;
+pub struct DefaultServerParameterProvider;
 
-impl ServerParameterProvider for NoopServerParameterProvider {
+impl ServerParameterProvider for DefaultServerParameterProvider {
     fn server_parameters<C>(&self, _client: &C) -> Option<HashMap<String, String>>
     where
         C: ClientInfo,
     {
-        None
+        let mut params = HashMap::with_capacity(4);
+        params.insert(
+            "server_version".to_owned(),
+            env!("CARGO_PKG_VERSION").to_owned(),
+        );
+        params.insert("server_encoding".to_owned(), "UTF8".to_owned());
+        params.insert("client_encoding".to_owned(), "UTF8".to_owned());
+        params.insert("DateStyle".to_owned(), "ISO YMD".to_owned());
+
+        Some(params)
     }
 }
 

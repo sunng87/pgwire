@@ -11,7 +11,9 @@ use tokio::net::TcpListener;
 
 // use pgwire::api::auth::cleartext::CleartextPasswordAuthStartupHandler;
 use pgwire::api::auth::md5pass::MakeMd5PasswordAuthStartupHandler;
-use pgwire::api::auth::{LoginInfo, Password, PasswordVerifier, ServerParameterProvider};
+use pgwire::api::auth::{
+    DefaultServerParameterProvider, LoginInfo, Password, PasswordVerifier, ServerParameterProvider,
+};
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
@@ -62,14 +64,17 @@ impl SqliteParameters {
 }
 
 impl ServerParameterProvider for SqliteParameters {
-    fn server_parameters<C>(&self, _client: &C) -> Option<HashMap<String, String>>
+    fn server_parameters<C>(&self, client: &C) -> Option<HashMap<String, String>>
     where
         C: ClientInfo,
     {
-        let mut params = HashMap::with_capacity(1);
-        params.insert("server_version".to_owned(), self.version.to_owned());
-
-        Some(params)
+        let provider = DefaultServerParameterProvider;
+        if let Some(mut params) = provider.server_parameters(client) {
+            params.insert("server_version".to_owned(), self.version.to_owned());
+            Some(params)
+        } else {
+            None
+        }
     }
 }
 

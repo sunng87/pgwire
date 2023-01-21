@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use async_trait::async_trait;
 use futures::sink::Sink;
 
-use super::{ClientInfo, NoopServerParameterProvider, StartupHandler};
+use super::{ClientInfo, DefaultServerParameterProvider, StartupHandler};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
@@ -23,7 +23,7 @@ impl StartupHandler for NoopStartupHandler {
     {
         if let PgWireFrontendMessage::Startup(ref startup) = message {
             super::save_startup_parameters_to_metadata(client, startup);
-            super::finish_authentication(client, &NoopServerParameterProvider).await;
+            super::finish_authentication(client, &DefaultServerParameterProvider).await;
         }
         Ok(())
     }

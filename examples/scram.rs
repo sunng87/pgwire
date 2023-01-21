@@ -10,7 +10,7 @@ use tokio_rustls::rustls::{Certificate, PrivateKey, ServerConfig};
 use tokio_rustls::TlsAcceptor;
 
 use pgwire::api::auth::scram::{gen_salted_password, AuthDB, MakeSASLScramAuthStartupHandler};
-use pgwire::api::auth::NoopServerParameterProvider;
+use pgwire::api::auth::DefaultServerParameterProvider;
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{Response, Tag};
@@ -86,7 +86,7 @@ pub async fn main() {
     let processor = Arc::new(StatelessMakeHandler::new(Arc::new(DummyProcessor)));
     let mut authenticator = MakeSASLScramAuthStartupHandler::new(
         Arc::new(DummyAuthDB),
-        Arc::new(NoopServerParameterProvider),
+        Arc::new(DefaultServerParameterProvider),
     );
 
     let cert = fs::read("examples/ssl/server.crt").unwrap();
