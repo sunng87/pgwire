@@ -21,7 +21,7 @@ use pgwire::api::results::{
     TextDataRowEncoder,
 };
 use pgwire::api::{ClientInfo, StatelessMakeHandler, Type};
-use pgwire::error::{PgWireError, PgWireResult};
+use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
 
 pub struct SqliteBackend {
@@ -90,7 +90,7 @@ impl SimpleQueryHandler for SqliteBackend {
                 .prepare(query)
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
             let columns = stmt.column_count();
-            let header = row_desc_from_stmt(&stmt);
+            let header = row_desc_from_stmt(&stmt)?;
             stmt.query(())
                 .map(|rows| {
                     let s = encode_text_row_data(rows, columns);
@@ -109,27 +109,33 @@ impl SimpleQueryHandler for SqliteBackend {
     }
 }
 
-fn name_to_type(name: &str) -> Type {
+fn name_to_type(name: &str) -> PgWireResult<Type> {
     dbg!(name);
     match name.to_uppercase().as_ref() {
-        "INT" => Type::INT8,
-        "VARCHAR" => Type::VARCHAR,
-        "BINARY" => Type::BYTEA,
-        "FLOAT" => Type::FLOAT8,
-        _ => unimplemented!("unknown type"),
+        "INT" => Ok(Type::INT8),
+        "VARCHAR" => Ok(Type::VARCHAR),
+        "TEXT" => Ok(Type::TEXT),
+        "BINARY" => Ok(Type::BYTEA),
+        "FLOAT" => Ok(Type::FLOAT8),
+        _ => Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+            "ERROR".to_owned(),
+            "42846".to_owned(),
+            format!("Unsupported data type: {name}"),
+        )))),
     }
 }
 
-fn row_desc_from_stmt(stmt: &Statement) -> Vec<FieldInfo> {
+fn row_desc_from_stmt(stmt: &Statement) -> PgWireResult<Vec<FieldInfo>> {
     stmt.columns()
         .iter()
         .map(|col| {
-            FieldInfo::new(
+            let field_type = name_to_type(col.decl_type().unwrap())?;
+            Ok(FieldInfo::new(
                 col.name().to_owned(),
                 None,
                 None,
-                name_to_type(col.decl_type().unwrap()),
-            )
+                field_type,
+            ))
         })
         .collect()
 }
@@ -260,7 +266,7 @@ impl ExtendedQueryHandler for SqliteBackend {
             .collect::<Vec<&dyn rusqlite::ToSql>>();
 
         if query.to_uppercase().starts_with("SELECT") {
-            let header = Arc::new(row_desc_from_stmt(&stmt));
+            let header = Arc::new(row_desc_from_stmt(&stmt)?);
             stmt.query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
                 .map(|rows| {
                     let s = encode_binary_row_data(rows, header.clone()).take(max_rows);
