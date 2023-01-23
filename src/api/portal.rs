@@ -9,7 +9,7 @@ use crate::{
     },
 };
 
-use super::{stmt::StoredStatement, ClientInfo, DEFAULT_NAME};
+use super::{stmt::StoredStatement, DEFAULT_NAME};
 
 /// Represent a prepared sql statement and its parameters bound by a `Bind`
 /// request.
@@ -57,16 +57,9 @@ impl Format {
 
 impl<S: Clone> Portal<S> {
     /// Try to create portal from bind command and current client state
-    pub fn try_new<C>(bind: &Bind, statement: &StoredStatement<S>) -> PgWireResult<Self>
-    where
-        C: ClientInfo,
-    {
+    pub fn try_new(bind: &Bind, statement: &StoredStatement<S>) -> PgWireResult<Self> {
         let portal_name = bind
             .portal_name()
-            .clone()
-            .unwrap_or_else(|| DEFAULT_NAME.to_owned());
-        let statement_name = bind
-            .statement_name()
             .clone()
             .unwrap_or_else(|| DEFAULT_NAME.to_owned());
 

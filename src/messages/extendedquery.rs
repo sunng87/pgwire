@@ -286,9 +286,11 @@ impl Message for BindComplete {
 
 /// Describe command fron frontend to backend. For getting information of
 /// particular portal or statement
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
+#[derive(Getters, Setters, CopyGetters, MutGetters, PartialEq, Eq, Debug, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct Describe {
+    #[getset(skip)]
+    #[getset(get_copy = "pub", set = "pub")]
     target_type: u8,
     name: Option<String>,
 }

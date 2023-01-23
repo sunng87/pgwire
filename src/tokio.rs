@@ -10,7 +10,6 @@ use tokio_rustls::TlsAcceptor;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
 use crate::api::auth::StartupHandler;
-use crate::api::portal::Portal;
 use crate::api::query::ExtendedQueryHandler;
 use crate::api::query::SimpleQueryHandler;
 use crate::api::{ClientInfo, ClientInfoHolder, MakeHandler, PgWireConnectionState};

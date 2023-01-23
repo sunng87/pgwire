@@ -73,40 +73,45 @@ pub trait SimpleQueryHandler: Send + Sync {
         C: ClientInfo + Unpin + Send + Sync;
 }
 
-// FIXME: sqlparser and portal store
 #[async_trait]
 pub trait ExtendedQueryHandler: Send + Sync {
-    type Statement;
+    type Statement: Clone + Send + Sync;
     type QueryParser: QueryParser<Statement = Self::Statement>;
     type PortalStore: PortalStore<Statement = Self::Statement>;
 
-    fn portal_store(&self) -> &Self::PortalStore;
+    /// Get a reference to associated `PortalStore` implementation
+    fn portal_store(&self) -> Arc<Self::PortalStore>;
 
-    fn query_parser(&self) -> &Self::QueryParser;
+    /// Get a reference to associated `QueryParser` implementation
+    fn query_parser(&self) -> Arc<Self::QueryParser>;
 
-    async fn on_parse<C>(&self, client: &mut C, message: Parse) -> PgWireResult<()>
+    async fn on_parse<C>(&self, _client: &mut C, message: Parse) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let stmt = StoredStatement::parse(&message, self.query_parser())?;
-        self.portal_store().put_statement(stmt.id(), stmt);
+        let stmt = StoredStatement::parse(&message, self.query_parser().as_ref())?;
+        self.portal_store().put_statement(Arc::new(stmt));
 
         Ok(())
     }
 
-    async fn on_bind<C>(&self, client: &mut C, message: Bind) -> PgWireResult<()>
+    async fn on_bind<C>(&self, _client: &mut C, message: Bind) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let portal = Portal::try_new(&message, client)?;
-        let id = portal.name().clone();
-        client.portal_store().put(&id, Arc::new(portal));
+        let statement_name = message.statement_name().as_deref().unwrap_or(DEFAULT_NAME);
 
-        Ok(())
+        if let Some(statement) = self.portal_store().get_statement(statement_name) {
+            let portal = Portal::try_new(&message, statement.as_ref())?;
+            self.portal_store().put_portal(Arc::new(portal));
+            Ok(())
+        } else {
+            Err(PgWireError::StatementNotFound(statement_name.to_owned()))
+        }
     }
 
     async fn on_execute<C>(&self, client: &mut C, message: Execute) -> PgWireResult<()>
@@ -115,9 +120,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let portal_name = message.name().as_ref().map_or(DEFAULT_NAME, String::as_str);
-        let store = client.portal_store();
-        if let Some(portal) = store.get(portal_name) {
+        let portal_name = message.name().as_deref().unwrap_or(DEFAULT_NAME);
+        if let Some(portal) = self.portal_store().get_portal(portal_name) {
             match self
                 .do_query(client, portal.as_ref(), *message.max_rows() as usize)
                 .await?
@@ -148,20 +152,25 @@ pub trait ExtendedQueryHandler: Send + Sync {
         // TODO: clear/remove portal?
     }
 
-    async fn on_describe<C>(&self, client: &mut C, message: Describe) -> PgWireResult<()>
+    async fn on_describe<C>(&self, _client: &mut C, message: Describe) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let portal_name = message.name().as_ref().map_or(DEFAULT_NAME, String::as_str);
-        if let Some(mut portal) = client.portal_store().get(portal_name) {
-            // TODO: check if make_mut works for this
-            Arc::make_mut(&mut portal).set_row_description_requested(true);
-            client.portal_store_mut().put(portal_name, portal);
-            Ok(())
-        } else {
-            Err(PgWireError::PortalNotFound(portal_name.to_owned()))
+        let name = message.name().as_deref().unwrap_or(DEFAULT_NAME);
+        match message.target_type() {
+            TARGET_TYPE_BYTE_STATEMENT => Ok(()),
+            TARGET_TYPE_BYTE_PORTAL => {
+                if let Some(mut portal) = self.portal_store().get_portal(name) {
+                    Arc::make_mut(&mut portal).set_row_description_requested(true);
+                    self.portal_store().put_portal(portal);
+                    Ok(())
+                } else {
+                    Err(PgWireError::PortalNotFound(name.to_owned()))
+                }
+            }
+            _ => Ok(()),
         }
     }
 
@@ -175,25 +184,31 @@ pub trait ExtendedQueryHandler: Send + Sync {
         Ok(())
     }
 
-    async fn on_close<C>(&self, client: &mut C, message: Close) -> PgWireResult<()>
+    async fn on_close<C>(&self, _client: &mut C, message: Close) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let name = message.name().as_ref().map_or(DEFAULT_NAME, String::as_str);
+        let name = message.name().as_deref().unwrap_or(DEFAULT_NAME);
         match message.target_type() {
             TARGET_TYPE_BYTE_STATEMENT => {
-                client.stmt_store_mut().del(name);
+                self.portal_store().rm_statement(name);
             }
             TARGET_TYPE_BYTE_PORTAL => {
-                client.portal_store_mut().del(name);
+                self.portal_store().rm_portal(name);
             }
             _ => {}
         }
         Ok(())
     }
 
+    /// This is the main implementation for query execution. Context has
+    /// been provided:
+    ///
+    /// - `client`: Information of the client sending the query
+    /// - `portal`: Statement and parameters for the query
+    /// - `max_rows`: Max requested rows of the query
     async fn do_query<C>(
         &self,
         client: &mut C,

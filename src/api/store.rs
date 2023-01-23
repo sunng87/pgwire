@@ -4,16 +4,16 @@ use std::sync::{Arc, RwLock};
 use super::portal::Portal;
 use super::stmt::StoredStatement;
 
-pub trait PortalStore {
+pub trait PortalStore: Send + Sync {
     type Statement;
 
-    fn put_statement(&self, name: &str, statement: StoredStatement<Self::Statement>);
+    fn put_statement(&self, statement: Arc<StoredStatement<Self::Statement>>);
 
     fn rm_statement(&self, name: &str);
 
     fn get_statement(&self, name: &str) -> Option<Arc<StoredStatement<Self::Statement>>>;
 
-    fn put_portal(&self, name: &str, portal: Portal<Self::Statement>);
+    fn put_portal(&self, portal: Arc<Portal<Self::Statement>>);
 
     fn rm_portal(&self, name: &str);
 
@@ -26,12 +26,12 @@ pub struct MemPortalStore<S> {
     portals: RwLock<BTreeMap<String, Arc<Portal<S>>>>,
 }
 
-impl<S: Clone> PortalStore for MemPortalStore<S> {
+impl<S: Clone + Send + Sync> PortalStore for MemPortalStore<S> {
     type Statement = S;
 
-    fn put_statement(&self, name: &str, statement: StoredStatement<Self::Statement>) {
+    fn put_statement(&self, statement: Arc<StoredStatement<Self::Statement>>) {
         let mut guard = self.statements.write().unwrap();
-        guard.insert(name.to_owned(), Arc::new(statement));
+        guard.insert(statement.id().to_owned(), statement);
     }
 
     fn rm_statement(&self, name: &str) {
@@ -44,9 +44,9 @@ impl<S: Clone> PortalStore for MemPortalStore<S> {
         guard.get(name).cloned()
     }
 
-    fn put_portal(&self, name: &str, portal: Portal<Self::Statement>) {
+    fn put_portal(&self, portal: Arc<Portal<Self::Statement>>) {
         let mut guard = self.portals.write().unwrap();
-        guard.insert(name.to_owned(), Arc::new(portal));
+        guard.insert(portal.name().to_owned(), portal);
     }
 
     fn rm_portal(&self, name: &str) {
@@ -55,7 +55,7 @@ impl<S: Clone> PortalStore for MemPortalStore<S> {
     }
 
     fn get_portal(&self, name: &str) -> Option<Arc<Portal<Self::Statement>>> {
-        let mut guard = self.portals.read().unwrap();
+        let guard = self.portals.read().unwrap();
         guard.get(name).cloned()
     }
 }
