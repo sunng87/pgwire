@@ -49,10 +49,6 @@ pub struct ClientInfoHolder {
     state: PgWireConnectionState,
     #[new(default)]
     metadata: HashMap<String, String>,
-    #[new(default)]
-    portal_store: store::MemSessionStore<portal::Portal>,
-    #[new(default)]
-    stmt_store: store::MemSessionStore<stmt::Statement>,
 }
 
 pub trait MakeHandler {

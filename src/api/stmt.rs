@@ -1,5 +1,6 @@
 use postgres_types::Oid;
 
+use crate::error::PgWireResult;
 use crate::messages::extendedquery::Parse;
 
 use super::DEFAULT_NAME;
@@ -15,17 +16,19 @@ pub struct StoredStatement<S> {
     type_oids: Vec<Oid>,
 }
 
-pub(crate) fn parse<S>(
-    parse: &Parse,
-    parser: &QueryParser<Statement = S>,
-) -> PgWireResult<StoredStatement<S>> {
-    StoredStatement {
-        id: parse
-            .name()
-            .clone()
-            .unwrap_or_else(|| DEFAULT_NAME.to_owned()),
-        statement: parser.parse_sql(parse.query())?,
-        type_oids: parse.type_oids().clone(),
+impl<S> StoredStatement<S> {
+    pub(crate) fn parse<Q>(parse: &Parse, parser: &Q) -> PgWireResult<StoredStatement<S>>
+    where
+        Q: QueryParser<Statement = S>,
+    {
+        Ok(StoredStatement {
+            id: parse
+                .name()
+                .clone()
+                .unwrap_or_else(|| DEFAULT_NAME.to_owned()),
+            statement: parser.parse_sql(parse.query())?,
+            type_oids: parse.type_oids().clone(),
+        })
     }
 }
 

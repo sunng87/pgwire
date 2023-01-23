@@ -7,7 +7,8 @@ use futures::stream::StreamExt;
 
 use super::portal::Portal;
 use super::results::{into_row_description, Tag};
-use super::stmt::Statement;
+use super::stmt::{QueryParser, StoredStatement};
+use super::store::PortalStore;
 use super::{ClientInfo, DEFAULT_NAME};
 use crate::api::results::{QueryResponse, Response};
 use crate::error::{PgWireError, PgWireResult};
@@ -75,15 +76,22 @@ pub trait SimpleQueryHandler: Send + Sync {
 // FIXME: sqlparser and portal store
 #[async_trait]
 pub trait ExtendedQueryHandler: Send + Sync {
+    type Statement;
+    type QueryParser: QueryParser<Statement = Self::Statement>;
+    type PortalStore: PortalStore<Statement = Self::Statement>;
+
+    fn portal_store(&self) -> &Self::PortalStore;
+
+    fn query_parser(&self) -> &Self::QueryParser;
+
     async fn on_parse<C>(&self, client: &mut C, message: Parse) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let stmt = Statement::from(&message);
-        let id = stmt.id().clone();
-        client.stmt_store_mut().put(&id, Arc::new(stmt));
+        let stmt = StoredStatement::parse(&message, self.query_parser())?;
+        self.portal_store().put_statement(stmt.id(), stmt);
 
         Ok(())
     }
@@ -96,7 +104,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
     {
         let portal = Portal::try_new(&message, client)?;
         let id = portal.name().clone();
-        client.portal_store_mut().put(&id, Arc::new(portal));
+        client.portal_store().put(&id, Arc::new(portal));
 
         Ok(())
     }
@@ -189,7 +197,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
     async fn do_query<C>(
         &self,
         client: &mut C,
-        portal: &Portal,
+        portal: &Portal<Self::Statement>,
         max_rows: usize,
     ) -> PgWireResult<Response>
     where
