@@ -35,14 +35,6 @@ pub trait ClientInfo {
     fn metadata(&self) -> &HashMap<String, String>;
 
     fn metadata_mut(&mut self) -> &mut HashMap<String, String>;
-
-    fn stmt_store(&self) -> &dyn store::SessionStore<Arc<stmt::Statement>>;
-
-    fn stmt_store_mut(&mut self) -> &mut dyn store::SessionStore<Arc<stmt::Statement>>;
-
-    fn portal_store(&self) -> &dyn store::SessionStore<Arc<portal::Portal>>;
-
-    fn portal_store_mut(&mut self) -> &mut dyn store::SessionStore<Arc<portal::Portal>>;
 }
 
 pub const METADATA_USER: &str = "user";

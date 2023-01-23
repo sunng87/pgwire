@@ -15,9 +15,9 @@ use super::{ClientInfo, DEFAULT_NAME};
 /// request.
 #[derive(Debug, CopyGetters, Default, Getters, Setters, Clone)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
-pub struct Portal {
+pub struct Portal<S> {
     name: String,
-    statement: String,
+    statement: S,
     parameter_types: Vec<Type>,
     parameter_format: Format,
     parameters: Vec<Option<Bytes>>,
@@ -55,9 +55,9 @@ impl Format {
     }
 }
 
-impl Portal {
+impl<S> Portal<S> {
     /// Try to create portal from bind command and current client state
-    pub fn try_new<C>(bind: &Bind, client: &C) -> PgWireResult<Portal>
+    pub fn try_new<C>(bind: &Bind, statement: &StoredStatement) -> PgWireResult<Portal>
     where
         C: ClientInfo,
     {
@@ -69,10 +69,6 @@ impl Portal {
             .statement_name()
             .clone()
             .unwrap_or_else(|| DEFAULT_NAME.to_owned());
-        let statement = client
-            .stmt_store()
-            .get(&statement_name)
-            .ok_or_else(|| PgWireError::StatementNotFound(statement_name.clone()))?;
 
         // types
         let mut types = Vec::new();

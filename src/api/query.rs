@@ -72,6 +72,7 @@ pub trait SimpleQueryHandler: Send + Sync {
         C: ClientInfo + Unpin + Send + Sync;
 }
 
+// FIXME: sqlparser and portal store
 #[async_trait]
 pub trait ExtendedQueryHandler: Send + Sync {
     async fn on_parse<C>(&self, client: &mut C, message: Parse) -> PgWireResult<()>
