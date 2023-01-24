@@ -2,6 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use futures::stream;
+use pgwire::api::stmt::NoopQueryParser;
+use pgwire::api::store::MemPortalStore;
 use tokio::net::TcpListener;
 
 use gluesql::prelude::*;
@@ -14,7 +16,6 @@ use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
 
 pub struct GluesqlProcessor {
-    // TODO: mutex
     glue: Arc<Mutex<Glue<MemoryStorage>>>,
 }
 
@@ -114,10 +115,22 @@ impl SimpleQueryHandler for GluesqlProcessor {
 
 #[async_trait]
 impl ExtendedQueryHandler for GluesqlProcessor {
+    type Statement = String;
+    type PortalStore = MemPortalStore<Self::Statement>;
+    type QueryParser = NoopQueryParser;
+
+    fn portal_store(&self) -> Arc<Self::PortalStore> {
+        todo!()
+    }
+
+    fn query_parser(&self) -> Arc<Self::QueryParser> {
+        todo!()
+    }
+
     async fn do_query<C>(
         &self,
         _client: &mut C,
-        _portal: &Portal,
+        _portal: &Portal<Self::Statement>,
         _max_rows: usize,
     ) -> PgWireResult<Response>
     where

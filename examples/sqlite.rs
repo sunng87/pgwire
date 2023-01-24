@@ -4,6 +4,8 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use futures::stream;
 use futures::{Stream, StreamExt};
+use pgwire::api::stmt::NoopQueryParser;
+use pgwire::api::store::MemPortalStore;
 use pgwire::messages::data::DataRow;
 use rusqlite::Rows;
 use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
@@ -20,20 +22,14 @@ use pgwire::api::results::{
     binary_query_response, text_query_response, BinaryDataRowEncoder, FieldInfo, Response, Tag,
     TextDataRowEncoder,
 };
-use pgwire::api::{ClientInfo, StatelessMakeHandler, Type};
+use pgwire::api::{ClientInfo, MakeHandler, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
 
 pub struct SqliteBackend {
     conn: Arc<Mutex<Connection>>,
-}
-
-impl SqliteBackend {
-    fn new() -> SqliteBackend {
-        SqliteBackend {
-            conn: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
-        }
-    }
+    portal_store: Arc<MemPortalStore<String>>,
+    query_parser: Arc<NoopQueryParser>,
 }
 
 struct DummyPasswordVerifier;
@@ -206,7 +202,7 @@ fn encode_binary_row_data(
     stream::iter(results.into_iter())
 }
 
-fn get_params(portal: &Portal) -> Vec<Box<dyn ToSql>> {
+fn get_params(portal: &Portal<String>) -> Vec<Box<dyn ToSql>> {
     let mut results = Vec::with_capacity(portal.parameter_len());
     for i in 0..portal.parameter_len() {
         let param_type = portal.parameter_types().get(i).unwrap();
@@ -245,11 +241,23 @@ fn get_params(portal: &Portal) -> Vec<Box<dyn ToSql>> {
 
 #[async_trait]
 impl ExtendedQueryHandler for SqliteBackend {
+    type Statement = String;
+    type PortalStore = MemPortalStore<Self::Statement>;
+    type QueryParser = NoopQueryParser;
+
+    fn portal_store(&self) -> Arc<Self::PortalStore> {
+        self.portal_store.clone()
+    }
+
+    fn query_parser(&self) -> Arc<Self::QueryParser> {
+        self.query_parser.clone()
+    }
+
     async fn do_query<C>(
         &self,
         _client: &mut C,
-        portal: &Portal,
-        max_rows: usize,
+        portal: &Portal<Self::Statement>,
+        _max_rows: usize,
     ) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync,
@@ -269,7 +277,7 @@ impl ExtendedQueryHandler for SqliteBackend {
             let header = Arc::new(row_desc_from_stmt(&stmt)?);
             stmt.query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
                 .map(|rows| {
-                    let s = encode_binary_row_data(rows, header.clone()).take(max_rows);
+                    let s = encode_binary_row_data(rows, header.clone());
                     Response::Query(binary_query_response(header, s))
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
@@ -283,13 +291,41 @@ impl ExtendedQueryHandler for SqliteBackend {
     }
 }
 
+/// The parent handler that creates a handler instance for each incoming
+/// connection.
+struct MakeSqliteBackend {
+    conn: Arc<Mutex<Connection>>,
+    query_parser: Arc<NoopQueryParser>,
+}
+
+impl MakeSqliteBackend {
+    fn new() -> MakeSqliteBackend {
+        MakeSqliteBackend {
+            conn: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
+            query_parser: Arc::new(NoopQueryParser::new()),
+        }
+    }
+}
+
+impl MakeHandler for MakeSqliteBackend {
+    type Handler = Arc<SqliteBackend>;
+
+    fn make(&self) -> Self::Handler {
+        Arc::new(SqliteBackend {
+            conn: self.conn.clone(),
+            portal_store: Arc::new(MemPortalStore::new()),
+            query_parser: self.query_parser.clone(),
+        })
+    }
+}
+
 #[tokio::main]
 pub async fn main() {
     let authenticator = Arc::new(MakeMd5PasswordAuthStartupHandler::new(
         Arc::new(DummyPasswordVerifier),
         Arc::new(SqliteParameters::new()),
     ));
-    let processor = Arc::new(StatelessMakeHandler::new(Arc::new(SqliteBackend::new())));
+    let processor = Arc::new(MakeSqliteBackend::new());
 
     let server_addr = "127.0.0.1:5432";
     let listener = TcpListener::bind(server_addr).await.unwrap();

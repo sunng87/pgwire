@@ -32,8 +32,22 @@ impl<S> StoredStatement<S> {
     }
 }
 
+/// Trait for sql parser. The parser transforms string query into its statement
+/// type.
 pub trait QueryParser {
     type Statement;
 
     fn parse_sql(&self, sql: &str) -> PgWireResult<Self::Statement>;
+}
+
+/// A demo parser implementation. Never use it in serious application.
+#[derive(new, Debug)]
+pub struct NoopQueryParser;
+
+impl QueryParser for NoopQueryParser {
+    type Statement = String;
+
+    fn parse_sql(&self, sql: &str) -> PgWireResult<Self::Statement> {
+        Ok(sql.to_owned())
+    }
 }

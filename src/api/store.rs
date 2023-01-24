@@ -20,9 +20,11 @@ pub trait PortalStore: Send + Sync {
     fn get_portal(&self, name: &str) -> Option<Arc<Portal<Self::Statement>>>;
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, new)]
 pub struct MemPortalStore<S> {
+    #[new(default)]
     statements: RwLock<BTreeMap<String, Arc<StoredStatement<S>>>>,
+    #[new(default)]
     portals: RwLock<BTreeMap<String, Arc<Portal<S>>>>,
 }
 

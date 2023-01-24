@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use pgwire::api::stmt::NoopQueryParser;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use tokio::net::TcpListener;
 use tokio_rustls::rustls::{Certificate, PrivateKey, ServerConfig};
@@ -14,6 +15,7 @@ use pgwire::api::auth::DefaultServerParameterProvider;
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{Response, Tag};
+use pgwire::api::store::MemPortalStore;
 use pgwire::api::{ClientInfo, StatelessMakeHandler};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
@@ -35,16 +37,28 @@ impl SimpleQueryHandler for DummyProcessor {
 
 #[async_trait]
 impl ExtendedQueryHandler for DummyProcessor {
+    type Statement = String;
+    type PortalStore = MemPortalStore<Self::Statement>;
+    type QueryParser = NoopQueryParser;
+
+    fn portal_store(&self) -> Arc<Self::PortalStore> {
+        todo!()
+    }
+
+    fn query_parser(&self) -> Arc<Self::QueryParser> {
+        todo!()
+    }
+
     async fn do_query<C>(
         &self,
         _client: &mut C,
-        _portal: &Portal,
+        _portal: &Portal<Self::Statement>,
         _max_rows: usize,
     ) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        Ok(Response::Execution(Tag::new_for_execution("OK", Some(1))))
+        todo!()
     }
 }
 
