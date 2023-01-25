@@ -1,30 +1,63 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
-pub trait SessionStore<V>: Sync {
-    fn get(&self, name: &str) -> Option<V>;
+use super::portal::Portal;
+use super::stmt::StoredStatement;
 
-    fn put(&mut self, name: &str, value: V);
+pub trait PortalStore: Send + Sync {
+    type Statement;
 
-    fn del(&mut self, name: &str);
+    fn put_statement(&self, statement: Arc<StoredStatement<Self::Statement>>);
+
+    fn rm_statement(&self, name: &str);
+
+    fn get_statement(&self, name: &str) -> Option<Arc<StoredStatement<Self::Statement>>>;
+
+    fn put_portal(&self, portal: Arc<Portal<Self::Statement>>);
+
+    fn rm_portal(&self, name: &str);
+
+    fn get_portal(&self, name: &str) -> Option<Arc<Portal<Self::Statement>>>;
 }
 
-#[derive(Debug, Default)]
-pub struct MemSessionStore<V>(RwLock<BTreeMap<String, Arc<V>>>);
+#[derive(Debug, Default, new)]
+pub struct MemPortalStore<S> {
+    #[new(default)]
+    statements: RwLock<BTreeMap<String, Arc<StoredStatement<S>>>>,
+    #[new(default)]
+    portals: RwLock<BTreeMap<String, Arc<Portal<S>>>>,
+}
 
-impl<V: Send + Sync> SessionStore<Arc<V>> for MemSessionStore<V> {
-    fn get(&self, name: &str) -> Option<Arc<V>> {
-        let guard = self.0.read().unwrap();
+impl<S: Clone + Send + Sync> PortalStore for MemPortalStore<S> {
+    type Statement = S;
+
+    fn put_statement(&self, statement: Arc<StoredStatement<Self::Statement>>) {
+        let mut guard = self.statements.write().unwrap();
+        guard.insert(statement.id().to_owned(), statement);
+    }
+
+    fn rm_statement(&self, name: &str) {
+        let mut guard = self.statements.write().unwrap();
+        guard.remove(name);
+    }
+
+    fn get_statement(&self, name: &str) -> Option<Arc<StoredStatement<Self::Statement>>> {
+        let guard = self.statements.read().unwrap();
         guard.get(name).cloned()
     }
 
-    fn put(&mut self, name: &str, value: Arc<V>) {
-        let mut guard = self.0.write().unwrap();
-        guard.insert(name.to_owned(), value);
+    fn put_portal(&self, portal: Arc<Portal<Self::Statement>>) {
+        let mut guard = self.portals.write().unwrap();
+        guard.insert(portal.name().to_owned(), portal);
     }
 
-    fn del(&mut self, name: &str) {
-        let mut guard = self.0.write().unwrap();
+    fn rm_portal(&self, name: &str) {
+        let mut guard = self.portals.write().unwrap();
         guard.remove(name);
+    }
+
+    fn get_portal(&self, name: &str) -> Option<Arc<Portal<Self::Statement>>> {
+        let guard = self.portals.read().unwrap();
+        guard.get(name).cloned()
     }
 }

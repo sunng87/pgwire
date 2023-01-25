@@ -106,7 +106,8 @@ impl BinaryDataRowEncoder {
     {
         let mut buffer = BytesMut::with_capacity(8);
         if let IsNull::No = value.to_sql(&self.row_schema[self.col_index].datatype, &mut buffer)? {
-            self.buffer.fields_mut().push(Some(buffer.split().freeze()));
+            let buf = buffer.split().freeze();
+            self.buffer.fields_mut().push(Some(buf));
         } else {
             self.buffer.fields_mut().push(None);
         };

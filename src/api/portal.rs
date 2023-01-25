@@ -9,15 +9,15 @@ use crate::{
     },
 };
 
-use super::{ClientInfo, DEFAULT_NAME};
+use super::{stmt::StoredStatement, DEFAULT_NAME};
 
 /// Represent a prepared sql statement and its parameters bound by a `Bind`
 /// request.
 #[derive(Debug, CopyGetters, Default, Getters, Setters, Clone)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
-pub struct Portal {
+pub struct Portal<S> {
     name: String,
-    statement: String,
+    statement: S,
     parameter_types: Vec<Type>,
     parameter_format: Format,
     parameters: Vec<Option<Bytes>>,
@@ -55,24 +55,13 @@ impl Format {
     }
 }
 
-impl Portal {
+impl<S: Clone> Portal<S> {
     /// Try to create portal from bind command and current client state
-    pub fn try_new<C>(bind: &Bind, client: &C) -> PgWireResult<Portal>
-    where
-        C: ClientInfo,
-    {
+    pub fn try_new(bind: &Bind, statement: &StoredStatement<S>) -> PgWireResult<Self> {
         let portal_name = bind
             .portal_name()
             .clone()
             .unwrap_or_else(|| DEFAULT_NAME.to_owned());
-        let statement_name = bind
-            .statement_name()
-            .clone()
-            .unwrap_or_else(|| DEFAULT_NAME.to_owned());
-        let statement = client
-            .stmt_store()
-            .get(&statement_name)
-            .ok_or_else(|| PgWireError::StatementNotFound(statement_name.clone()))?;
 
         // types
         let mut types = Vec::new();
@@ -92,7 +81,7 @@ impl Portal {
 
         Ok(Portal {
             name: portal_name,
-            statement: statement.statement().to_owned(),
+            statement: statement.statement().clone(),
             parameter_types: types,
             parameter_format: format,
             parameters: bind.parameters().clone(),
