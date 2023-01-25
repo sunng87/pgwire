@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use futures::stream;
-use futures::{Stream, StreamExt};
+use futures::Stream;
 use pgwire::api::stmt::NoopQueryParser;
 use pgwire::api::store::MemPortalStore;
 use pgwire::messages::data::DataRow;
@@ -265,7 +265,7 @@ impl ExtendedQueryHandler for SqliteBackend {
         let conn = self.conn.lock().unwrap();
         let query = portal.statement();
         let mut stmt = conn
-            .prepare(query)
+            .prepare_cached(query)
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         let params = get_params(portal);
         let params_ref = params
@@ -277,8 +277,8 @@ impl ExtendedQueryHandler for SqliteBackend {
             let header = Arc::new(row_desc_from_stmt(&stmt)?);
             stmt.query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
                 .map(|rows| {
-                    let s = encode_binary_row_data(rows, header.clone());
-                    Response::Query(binary_query_response(header, s))
+                    let s = encode_binary_row_data(rows, header);
+                    Response::Query(binary_query_response(s))
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {
@@ -288,6 +288,21 @@ impl ExtendedQueryHandler for SqliteBackend {
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         }
+    }
+
+    async fn do_describe<C>(
+        &self,
+        _client: &mut C,
+        query: &Self::Statement,
+    ) -> PgWireResult<Vec<FieldInfo>>
+    where
+        C: ClientInfo + Unpin + Send + Sync,
+    {
+        let conn = self.conn.lock().unwrap();
+        let stmt = conn
+            .prepare_cached(query)
+            .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+        row_desc_from_stmt(&stmt)
     }
 }
 

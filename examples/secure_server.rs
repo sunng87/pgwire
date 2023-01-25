@@ -4,16 +4,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::stream;
-use pgwire::api::stmt::NoopQueryParser;
-use pgwire::api::store::MemPortalStore;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use tokio::net::TcpListener;
 use tokio_rustls::rustls::{Certificate, PrivateKey, ServerConfig};
 use tokio_rustls::TlsAcceptor;
 
 use pgwire::api::auth::noop::NoopStartupHandler;
-use pgwire::api::portal::Portal;
-use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
+use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{text_query_response, FieldInfo, Response, Tag, TextDataRowEncoder};
 use pgwire::api::{ClientInfo, StatelessMakeHandler, Type};
 use pgwire::error::PgWireResult;
@@ -58,33 +55,6 @@ impl SimpleQueryHandler for DummyProcessor {
     }
 }
 
-#[async_trait]
-impl ExtendedQueryHandler for DummyProcessor {
-    type Statement = String;
-    type PortalStore = MemPortalStore<Self::Statement>;
-    type QueryParser = NoopQueryParser;
-
-    fn portal_store(&self) -> Arc<Self::PortalStore> {
-        todo!()
-    }
-
-    fn query_parser(&self) -> Arc<Self::QueryParser> {
-        todo!()
-    }
-
-    async fn do_query<C>(
-        &self,
-        _client: &mut C,
-        _portal: &Portal<Self::Statement>,
-        _max_rows: usize,
-    ) -> PgWireResult<Response>
-    where
-        C: ClientInfo + Unpin + Send + Sync,
-    {
-        todo!()
-    }
-}
-
 fn setup_tls() -> Result<TlsAcceptor, IOError> {
     let cert = certs(&mut BufReader::new(File::open("examples/ssl/server.crt")?))
         .map_err(|_| IOError::new(ErrorKind::InvalidInput, "invalid cert"))
@@ -105,6 +75,10 @@ fn setup_tls() -> Result<TlsAcceptor, IOError> {
 #[tokio::main]
 pub async fn main() {
     let processor = Arc::new(StatelessMakeHandler::new(Arc::new(DummyProcessor)));
+    // We have not implemented extended query in this server, use placeholder instead
+    let placeholder = Arc::new(StatelessMakeHandler::new(Arc::new(
+        PlaceholderExtendedQueryHandler,
+    )));
     let authenticator = Arc::new(StatelessMakeHandler::new(Arc::new(NoopStartupHandler)));
 
     let server_addr = "127.0.0.1:5433";
@@ -117,13 +91,14 @@ pub async fn main() {
         let tls_acceptor_ref = tls_acceptor.clone();
         let authenticator_ref = authenticator.clone();
         let processor_ref = processor.clone();
+        let placeholder_ref = placeholder.clone();
         tokio::spawn(async move {
             process_socket(
                 incoming_socket.0,
                 Some(tls_acceptor_ref),
                 authenticator_ref,
-                processor_ref.clone(),
                 processor_ref,
+                placeholder_ref,
             )
             .await
         });
