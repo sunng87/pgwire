@@ -1,5 +1,4 @@
-use std::fmt::Debug;
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 use bytes::{Bytes, BytesMut};
 use futures::{
@@ -81,7 +80,7 @@ pub(crate) fn into_row_description(fields: Vec<FieldInfo>) -> RowDescription {
 #[derive(Getters)]
 #[getset(get = "pub")]
 pub struct QueryResponse {
-    pub(crate) row_schema: Vec<FieldInfo>,
+    pub(crate) row_schema: Option<Vec<FieldInfo>>,
     pub(crate) data_rows: BoxStream<'static, PgWireResult<DataRow>>,
 }
 
@@ -159,22 +158,17 @@ where
         .for_each(|f| f.format = FORMAT_CODE_TEXT);
 
     QueryResponse {
-        row_schema: field_defs,
+        row_schema: Some(field_defs),
         data_rows: row_stream.boxed(),
     }
 }
 
-pub fn binary_query_response<S>(field_defs: Arc<Vec<FieldInfo>>, row_stream: S) -> QueryResponse
+pub fn binary_query_response<S>(row_stream: S) -> QueryResponse
 where
     S: Stream<Item = PgWireResult<DataRow>> + Send + Unpin + 'static,
 {
-    let mut row_schema = (*field_defs).clone();
-    row_schema
-        .iter_mut()
-        .for_each(|f| f.format = FORMAT_CODE_BINARY);
-
     QueryResponse {
-        row_schema,
+        row_schema: None,
         data_rows: row_stream.boxed(),
     }
 }
