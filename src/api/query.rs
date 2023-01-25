@@ -7,8 +7,8 @@ use futures::stream::StreamExt;
 
 use super::portal::Portal;
 use super::results::{into_row_description, FieldInfo, Tag};
-use super::stmt::{QueryParser, StoredStatement};
-use super::store::PortalStore;
+use super::stmt::{NoopQueryParser, QueryParser, StoredStatement};
+use super::store::{MemPortalStore, PortalStore};
 use super::{ClientInfo, DEFAULT_NAME};
 use crate::api::results::{QueryResponse, Response};
 use crate::error::{PgWireError, PgWireResult};
@@ -283,4 +283,48 @@ where
         .await?;
 
     Ok(())
+}
+
+/// A placeholder extended query handler. It panics when extended query messages
+/// received. This handler is for demo only, never use it in serious
+/// application.
+#[derive(Debug, Clone)]
+pub struct PlaceholderExtendedQueryHandler;
+
+#[async_trait]
+impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
+    type Statement = String;
+    type PortalStore = MemPortalStore<Self::Statement>;
+    type QueryParser = NoopQueryParser;
+
+    fn portal_store(&self) -> Arc<Self::PortalStore> {
+        unimplemented!("Extended Query is not implemented on this server.")
+    }
+
+    fn query_parser(&self) -> Arc<Self::QueryParser> {
+        unimplemented!("Extended Query is not implemented on this server.")
+    }
+
+    async fn do_query<C>(
+        &self,
+        _client: &mut C,
+        _portal: &Portal<Self::Statement>,
+        _max_rows: usize,
+    ) -> PgWireResult<Response>
+    where
+        C: ClientInfo + Unpin + Send + Sync,
+    {
+        unimplemented!("Extended Query is not implemented on this server.")
+    }
+
+    async fn do_describe<C>(
+        &self,
+        _client: &mut C,
+        _statement: &Self::Statement,
+    ) -> PgWireResult<Vec<FieldInfo>>
+    where
+        C: ClientInfo + Unpin + Send + Sync,
+    {
+        unimplemented!("Extended Query is not implemented on this server.")
+    }
 }
