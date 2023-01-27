@@ -2,13 +2,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::{stream, StreamExt};
-use pgwire::api::stmt::NoopQueryParser;
-use pgwire::api::store::MemPortalStore;
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::noop::NoopStartupHandler;
-use pgwire::api::portal::Portal;
-use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
+
+use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{text_query_response, FieldInfo, Response, Tag, TextDataRowEncoder};
 use pgwire::api::{ClientInfo, StatelessMakeHandler, Type};
 use pgwire::error::PgWireResult;
@@ -53,36 +51,13 @@ impl SimpleQueryHandler for DummyProcessor {
     }
 }
 
-#[async_trait]
-impl ExtendedQueryHandler for DummyProcessor {
-    type Statement = String;
-    type PortalStore = MemPortalStore<Self::Statement>;
-    type QueryParser = NoopQueryParser;
-
-    fn portal_store(&self) -> Arc<Self::PortalStore> {
-        todo!()
-    }
-
-    fn query_parser(&self) -> Arc<Self::QueryParser> {
-        todo!()
-    }
-
-    async fn do_query<C>(
-        &self,
-        _client: &mut C,
-        _portal: &Portal<Self::Statement>,
-        _max_rows: usize,
-    ) -> PgWireResult<Response>
-    where
-        C: ClientInfo + Unpin + Send + Sync,
-    {
-        todo!()
-    }
-}
-
 #[tokio::main]
 pub async fn main() {
     let processor = Arc::new(StatelessMakeHandler::new(Arc::new(DummyProcessor)));
+    // We have not implemented extended query in this server, use placeholder instead
+    let placeholder = Arc::new(StatelessMakeHandler::new(Arc::new(
+        PlaceholderExtendedQueryHandler,
+    )));
     let authenticator = Arc::new(StatelessMakeHandler::new(Arc::new(NoopStartupHandler)));
 
     let server_addr = "127.0.0.1:5432";
@@ -92,13 +67,14 @@ pub async fn main() {
         let incoming_socket = listener.accept().await.unwrap();
         let authenticator_ref = authenticator.clone();
         let processor_ref = processor.clone();
+        let placeholder_ref = placeholder.clone();
         tokio::spawn(async move {
             process_socket(
                 incoming_socket.0,
                 None,
                 authenticator_ref,
-                processor_ref.clone(),
                 processor_ref,
+                placeholder_ref,
             )
             .await
         });

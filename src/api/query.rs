@@ -6,9 +6,9 @@ use futures::sink::{Sink, SinkExt};
 use futures::stream::StreamExt;
 
 use super::portal::Portal;
-use super::results::{into_row_description, Tag};
-use super::stmt::{QueryParser, StoredStatement};
-use super::store::PortalStore;
+use super::results::{into_row_description, FieldInfo, Tag};
+use super::stmt::{NoopQueryParser, QueryParser, StoredStatement};
+use super::store::{MemPortalStore, PortalStore};
 use super::{ClientInfo, DEFAULT_NAME};
 use crate::api::results::{QueryResponse, Response};
 use crate::error::{PgWireError, PgWireResult};
@@ -43,7 +43,7 @@ pub trait SimpleQueryHandler: Send + Sync {
             for r in resp {
                 match r {
                     Response::Query(results) => {
-                        send_query_response(client, results, true).await?;
+                        send_query_response(client, results).await?;
                     }
                     Response::Execution(tag) => {
                         send_execution_response(client, tag).await?;
@@ -127,8 +127,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 .await?
             {
                 Response::Query(results) => {
-                    send_query_response(client, results, portal.row_description_requested())
-                        .await?;
+                    send_query_response(client, results).await?;
                 }
                 Response::Execution(tag) => {
                     send_execution_response(client, tag).await?;
@@ -152,26 +151,36 @@ pub trait ExtendedQueryHandler: Send + Sync {
         // TODO: clear/remove portal?
     }
 
-    async fn on_describe<C>(&self, _client: &mut C, message: Describe) -> PgWireResult<()>
+    async fn on_describe<C>(&self, client: &mut C, message: Describe) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let name = message.name().as_deref().unwrap_or(DEFAULT_NAME);
-        match message.target_type() {
-            TARGET_TYPE_BYTE_STATEMENT => Ok(()),
-            TARGET_TYPE_BYTE_PORTAL => {
-                if let Some(mut portal) = self.portal_store().get_portal(name) {
-                    Arc::make_mut(&mut portal).set_row_description_requested(true);
-                    self.portal_store().put_portal(portal);
-                    Ok(())
+        let row_schema = match message.target_type() {
+            TARGET_TYPE_BYTE_STATEMENT => {
+                if let Some(stmt) = self.portal_store().get_statement(name) {
+                    self.do_describe(client, stmt.statement()).await
                 } else {
-                    Err(PgWireError::PortalNotFound(name.to_owned()))
+                    return Err(PgWireError::StatementNotFound(name.to_owned()));
                 }
             }
-            _ => Ok(()),
-        }
+            TARGET_TYPE_BYTE_PORTAL => {
+                if let Some(portal) = self.portal_store().get_portal(name) {
+                    self.do_describe(client, portal.statement()).await
+                } else {
+                    return Err(PgWireError::PortalNotFound(name.to_owned()));
+                }
+            }
+            _ => return Err(PgWireError::InvalidTargetType(message.target_type())),
+        }?;
+
+        let row_desc = into_row_description(row_schema);
+        client
+            .send(PgWireBackendMessage::RowDescription(row_desc))
+            .await?;
+        Ok(())
     }
 
     async fn on_sync<C>(&self, client: &mut C, _message: PgSync) -> PgWireResult<()>
@@ -203,6 +212,15 @@ pub trait ExtendedQueryHandler: Send + Sync {
         Ok(())
     }
 
+    /// Return resultset metadata without actually execute statement or portal
+    async fn do_describe<C>(
+        &self,
+        client: &mut C,
+        statement: &Self::Statement,
+    ) -> PgWireResult<Vec<FieldInfo>>
+    where
+        C: ClientInfo + Unpin + Send + Sync;
+
     /// This is the main implementation for query execution. Context has
     /// been provided:
     ///
@@ -219,11 +237,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C: ClientInfo + Unpin + Send + Sync;
 }
 
-async fn send_query_response<C>(
-    client: &mut C,
-    results: QueryResponse,
-    row_desc_required: bool,
-) -> PgWireResult<()>
+async fn send_query_response<C>(client: &mut C, results: QueryResponse) -> PgWireResult<()>
 where
     C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
     C::Error: Debug,
@@ -234,7 +248,9 @@ where
         mut data_rows,
     } = results;
 
-    if row_desc_required {
+    // Simple query has row_schema in query response. For extended query,
+    // row_schema is returned as response of `Describe`.
+    if let Some(row_schema) = row_schema {
         let row_desc = into_row_description(row_schema);
         client
             .send(PgWireBackendMessage::RowDescription(row_desc))
@@ -267,4 +283,48 @@ where
         .await?;
 
     Ok(())
+}
+
+/// A placeholder extended query handler. It panics when extended query messages
+/// received. This handler is for demo only, never use it in serious
+/// application.
+#[derive(Debug, Clone)]
+pub struct PlaceholderExtendedQueryHandler;
+
+#[async_trait]
+impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
+    type Statement = String;
+    type PortalStore = MemPortalStore<Self::Statement>;
+    type QueryParser = NoopQueryParser;
+
+    fn portal_store(&self) -> Arc<Self::PortalStore> {
+        unimplemented!("Extended Query is not implemented on this server.")
+    }
+
+    fn query_parser(&self) -> Arc<Self::QueryParser> {
+        unimplemented!("Extended Query is not implemented on this server.")
+    }
+
+    async fn do_query<C>(
+        &self,
+        _client: &mut C,
+        _portal: &Portal<Self::Statement>,
+        _max_rows: usize,
+    ) -> PgWireResult<Response>
+    where
+        C: ClientInfo + Unpin + Send + Sync,
+    {
+        unimplemented!("Extended Query is not implemented on this server.")
+    }
+
+    async fn do_describe<C>(
+        &self,
+        _client: &mut C,
+        _statement: &Self::Statement,
+    ) -> PgWireResult<Vec<FieldInfo>>
+    where
+        C: ClientInfo + Unpin + Send + Sync,
+    {
+        unimplemented!("Extended Query is not implemented on this server.")
+    }
 }

@@ -11,6 +11,8 @@ pub enum PgWireError {
     InvalidProtocolVersion(i32),
     #[error("Invalid message recevied, received {0}")]
     InvalidMessageType(u8),
+    #[error("Invalid target type, received {0}")]
+    InvalidTargetType(u8),
     #[error(transparent)]
     IoError(#[from] std::io::Error),
     #[error("Portal not found for name: {0:?}")]

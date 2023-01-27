@@ -22,9 +22,6 @@ pub struct Portal<S> {
     parameter_format: Format,
     parameters: Vec<Option<Bytes>>,
     result_column_format_codes: Vec<i16>,
-    #[getset(skip)]
-    #[getset(get_copy = "pub", set = "pub")]
-    row_description_requested: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -86,7 +83,6 @@ impl<S: Clone> Portal<S> {
             parameter_format: format,
             parameters: bind.parameters().clone(),
             result_column_format_codes: bind.result_column_format_codes().clone(),
-            row_description_requested: false,
         })
     }
 
