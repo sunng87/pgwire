@@ -56,15 +56,9 @@ impl ServerParameterProvider for DefaultServerParameterProvider {
 
 #[derive(Debug, new, Getters)]
 #[getset(get = "pub")]
-pub struct HashedPassword<'a> {
-    salt: &'a [u8],
-    hashed_password: &'a String,
-}
-
-#[derive(Debug)]
-pub enum Password<'a> {
-    ClearText(&'a String),
-    Hashed(HashedPassword<'a>),
+pub struct Password {
+    salt: Option<Vec<u8>>,
+    password: Vec<u8>,
 }
 
 #[derive(Debug, new, Getters)]
@@ -76,7 +70,7 @@ pub struct LoginInfo<'a> {
 }
 
 impl<'a> LoginInfo<'a> {
-    pub fn from_client_info<C>(client: &'a C) -> LoginInfo<'a>
+    pub fn from_client_info<C>(client: &'a C) -> LoginInfo
     where
         C: ClientInfo,
     {
@@ -88,13 +82,19 @@ impl<'a> LoginInfo<'a> {
     }
 }
 
+/// Represents auth source, the source returns password either in cleartext or
+/// hashed with salt.
+///
+/// When using with different authentication mechanism, the developer can choose
+/// specific implementation of `AuthSource`. For example, with cleartext
+/// authentication, salt is not required, while in md5pass, a 4-byte salt is
+/// needed.
 #[async_trait]
-pub trait PasswordVerifier: Send + Sync {
-    async fn verify_password<'a>(
-        &self,
-        ctx: LoginInfo<'a>,
-        pwd: Password<'a>,
-    ) -> PgWireResult<bool>;
+pub trait AuthSource: Send + Sync {
+    /// Get password from the `AuthSource`.
+    ///
+    /// `Password` has a an optional salt field when it's hashed.
+    async fn get_password(&self, login: &LoginInfo) -> PgWireResult<Password>;
 }
 
 pub fn save_startup_parameters_to_metadata<C>(client: &mut C, startup_message: &Startup)

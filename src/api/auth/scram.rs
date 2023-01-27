@@ -15,7 +15,7 @@ use ring::pbkdf2;
 use x509_certificate::certificate::CapturedX509Certificate;
 use x509_certificate::SignatureAlgorithm;
 
-use crate::api::auth::METADATA_USER;
+use crate::api::auth::{AuthSource, LoginInfo};
 use crate::api::{ClientInfo, MakeHandler, PgWireConnectionState};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::Authentication;
@@ -40,28 +40,15 @@ pub struct SASLScramAuthStartupHandler<A, P> {
     server_cert_sig: Option<Arc<String>>,
 }
 
-/// This trait abstracts an authentication database for SCRAM authentication
-/// mechanism.
-#[async_trait]
-pub trait AuthDB: Send + Sync {
-    /// Fetch password and add salt, this step is defined in
-    /// [RFC5802](https://www.rfc-editor.org/rfc/rfc5802#section-3)
-    ///
-    /// ```text
-    /// SaltedPassword  := Hi(Normalize(password), salt, i)
-    /// ```
-    ///
-    /// The implementation should first retrieve password from its storage and
-    /// compute it into SaltedPassword
-    async fn get_salted_password(
-        &self,
-        username: &str,
-        salt: &[u8],
-        iterations: usize,
-    ) -> PgWireResult<Vec<u8>>;
-}
-
-/// compute salted password from raw password
+/// Compute salted password from raw password as defined in
+/// [RFC5802](https://www.rfc-editor.org/rfc/rfc5802#section-3)
+///
+/// ```text
+/// SaltedPassword  := Hi(Normalize(password), salt, i)
+/// ```
+///
+/// This is a helper function for `AuthSource` implementation if passwords are
+/// stored in cleartext.
 pub fn gen_salted_password(password: &str, salt: &[u8], iters: usize) -> Vec<u8> {
     // according to postgres doc, if we failed to normalize password, use
     // original password instead of throwing error
@@ -107,7 +94,9 @@ impl<A, P> SASLScramAuthStartupHandler<A, P> {
 const DEFAULT_ITERATIONS: usize = 4096;
 
 #[async_trait]
-impl<A: AuthDB, P: ServerParameterProvider> StartupHandler for SASLScramAuthStartupHandler<A, P> {
+impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
+    for SASLScramAuthStartupHandler<A, P>
+{
     async fn on_startup<C>(
         &self,
         client: &mut C,
