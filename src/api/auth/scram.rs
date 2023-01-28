@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::fmt::Debug;
 use std::num::NonZeroU32;
 use std::ops::BitXor;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use base64::engine::general_purpose::STANDARD;
@@ -12,10 +12,11 @@ use futures::{Sink, SinkExt};
 use ring::digest;
 use ring::hmac;
 use ring::pbkdf2;
+use tokio::sync::Mutex;
 use x509_certificate::certificate::CapturedX509Certificate;
 use x509_certificate::SignatureAlgorithm;
 
-use crate::api::auth::{AuthSource, LoginInfo};
+use crate::api::auth::{AuthSource, LoginInfo, Password};
 use crate::api::{ClientInfo, MakeHandler, PgWireConnectionState};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::Authentication;
@@ -26,8 +27,8 @@ use super::{ServerParameterProvider, StartupHandler};
 #[derive(Debug)]
 pub enum ScramState {
     Initial,
-    // cache salt, channel_binding and partial auth-message
-    ServerFirstSent(Vec<u8>, String, String),
+    // cached password, channel_binding and partial auth-message
+    ServerFirstSent(Password, String, String),
 }
 
 #[derive(Debug)]
@@ -38,6 +39,8 @@ pub struct SASLScramAuthStartupHandler<A, P> {
     state: Mutex<ScramState>,
     /// base64 encoded certificate signature for tls-server-end-point channel binding
     server_cert_sig: Option<Arc<String>>,
+    /// iterations
+    iterations: usize,
 }
 
 /// Compute salted password from raw password as defined in
@@ -55,14 +58,6 @@ pub fn gen_salted_password(password: &str, salt: &[u8], iters: usize) -> Vec<u8>
     let normalized_pass = stringprep::saslprep(password).unwrap_or(Cow::Borrowed(password));
     let pass_bytes = normalized_pass.as_ref().as_bytes();
     hi(pass_bytes, salt, iters)
-}
-
-pub fn random_salt() -> Vec<u8> {
-    let mut buf = vec![0u8; 10];
-    for v in buf.iter_mut() {
-        *v = rand::random::<u8>();
-    }
-    buf
 }
 
 pub fn random_nonce() -> String {
@@ -90,8 +85,6 @@ impl<A, P> SASLScramAuthStartupHandler<A, P> {
         }
     }
 }
-
-const DEFAULT_ITERATIONS: usize = 4096;
 
 #[async_trait]
 impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
@@ -123,34 +116,21 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                     .await?;
             }
             PgWireFrontendMessage::PasswordMessageFamily(msg) => {
-                let salt = {
-                    // this should never block
-                    let state0 = self.state.lock().unwrap();
-                    if let ScramState::ServerFirstSent(ref salt, _, _) = *state0 {
-                        Some(salt.to_vec())
-                    } else {
-                        None
+                let salt_and_salted_pass = {
+                    let state = self.state.lock().await;
+                    match *state {
+                        ScramState::Initial => {
+                            let login_info = LoginInfo::from_client_info(client);
+                            self.auth_db.get_password(&login_info).await?
+                        }
+                        ScramState::ServerFirstSent(ref pass, _, _) => pass.clone(),
                     }
-                };
-
-                let salted_password = if let Some(ref salt) = salt {
-                    let username = client
-                        .metadata()
-                        .get(METADATA_USER)
-                        .ok_or(PgWireError::UserNameRequired)?;
-                    Some(
-                        self.auth_db
-                            .get_salted_password(username, salt, DEFAULT_ITERATIONS)
-                            .await?,
-                    )
-                } else {
-                    None
                 };
 
                 let mut success = false;
                 let resp = {
                     // this should never block
-                    let mut state = self.state.lock().unwrap();
+                    let mut state = self.state.lock().await;
                     match *state {
                         ScramState::Initial => {
                             // initial response, client_first
@@ -173,16 +153,20 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                             let mut new_nonce = client_first.nonce.clone();
                             new_nonce.push_str(random_nonce().as_str());
 
-                            let salt = random_salt();
                             let server_first = ServerFirst::new(
                                 new_nonce,
-                                STANDARD.encode(&salt),
-                                DEFAULT_ITERATIONS,
+                                STANDARD.encode(
+                                    salt_and_salted_pass
+                                        .salt()
+                                        .as_ref()
+                                        .expect("Salt required for SCRAM auth source"),
+                                ),
+                                self.iterations,
                             );
                             let server_first_message = server_first.message();
 
                             *state = ScramState::ServerFirstSent(
-                                salt,
+                                salt_and_salted_pass,
                                 client_first.channel_binding(),
                                 format!("{},{}", client_first.bare(), &server_first_message),
                             );
@@ -204,7 +188,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                                 self.compute_channel_binding(channel_binding_prefix);
                             client_final.validate_channel_binding(&channel_binding)?;
 
-                            let salted_password = salted_password.unwrap();
+                            let salted_password = salt_and_salted_pass.password();
                             let client_key = hmac(salted_password.as_ref(), b"Client Key");
                             let stored_key = h(client_key.as_ref());
                             let auth_msg =
@@ -253,6 +237,8 @@ pub struct MakeSASLScramAuthStartupHandler<A, P> {
     parameter_provider: Arc<P>,
     #[new(default)]
     server_cert_sig: Option<Arc<String>>,
+    #[new(value = "4096")]
+    iterations: usize,
 }
 
 impl<A, P> MakeSASLScramAuthStartupHandler<A, P> {
@@ -266,6 +252,18 @@ impl<A, P> MakeSASLScramAuthStartupHandler<A, P> {
         self.server_cert_sig = Some(Arc::new(STANDARD.encode(sig)));
         Ok(())
     }
+
+    /// Set password hash iteration count, according to SCRAM RFC, a minimal of
+    /// 4096 is required.
+    ///
+    /// Note that this implementation does not hash password, it just tells
+    /// client to hash with this iteration count. You have to implement password
+    /// hashing in your `AuthSource` implementation, either after fetching
+    /// cleartext password, or before storing hashed password. And this number
+    /// should be identical to your `AuthSource` implementation.
+    pub fn set_iterations(&mut self, iterations: usize) {
+        self.iterations = iterations;
+    }
 }
 
 impl<A, P> MakeHandler for MakeSASLScramAuthStartupHandler<A, P> {
@@ -277,6 +275,7 @@ impl<A, P> MakeHandler for MakeSASLScramAuthStartupHandler<A, P> {
             parameter_provider: self.parameter_provider.clone(),
             state: Mutex::new(ScramState::Initial),
             server_cert_sig: self.server_cert_sig.clone(),
+            iterations: self.iterations,
         })
     }
 }

@@ -9,8 +9,8 @@ use tokio::net::TcpListener;
 use tokio_rustls::rustls::{Certificate, PrivateKey, ServerConfig};
 use tokio_rustls::TlsAcceptor;
 
-use pgwire::api::auth::scram::{gen_salted_password, AuthDB, MakeSASLScramAuthStartupHandler};
-use pgwire::api::auth::DefaultServerParameterProvider;
+use pgwire::api::auth::scram::{gen_salted_password, MakeSASLScramAuthStartupHandler};
+use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{Response, Tag};
 
@@ -33,18 +33,26 @@ impl SimpleQueryHandler for DummyProcessor {
     }
 }
 
+pub fn random_salt() -> Vec<u8> {
+    let mut buf = vec![0u8; 10];
+    for v in buf.iter_mut() {
+        *v = rand::random::<u8>();
+    }
+    buf
+}
+
+const ITERATIONS: usize = 4096;
+
 struct DummyAuthDB;
 
 #[async_trait]
-impl AuthDB for DummyAuthDB {
-    async fn get_salted_password(
-        &self,
-        _username: &str,
-        salt: &[u8],
-        iterations: usize,
-    ) -> PgWireResult<Vec<u8>> {
+impl AuthSource for DummyAuthDB {
+    async fn get_password(&self, _login: &LoginInfo) -> PgWireResult<Password> {
         let password = "pencil";
-        Ok(gen_salted_password(password, salt, iterations))
+        let salt = random_salt();
+
+        let hash_password = gen_salted_password(password, salt.as_ref(), ITERATIONS);
+        Ok(Password::new(Some(salt), hash_password))
     }
 }
 
@@ -77,6 +85,7 @@ pub async fn main() {
         Arc::new(DummyAuthDB),
         Arc::new(DefaultServerParameterProvider),
     );
+    authenticator.set_iterations(ITERATIONS);
 
     let cert = fs::read("examples/ssl/server.crt").unwrap();
     authenticator.configure_certificate(cert.as_ref()).unwrap();

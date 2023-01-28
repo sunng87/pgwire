@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 
 use super::{
-    ClientInfo, LoginInfo, Password, PasswordVerifier, PgWireConnectionState,
-    ServerParameterProvider, StartupHandler,
+    AuthSource, ClientInfo, LoginInfo, PgWireConnectionState, ServerParameterProvider,
+    StartupHandler,
 };
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::response::ErrorResponse;
@@ -13,13 +13,13 @@ use crate::messages::startup::Authentication;
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 #[derive(new)]
-pub struct CleartextPasswordAuthStartupHandler<V, P> {
-    verifier: V,
+pub struct CleartextPasswordAuthStartupHandler<A, P> {
+    auth_source: A,
     parameter_provider: P,
 }
 
 #[async_trait]
-impl<V: PasswordVerifier, P: ServerParameterProvider> StartupHandler
+impl<V: AuthSource, P: ServerParameterProvider> StartupHandler
     for CleartextPasswordAuthStartupHandler<V, P>
 {
     async fn on_startup<C>(
@@ -45,11 +45,8 @@ impl<V: PasswordVerifier, P: ServerParameterProvider> StartupHandler
             PgWireFrontendMessage::PasswordMessageFamily(pwd) => {
                 let pwd = pwd.into_password()?;
                 let login_info = LoginInfo::from_client_info(client);
-                if let Ok(true) = self
-                    .verifier
-                    .verify_password(login_info, Password::ClearText(pwd.password()))
-                    .await
-                {
+                let pass = self.auth_source.get_password(&login_info).await?;
+                if pass.password() == pwd.password().as_bytes() {
                     super::finish_authentication(client, &self.parameter_provider).await
                 } else {
                     let error_info = ErrorInfo::new(

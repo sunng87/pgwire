@@ -54,7 +54,7 @@ impl ServerParameterProvider for DefaultServerParameterProvider {
     }
 }
 
-#[derive(Debug, new, Getters)]
+#[derive(Debug, new, Getters, Clone)]
 #[getset(get = "pub")]
 pub struct Password {
     salt: Option<Vec<u8>>,

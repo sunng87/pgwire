@@ -96,7 +96,7 @@ pub enum Authentication {
     Ok,                   // code 0
     CleartextPassword,    // code 3
     KerberosV5,           // code 2
-    MD5Password([u8; 4]), // code 5, with 4 bytes of md5 salt
+    MD5Password(Vec<u8>), // code 5, with 4 bytes of md5 salt
 
     SASL(Vec<String>),   // code 10, with server supported sasl mechanisms
     SASLContinue(Bytes), // code 11, with authentication data
@@ -168,10 +168,9 @@ impl Message for Authentication {
             2 => Authentication::KerberosV5,
             3 => Authentication::CleartextPassword,
             5 => {
-                let mut salt = buf.split_to(4);
-                let mut salt_array = [0u8; 4];
-                salt.copy_to_slice(&mut salt_array);
-                Authentication::MD5Password(salt_array)
+                let mut salt_vec = vec![0; 4];
+                buf.copy_to_slice(&mut salt_vec);
+                Authentication::MD5Password(salt_vec)
             }
             10 => {
                 let mut methods = Vec::new();
