@@ -19,7 +19,7 @@ with its usage.
 - [x] Backend TCP/TLS server on Tokio
 - [ ] Frontend-Backend interaction over TCP
   - [x] SSL Request and Response
-  - [ ] Startup
+  - [x] Startup
     - [x] No authentication
     - [x] Clear-text password authentication
     - [x] Md5 Password authentication
@@ -34,16 +34,17 @@ with its usage.
     - [x] Describe
     - [x] Sync
   - [x] Termination
-  - [ ] Cancel
+  - [x] Cancel
   - [x] Error and Notice
   - [ ] Copy
 - [ ] APIs
-  - [ ] Startup APIs
-    - [x] Password authentication
-    - [ ] Server parameters API, ready but not very good
+  - [x] Startup APIs
+    - [x] AuthSource API, fetching and hashing passwords
+    - [x] Server parameters API, ready but not very good
   - [x] Simple Query API
-  - [x] Extended Query API, verification required
-    - [ ] Portal API, implemented but not perfect
+  - [x] Extended Query API
+    - [x] QueryParser API, for transforming prepared statement
+    - [x] PortalStore API, for caching statements and portals
   - [x] ResultSet builder/encoder API
   - [ ] Query Cancellation API
   - [x] Error and Notice API
