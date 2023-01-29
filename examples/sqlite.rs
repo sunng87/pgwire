@@ -11,10 +11,9 @@ use rusqlite::Rows;
 use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
 use tokio::net::TcpListener;
 
-// use pgwire::api::auth::cleartext::CleartextPasswordAuthStartupHandler;
-use pgwire::api::auth::md5pass::MakeMd5PasswordAuthStartupHandler;
+use pgwire::api::auth::md5pass::{hash_md5_password, MakeMd5PasswordAuthStartupHandler};
 use pgwire::api::auth::{
-    DefaultServerParameterProvider, LoginInfo, Password, PasswordVerifier, ServerParameterProvider,
+    AuthSource, DefaultServerParameterProvider, LoginInfo, Password, ServerParameterProvider,
 };
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
@@ -32,18 +31,19 @@ pub struct SqliteBackend {
     query_parser: Arc<NoopQueryParser>,
 }
 
-struct DummyPasswordVerifier;
+struct DummyAuthSource;
 
 #[async_trait]
-impl PasswordVerifier for DummyPasswordVerifier {
-    async fn verify_password<'a>(
-        &self,
-        login_info: LoginInfo<'a>,
-        password: Password<'a>,
-    ) -> PgWireResult<bool> {
+impl AuthSource for DummyAuthSource {
+    async fn get_password(&self, login_info: &LoginInfo) -> PgWireResult<Password> {
         println!("login info: {:?}", login_info);
-        println!("password: {:?}", password);
-        Ok(true)
+
+        let salt = vec![0, 0, 0, 0];
+        let password = "pencil";
+
+        let hash_password =
+            hash_md5_password(login_info.user().as_ref().unwrap(), password, salt.as_ref());
+        Ok(Password::new(Some(salt), hash_password.as_bytes().to_vec()))
     }
 }
 
@@ -337,7 +337,7 @@ impl MakeHandler for MakeSqliteBackend {
 #[tokio::main]
 pub async fn main() {
     let authenticator = Arc::new(MakeMd5PasswordAuthStartupHandler::new(
-        Arc::new(DummyPasswordVerifier),
+        Arc::new(DummyAuthSource),
         Arc::new(SqliteParameters::new()),
     ));
     let processor = Arc::new(MakeSqliteBackend::new());

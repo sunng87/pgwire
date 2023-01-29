@@ -286,7 +286,7 @@ mod test {
             roundtrip!(s, Authentication);
         }
 
-        let md5pass = Authentication::MD5Password([b'p', b's', b't', b'g']);
+        let md5pass = Authentication::MD5Password(vec![b'p', b's', b't', b'g']);
         roundtrip!(md5pass, Authentication);
     }
 
