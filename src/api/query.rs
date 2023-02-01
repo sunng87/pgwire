@@ -106,7 +106,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let statement_name = message.statement_name().as_deref().unwrap_or(DEFAULT_NAME);
 
         if let Some(statement) = self.portal_store().get_statement(statement_name) {
-            let portal = Portal::try_new(&message, statement.clone())?;
+            let portal = Portal::try_new(&message, statement)?;
             self.portal_store().put_portal(Arc::new(portal));
             Ok(())
         } else {

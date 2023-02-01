@@ -72,7 +72,7 @@ impl<S: Clone> Portal<S> {
 
         Ok(Portal {
             name: portal_name,
-            statement: statement.clone(),
+            statement,
             parameter_format: format,
             parameters: bind.parameters().clone(),
             result_column_format_codes: bind.result_column_format_codes().clone(),
