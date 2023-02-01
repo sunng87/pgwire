@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use bytes::Bytes;
-use postgres_types::{FromSqlOwned, Type};
+use postgres_types::FromSqlOwned;
 
 use crate::{
     error::{PgWireError, PgWireResult},
@@ -17,8 +19,7 @@ use super::{stmt::StoredStatement, DEFAULT_NAME};
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct Portal<S> {
     name: String,
-    statement: S,
-    parameter_types: Vec<Type>,
+    statement: Arc<StoredStatement<S>>,
     parameter_format: Format,
     parameters: Vec<Option<Bytes>>,
     result_column_format_codes: Vec<i16>,
@@ -54,18 +55,11 @@ impl Format {
 
 impl<S: Clone> Portal<S> {
     /// Try to create portal from bind command and current client state
-    pub fn try_new(bind: &Bind, statement: &StoredStatement<S>) -> PgWireResult<Self> {
+    pub fn try_new(bind: &Bind, statement: Arc<StoredStatement<S>>) -> PgWireResult<Self> {
         let portal_name = bind
             .portal_name()
             .clone()
             .unwrap_or_else(|| DEFAULT_NAME.to_owned());
-
-        // types
-        let mut types = Vec::new();
-        for oid in statement.type_oids() {
-            // TODO: support non built-in types
-            types.push(Type::from_oid(*oid).ok_or_else(|| PgWireError::UnknownTypeId(*oid))?);
-        }
 
         // format
         let format = if bind.parameter_format_codes().is_empty() {
@@ -78,8 +72,7 @@ impl<S: Clone> Portal<S> {
 
         Ok(Portal {
             name: portal_name,
-            statement: statement.statement().clone(),
-            parameter_types: types,
+            statement: statement.clone(),
             parameter_format: format,
             parameters: bind.parameters().clone(),
             result_column_format_codes: bind.result_column_format_codes().clone(),
@@ -105,6 +98,7 @@ impl<S: Clone> Portal<S> {
         let _format = self.parameter_format().parameter_format_of(idx);
 
         let ty = self
+            .statement
             .parameter_types()
             .get(idx)
             .ok_or_else(|| PgWireError::ParameterTypeIndexOutOfBound(idx))?;

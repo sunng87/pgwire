@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use futures::stream;
 use futures::Stream;
-use pgwire::api::stmt::NoopQueryParser;
+use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::store::MemPortalStore;
 use pgwire::messages::data::DataRow;
 use rusqlite::Rows;
@@ -205,7 +205,7 @@ fn encode_binary_row_data(
 fn get_params(portal: &Portal<String>) -> Vec<Box<dyn ToSql>> {
     let mut results = Vec::with_capacity(portal.parameter_len());
     for i in 0..portal.parameter_len() {
-        let param_type = portal.parameter_types().get(i).unwrap();
+        let param_type = portal.statement().parameter_types().get(i).unwrap();
         // we only support a small amount of types for demo
         match param_type {
             &Type::BOOL => {
@@ -263,7 +263,7 @@ impl ExtendedQueryHandler for SqliteBackend {
         C: ClientInfo + Unpin + Send + Sync,
     {
         let conn = self.conn.lock().unwrap();
-        let query = portal.statement();
+        let query = portal.statement().statement();
         let mut stmt = conn
             .prepare_cached(query)
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
@@ -293,14 +293,14 @@ impl ExtendedQueryHandler for SqliteBackend {
     async fn do_describe<C>(
         &self,
         _client: &mut C,
-        query: &Self::Statement,
+        query: &StoredStatement<Self::Statement>,
     ) -> PgWireResult<Vec<FieldInfo>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
         let conn = self.conn.lock().unwrap();
         let stmt = conn
-            .prepare_cached(query)
+            .prepare_cached(query.statement())
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         row_desc_from_stmt(&stmt)
     }

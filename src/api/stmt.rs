@@ -1,6 +1,6 @@
-use postgres_types::Oid;
+use postgres_types::Type;
 
-use crate::error::PgWireResult;
+use crate::error::{PgWireError, PgWireResult};
 use crate::messages::extendedquery::Parse;
 
 use super::DEFAULT_NAME;
@@ -13,7 +13,7 @@ pub struct StoredStatement<S> {
     // query statement
     statement: S,
     // type ids of query parameters
-    type_oids: Vec<Oid>,
+    parameter_types: Vec<Type>,
 }
 
 impl<S> StoredStatement<S> {
@@ -21,13 +21,19 @@ impl<S> StoredStatement<S> {
     where
         Q: QueryParser<Statement = S>,
     {
+        let types = parse
+            .type_oids()
+            .iter()
+            .map(|oid| Type::from_oid(*oid).ok_or_else(|| PgWireError::UnknownTypeId(*oid)))
+            .collect::<PgWireResult<Vec<Type>>>()?;
+        let statement = parser.parse_sql(parse.query(), &types)?;
         Ok(StoredStatement {
             id: parse
                 .name()
                 .clone()
                 .unwrap_or_else(|| DEFAULT_NAME.to_owned()),
-            statement: parser.parse_sql(parse.query())?,
-            type_oids: parse.type_oids().clone(),
+            statement,
+            parameter_types: types,
         })
     }
 }
@@ -37,7 +43,7 @@ impl<S> StoredStatement<S> {
 pub trait QueryParser {
     type Statement;
 
-    fn parse_sql(&self, sql: &str) -> PgWireResult<Self::Statement>;
+    fn parse_sql(&self, sql: &str, types: &[Type]) -> PgWireResult<Self::Statement>;
 }
 
 /// A demo parser implementation. Never use it in serious application.
@@ -47,7 +53,7 @@ pub struct NoopQueryParser;
 impl QueryParser for NoopQueryParser {
     type Statement = String;
 
-    fn parse_sql(&self, sql: &str) -> PgWireResult<Self::Statement> {
+    fn parse_sql(&self, sql: &str, _types: &[Type]) -> PgWireResult<Self::Statement> {
         Ok(sql.to_owned())
     }
 }

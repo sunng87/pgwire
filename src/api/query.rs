@@ -106,7 +106,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let statement_name = message.statement_name().as_deref().unwrap_or(DEFAULT_NAME);
 
         if let Some(statement) = self.portal_store().get_statement(statement_name) {
-            let portal = Portal::try_new(&message, statement.as_ref())?;
+            let portal = Portal::try_new(&message, statement.clone())?;
             self.portal_store().put_portal(Arc::new(portal));
             Ok(())
         } else {
@@ -161,7 +161,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let row_schema = match message.target_type() {
             TARGET_TYPE_BYTE_STATEMENT => {
                 if let Some(stmt) = self.portal_store().get_statement(name) {
-                    self.do_describe(client, stmt.statement()).await
+                    self.do_describe(client, stmt.as_ref()).await
                 } else {
                     return Err(PgWireError::StatementNotFound(name.to_owned()));
                 }
@@ -216,7 +216,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
     async fn do_describe<C>(
         &self,
         client: &mut C,
-        statement: &Self::Statement,
+        statement: &StoredStatement<Self::Statement>,
     ) -> PgWireResult<Vec<FieldInfo>>
     where
         C: ClientInfo + Unpin + Send + Sync;
@@ -320,7 +320,7 @@ impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
     async fn do_describe<C>(
         &self,
         _client: &mut C,
-        _statement: &Self::Statement,
+        _statement: &StoredStatement<Self::Statement>,
     ) -> PgWireResult<Vec<FieldInfo>>
     where
         C: ClientInfo + Unpin + Send + Sync,
