@@ -155,6 +155,7 @@ pub enum PgWireBackendMessage {
     NoticeResponse(response::NoticeResponse),
 
     // data
+    ParameterDescription(data::ParameterDescription),
     RowDescription(data::RowDescription),
     DataRow(data::DataRow),
 }
@@ -177,6 +178,7 @@ impl PgWireBackendMessage {
             Self::ErrorResponse(msg) => msg.encode(buf),
             Self::NoticeResponse(msg) => msg.encode(buf),
 
+            Self::ParameterDescription(msg) => msg.encode(buf),
             Self::RowDescription(msg) => msg.encode(buf),
             Self::DataRow(msg) => msg.encode(buf),
         }
@@ -227,6 +229,10 @@ impl PgWireBackendMessage {
                     response::NoticeResponse::decode(buf).map(|v| v.map(Self::NoticeResponse))
                 }
 
+                data::MESSAGE_TYPE_BYTE_PARAMETER_DESCRITION => {
+                    data::ParameterDescription::decode(buf)
+                        .map(|v| v.map(Self::ParameterDescription))
+                }
                 data::MESSAGE_TYPE_BYTE_ROW_DESCRITION => {
                     data::RowDescription::decode(buf).map(|v| v.map(Self::RowDescription))
                 }
@@ -438,6 +444,12 @@ mod test {
 
         let saslresp = SASLResponse::new(Bytes::from_static(b"abc"));
         roundtrip!(saslresp, SASLResponse);
+    }
+
+    #[test]
+    fn test_parameter_description() {
+        let param_desc = ParameterDescription::new(vec![100, 200]);
+        roundtrip!(param_desc, ParameterDescription);
     }
 
     #[test]

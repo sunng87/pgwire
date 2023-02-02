@@ -12,9 +12,10 @@ use super::store::{MemPortalStore, PortalStore};
 use super::{ClientInfo, DEFAULT_NAME};
 use crate::api::results::{QueryResponse, Response};
 use crate::error::{PgWireError, PgWireResult};
+use crate::messages::data::ParameterDescription;
 use crate::messages::extendedquery::{
-    Bind, Close, Describe, Execute, Parse, Sync as PgSync, TARGET_TYPE_BYTE_PORTAL,
-    TARGET_TYPE_BYTE_STATEMENT,
+    Bind, BindComplete, Close, Describe, Execute, Parse, ParseComplete, Sync as PgSync,
+    TARGET_TYPE_BYTE_PORTAL, TARGET_TYPE_BYTE_STATEMENT,
 };
 use crate::messages::response::{EmptyQueryResponse, ReadyForQuery, READY_STATUS_IDLE};
 use crate::messages::simplequery::Query;
@@ -85,7 +86,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
     /// Get a reference to associated `QueryParser` implementation
     fn query_parser(&self) -> Arc<Self::QueryParser>;
 
-    async fn on_parse<C>(&self, _client: &mut C, message: Parse) -> PgWireResult<()>
+    async fn on_parse<C>(&self, client: &mut C, message: Parse) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -93,11 +94,14 @@ pub trait ExtendedQueryHandler: Send + Sync {
     {
         let stmt = StoredStatement::parse(&message, self.query_parser().as_ref())?;
         self.portal_store().put_statement(Arc::new(stmt));
+        client
+            .send(PgWireBackendMessage::ParseComplete(ParseComplete::new()))
+            .await?;
 
         Ok(())
     }
 
-    async fn on_bind<C>(&self, _client: &mut C, message: Bind) -> PgWireResult<()>
+    async fn on_bind<C>(&self, client: &mut C, message: Bind) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -108,6 +112,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
         if let Some(statement) = self.portal_store().get_statement(statement_name) {
             let portal = Portal::try_new(&message, statement)?;
             self.portal_store().put_portal(Arc::new(portal));
+            client
+                .send(PgWireBackendMessage::BindComplete(BindComplete::new()))
+                .await?;
             Ok(())
         } else {
             Err(PgWireError::StatementNotFound(statement_name.to_owned()))
@@ -158,28 +165,45 @@ pub trait ExtendedQueryHandler: Send + Sync {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let name = message.name().as_deref().unwrap_or(DEFAULT_NAME);
-        let row_schema = match message.target_type() {
+        match message.target_type() {
             TARGET_TYPE_BYTE_STATEMENT => {
                 if let Some(stmt) = self.portal_store().get_statement(name) {
-                    self.do_describe(client, stmt.as_ref()).await
+                    // respond parameter description first
+                    client
+                        .send(PgWireBackendMessage::ParameterDescription(
+                            ParameterDescription::new(
+                                stmt.parameter_types().iter().map(|t| t.oid()).collect(),
+                            ),
+                        ))
+                        .await?;
+                    let row_schema = self.do_describe(client, stmt.as_ref()).await?;
+                    let row_desc = into_row_description(row_schema);
+                    client
+                        .send(PgWireBackendMessage::RowDescription(row_desc))
+                        .await?;
+                    client
+                        .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+                            READY_STATUS_IDLE,
+                        )))
+                        .await?;
                 } else {
                     return Err(PgWireError::StatementNotFound(name.to_owned()));
                 }
             }
             TARGET_TYPE_BYTE_PORTAL => {
                 if let Some(portal) = self.portal_store().get_portal(name) {
-                    self.do_describe(client, portal.statement()).await
+                    let row_schema = self.do_describe(client, portal.statement()).await?;
+                    let row_desc = into_row_description(row_schema);
+                    client
+                        .send(PgWireBackendMessage::RowDescription(row_desc))
+                        .await?;
                 } else {
                     return Err(PgWireError::PortalNotFound(name.to_owned()));
                 }
             }
             _ => return Err(PgWireError::InvalidTargetType(message.target_type())),
-        }?;
+        }
 
-        let row_desc = into_row_description(row_schema);
-        client
-            .send(PgWireBackendMessage::RowDescription(row_desc))
-            .await?;
         Ok(())
     }
 
