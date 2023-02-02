@@ -13,8 +13,8 @@ use super::{ClientInfo, DEFAULT_NAME};
 use crate::api::results::{QueryResponse, Response};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::extendedquery::{
-    Bind, Close, Describe, Execute, Parse, Sync as PgSync, TARGET_TYPE_BYTE_PORTAL,
-    TARGET_TYPE_BYTE_STATEMENT,
+    Bind, BindComplete, Close, Describe, Execute, Parse, ParseComplete, Sync as PgSync,
+    TARGET_TYPE_BYTE_PORTAL, TARGET_TYPE_BYTE_STATEMENT,
 };
 use crate::messages::response::{EmptyQueryResponse, ReadyForQuery, READY_STATUS_IDLE};
 use crate::messages::simplequery::Query;
@@ -85,7 +85,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
     /// Get a reference to associated `QueryParser` implementation
     fn query_parser(&self) -> Arc<Self::QueryParser>;
 
-    async fn on_parse<C>(&self, _client: &mut C, message: Parse) -> PgWireResult<()>
+    async fn on_parse<C>(&self, client: &mut C, message: Parse) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -93,11 +93,14 @@ pub trait ExtendedQueryHandler: Send + Sync {
     {
         let stmt = StoredStatement::parse(&message, self.query_parser().as_ref())?;
         self.portal_store().put_statement(Arc::new(stmt));
+        client
+            .send(PgWireBackendMessage::ParseComplete(ParseComplete::new()))
+            .await?;
 
         Ok(())
     }
 
-    async fn on_bind<C>(&self, _client: &mut C, message: Bind) -> PgWireResult<()>
+    async fn on_bind<C>(&self, client: &mut C, message: Bind) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -108,6 +111,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
         if let Some(statement) = self.portal_store().get_statement(statement_name) {
             let portal = Portal::try_new(&message, statement)?;
             self.portal_store().put_portal(Arc::new(portal));
+            client
+                .send(PgWireBackendMessage::BindComplete(BindComplete::new()))
+                .await?;
             Ok(())
         } else {
             Err(PgWireError::StatementNotFound(statement_name.to_owned()))
