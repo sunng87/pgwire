@@ -12,6 +12,7 @@ use super::store::{MemPortalStore, PortalStore};
 use super::{ClientInfo, DEFAULT_NAME};
 use crate::api::results::{QueryResponse, Response};
 use crate::error::{PgWireError, PgWireResult};
+use crate::messages::data::ParameterDescription;
 use crate::messages::extendedquery::{
     Bind, BindComplete, Close, Describe, Execute, Parse, ParseComplete, Sync as PgSync,
     TARGET_TYPE_BYTE_PORTAL, TARGET_TYPE_BYTE_STATEMENT,
@@ -164,28 +165,45 @@ pub trait ExtendedQueryHandler: Send + Sync {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let name = message.name().as_deref().unwrap_or(DEFAULT_NAME);
-        let row_schema = match message.target_type() {
+        match message.target_type() {
             TARGET_TYPE_BYTE_STATEMENT => {
                 if let Some(stmt) = self.portal_store().get_statement(name) {
-                    self.do_describe(client, stmt.as_ref()).await
+                    // respond parameter description first
+                    client
+                        .send(PgWireBackendMessage::ParameterDescription(
+                            ParameterDescription::new(
+                                stmt.parameter_types().iter().map(|t| t.oid()).collect(),
+                            ),
+                        ))
+                        .await?;
+                    let row_schema = self.do_describe(client, stmt.as_ref()).await?;
+                    let row_desc = into_row_description(row_schema);
+                    client
+                        .send(PgWireBackendMessage::RowDescription(row_desc))
+                        .await?;
+                    client
+                        .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+                            READY_STATUS_IDLE,
+                        )))
+                        .await?;
                 } else {
                     return Err(PgWireError::StatementNotFound(name.to_owned()));
                 }
             }
             TARGET_TYPE_BYTE_PORTAL => {
                 if let Some(portal) = self.portal_store().get_portal(name) {
-                    self.do_describe(client, portal.statement()).await
+                    let row_schema = self.do_describe(client, portal.statement()).await?;
+                    let row_desc = into_row_description(row_schema);
+                    client
+                        .send(PgWireBackendMessage::RowDescription(row_desc))
+                        .await?;
                 } else {
                     return Err(PgWireError::PortalNotFound(name.to_owned()));
                 }
             }
             _ => return Err(PgWireError::InvalidTargetType(message.target_type())),
-        }?;
+        }
 
-        let row_desc = into_row_description(row_schema);
-        client
-            .send(PgWireBackendMessage::RowDescription(row_desc))
-            .await?;
         Ok(())
     }
 

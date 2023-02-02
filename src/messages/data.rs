@@ -87,6 +87,47 @@ impl Message for RowDescription {
     }
 }
 
+/// Data structure returned when frontend describes a statement
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new, Clone)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct ParameterDescription {
+    /// parameter types
+    types: Vec<Oid>,
+}
+
+pub const MESSAGE_TYPE_BYTE_PARAMETER_DESCRITION: u8 = b't';
+
+impl Message for ParameterDescription {
+    fn message_type() -> Option<u8> {
+        Some(MESSAGE_TYPE_BYTE_PARAMETER_DESCRITION)
+    }
+
+    fn message_length(&self) -> usize {
+        4 + 2 + self.types.len() * 4
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        buf.put_i16(self.types.len() as i16);
+
+        for t in &self.types {
+            buf.put_i32(*t as i32);
+        }
+
+        Ok(())
+    }
+
+    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+        let types_len = buf.get_i16();
+        let mut types = Vec::with_capacity(types_len as usize);
+
+        for _ in 0..types_len {
+            types.push(buf.get_i32() as Oid);
+        }
+
+        Ok(ParameterDescription { types })
+    }
+}
+
 /// Data structure for postgresql wire protocol `DataRow` message.
 ///
 /// Data can be represented as text or binary format as specified by format
