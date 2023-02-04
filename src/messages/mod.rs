@@ -48,9 +48,6 @@ pub mod terminate;
 pub enum PgWireFrontendMessage {
     Startup(startup::Startup),
     PasswordMessageFamily(startup::PasswordMessageFamily),
-    Password(startup::Password),
-    SASLInitialResponse(startup::SASLInitialResponse),
-    SASLResponse(startup::SASLResponse),
 
     Query(simplequery::Query),
 
@@ -69,9 +66,6 @@ impl PgWireFrontendMessage {
     pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         match self {
             Self::Startup(msg) => msg.encode(buf),
-            Self::Password(msg) => msg.encode(buf),
-            Self::SASLInitialResponse(msg) => msg.encode(buf),
-            Self::SASLResponse(msg) => msg.encode(buf),
             Self::PasswordMessageFamily(msg) => msg.encode(buf),
 
             Self::Query(msg) => msg.encode(buf),
