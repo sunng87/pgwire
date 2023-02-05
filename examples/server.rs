@@ -7,7 +7,7 @@ use tokio::net::TcpListener;
 use pgwire::api::auth::noop::NoopStartupHandler;
 
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
-use pgwire::api::results::{text_query_response, FieldInfo, Response, Tag, TextDataRowEncoder};
+use pgwire::api::results::{query_response, DataRowEncoder, FieldFormat, FieldInfo, Response, Tag};
 use pgwire::api::{ClientInfo, StatelessMakeHandler, Type};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
@@ -22,8 +22,8 @@ impl SimpleQueryHandler for DummyProcessor {
     {
         println!("{:?}", query);
         if query.starts_with("SELECT") {
-            let f1 = FieldInfo::new("id".into(), None, None, Type::INT4);
-            let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR);
+            let f1 = FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Text);
+            let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text);
 
             let data = vec![
                 (Some(0), Some("Tom")),
@@ -31,15 +31,15 @@ impl SimpleQueryHandler for DummyProcessor {
                 (Some(2), None),
             ];
             let data_row_stream = stream::iter(data.into_iter()).map(|r| {
-                let mut encoder = TextDataRowEncoder::new(2);
-                encoder.append_field(r.0.as_ref())?;
-                encoder.append_field(r.1.as_ref())?;
+                let mut encoder = DataRowEncoder::new(2);
+                encoder.encode_text_format_field(r.0.as_ref())?;
+                encoder.encode_text_format_field(r.1.as_ref())?;
 
                 encoder.finish()
             });
 
-            Ok(vec![Response::Query(text_query_response(
-                vec![f1, f2],
+            Ok(vec![Response::Query(query_response(
+                Some(vec![f1, f2]),
                 data_row_stream,
             ))])
         } else {

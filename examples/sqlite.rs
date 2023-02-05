@@ -17,10 +17,7 @@ use pgwire::api::auth::{
 };
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
-use pgwire::api::results::{
-    binary_query_response, text_query_response, BinaryDataRowEncoder, FieldInfo, Response, Tag,
-    TextDataRowEncoder,
-};
+use pgwire::api::results::{query_response, DataRowEncoder, FieldFormat, FieldInfo, Response, Tag};
 use pgwire::api::{ClientInfo, MakeHandler, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
@@ -86,11 +83,11 @@ impl SimpleQueryHandler for SqliteBackend {
                 .prepare(query)
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
             let columns = stmt.column_count();
-            let header = row_desc_from_stmt(&stmt)?;
+            let header = row_desc_from_stmt(&stmt, FieldFormat::Text)?;
             stmt.query(())
                 .map(|rows| {
                     let s = encode_text_row_data(rows, columns);
-                    vec![Response::Query(text_query_response(header, s))]
+                    vec![Response::Query(query_response(Some(header), s))]
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {
@@ -121,7 +118,7 @@ fn name_to_type(name: &str) -> PgWireResult<Type> {
     }
 }
 
-fn row_desc_from_stmt(stmt: &Statement) -> PgWireResult<Vec<FieldInfo>> {
+fn row_desc_from_stmt(stmt: &Statement, format: FieldFormat) -> PgWireResult<Vec<FieldInfo>> {
     stmt.columns()
         .iter()
         .map(|col| {
@@ -131,6 +128,7 @@ fn row_desc_from_stmt(stmt: &Statement) -> PgWireResult<Vec<FieldInfo>> {
                 None,
                 None,
                 field_type,
+                format,
             ))
         })
         .collect()
@@ -142,24 +140,26 @@ fn encode_text_row_data(
 ) -> impl Stream<Item = PgWireResult<DataRow>> {
     let mut results = Vec::new();
     while let Ok(Some(row)) = rows.next() {
-        let mut encoder = TextDataRowEncoder::new(columns);
+        let mut encoder = DataRowEncoder::new(columns);
         for idx in 0..columns {
             let data = row.get_ref_unwrap::<usize>(idx);
             match data {
-                ValueRef::Null => encoder.append_field(None::<&i8>).unwrap(),
+                ValueRef::Null => encoder.encode_text_format_field(None::<&i8>).unwrap(),
                 ValueRef::Integer(i) => {
-                    encoder.append_field(Some(&i)).unwrap();
+                    encoder.encode_text_format_field(Some(&i)).unwrap();
                 }
                 ValueRef::Real(f) => {
-                    encoder.append_field(Some(&f)).unwrap();
+                    encoder.encode_text_format_field(Some(&f)).unwrap();
                 }
                 ValueRef::Text(t) => {
                     encoder
-                        .append_field(Some(&String::from_utf8_lossy(t)))
+                        .encode_text_format_field(Some(&String::from_utf8_lossy(t)))
                         .unwrap();
                 }
                 ValueRef::Blob(b) => {
-                    encoder.append_field(Some(&hex::encode(b))).unwrap();
+                    encoder
+                        .encode_text_format_field(Some(&hex::encode(b)))
+                        .unwrap();
                 }
             }
         }
@@ -176,22 +176,25 @@ fn encode_binary_row_data(
 ) -> impl Stream<Item = PgWireResult<DataRow>> {
     let mut results = Vec::new();
     while let Ok(Some(row)) = rows.next() {
-        let mut encoder = BinaryDataRowEncoder::new(headers.clone());
+        let mut encoder = DataRowEncoder::new(headers.len());
         for idx in 0..headers.len() {
             let data = row.get_ref_unwrap::<usize>(idx);
+            let dtype = headers[idx].datatype();
             match data {
-                ValueRef::Null => encoder.append_field(&None::<i8>).unwrap(),
+                ValueRef::Null => encoder
+                    .encode_binary_format_field(&None::<i8>, dtype)
+                    .unwrap(),
                 ValueRef::Integer(i) => {
-                    encoder.append_field(&i).unwrap();
+                    encoder.encode_binary_format_field(&i, dtype).unwrap();
                 }
                 ValueRef::Real(f) => {
-                    encoder.append_field(&f).unwrap();
+                    encoder.encode_binary_format_field(&f, dtype).unwrap();
                 }
                 ValueRef::Text(t) => {
-                    encoder.append_field(&t).unwrap();
+                    encoder.encode_binary_format_field(&t, dtype).unwrap();
                 }
                 ValueRef::Blob(b) => {
-                    encoder.append_field(&b).unwrap();
+                    encoder.encode_binary_format_field(&b, dtype).unwrap();
                 }
             }
         }
@@ -274,11 +277,11 @@ impl ExtendedQueryHandler for SqliteBackend {
             .collect::<Vec<&dyn rusqlite::ToSql>>();
 
         if query.to_uppercase().starts_with("SELECT") {
-            let header = Arc::new(row_desc_from_stmt(&stmt)?);
+            let header = Arc::new(row_desc_from_stmt(&stmt, FieldFormat::Binary)?);
             stmt.query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
                 .map(|rows| {
                     let s = encode_binary_row_data(rows, header);
-                    Response::Query(binary_query_response(s))
+                    Response::Query(query_response(None, s))
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {
@@ -302,7 +305,7 @@ impl ExtendedQueryHandler for SqliteBackend {
         let stmt = conn
             .prepare_cached(query.statement())
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-        row_desc_from_stmt(&stmt)
+        row_desc_from_stmt(&stmt, FieldFormat::Binary)
     }
 }
 

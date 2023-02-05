@@ -10,7 +10,7 @@ use postgres_types::{IsNull, ToSql, Type};
 use crate::{
     error::{ErrorInfo, PgWireResult},
     messages::{
-        data::{DataRow, FieldDescription, RowDescription},
+        data::{DataRow, FieldDescription, RowDescription, FORMAT_CODE_BINARY, FORMAT_CODE_TEXT},
         response::CommandComplete,
     },
 };
@@ -48,13 +48,29 @@ impl From<Tag> for CommandComplete {
     }
 }
 
-#[derive(Debug, new, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub enum FieldFormat {
+    Text,
+    Binary,
+}
+
+impl FieldFormat {
+    pub(crate) fn value(&self) -> i16 {
+        match self {
+            Self::Text => FORMAT_CODE_TEXT,
+            Self::Binary => FORMAT_CODE_BINARY,
+        }
+    }
+}
+
+#[derive(Debug, new, Eq, PartialEq, Clone, Getters)]
+#[getset(get = "pub")]
 pub struct FieldInfo {
     name: String,
     table_id: Option<i32>,
     column_id: Option<i16>,
     datatype: Type,
-    format: i16,
+    format: FieldFormat,
 }
 
 impl From<FieldInfo> for FieldDescription {
@@ -67,7 +83,7 @@ impl From<FieldInfo> for FieldDescription {
             // TODO: type size and modifier
             0,
             0,
-            fi.format,
+            fi.format.value(),
         )
     }
 }
@@ -125,7 +141,7 @@ impl DataRowEncoder {
         Ok(())
     }
 
-    pub fn finish_row(self) -> PgWireResult<DataRow> {
+    pub fn finish(self) -> PgWireResult<DataRow> {
         Ok(self.buffer)
     }
 }
