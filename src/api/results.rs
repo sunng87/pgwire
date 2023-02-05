@@ -130,7 +130,7 @@ impl DataRowEncoder {
     where
         T: ToSql + Sized,
     {
-        if let IsNull::No = value.to_sql(&data_type, &mut self.field_buffer)? {
+        if let IsNull::No = value.to_sql(data_type, &mut self.field_buffer)? {
             let buf = self.field_buffer.split().freeze();
             self.buffer.fields_mut().push(Some(buf));
         } else {
