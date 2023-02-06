@@ -1,4 +1,4 @@
-use std::{fmt::Debug, sync::Arc};
+use std::fmt::Debug;
 
 use bytes::{Bytes, BytesMut};
 use futures::{
@@ -48,14 +48,29 @@ impl From<Tag> for CommandComplete {
     }
 }
 
-#[derive(Debug, new, Eq, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone, Copy)]
+pub enum FieldFormat {
+    Text,
+    Binary,
+}
+
+impl FieldFormat {
+    pub(crate) fn value(&self) -> i16 {
+        match self {
+            Self::Text => FORMAT_CODE_TEXT,
+            Self::Binary => FORMAT_CODE_BINARY,
+        }
+    }
+}
+
+#[derive(Debug, new, Eq, PartialEq, Clone, Getters)]
+#[getset(get = "pub")]
 pub struct FieldInfo {
     name: String,
     table_id: Option<i32>,
     column_id: Option<i16>,
     datatype: Type,
-    #[new(value = "FORMAT_CODE_BINARY")]
-    format: i16,
+    format: FieldFormat,
 }
 
 impl From<FieldInfo> for FieldDescription {
@@ -68,7 +83,7 @@ impl From<FieldInfo> for FieldDescription {
             // TODO: type size and modifier
             0,
             0,
-            fi.format,
+            fi.format.value(),
         )
     }
 }
@@ -84,53 +99,20 @@ pub struct QueryResponse {
     pub(crate) data_rows: BoxStream<'static, PgWireResult<DataRow>>,
 }
 
-pub struct BinaryDataRowEncoder {
-    row_schema: Arc<Vec<FieldInfo>>,
-    col_index: usize,
+pub struct DataRowEncoder {
     buffer: DataRow,
+    field_buffer: BytesMut,
 }
 
-impl BinaryDataRowEncoder {
-    pub fn new(row_schema: Arc<Vec<FieldInfo>>) -> BinaryDataRowEncoder {
-        BinaryDataRowEncoder {
-            buffer: DataRow::new(Vec::with_capacity(row_schema.len())),
-            col_index: 0,
-            row_schema,
+impl DataRowEncoder {
+    pub fn new(ncols: usize) -> DataRowEncoder {
+        Self {
+            buffer: DataRow::new(Vec::with_capacity(ncols)),
+            field_buffer: BytesMut::with_capacity(8),
         }
     }
 
-    pub fn append_field<T>(&mut self, value: &T) -> PgWireResult<()>
-    where
-        T: ToSql + Sized,
-    {
-        let mut buffer = BytesMut::with_capacity(8);
-        if let IsNull::No = value.to_sql(&self.row_schema[self.col_index].datatype, &mut buffer)? {
-            let buf = buffer.split().freeze();
-            self.buffer.fields_mut().push(Some(buf));
-        } else {
-            self.buffer.fields_mut().push(None);
-        };
-        self.col_index += 1;
-        Ok(())
-    }
-
-    pub fn finish(self) -> PgWireResult<DataRow> {
-        Ok(self.buffer)
-    }
-}
-
-pub struct TextDataRowEncoder {
-    buffer: DataRow,
-}
-
-impl TextDataRowEncoder {
-    pub fn new(nfields: usize) -> TextDataRowEncoder {
-        TextDataRowEncoder {
-            buffer: DataRow::new(Vec::with_capacity(nfields)),
-        }
-    }
-
-    pub fn append_field<T>(&mut self, value: Option<&T>) -> PgWireResult<()>
+    pub fn encode_text_format_field<T>(&mut self, value: Option<&T>) -> PgWireResult<()>
     where
         T: ToString,
     {
@@ -144,31 +126,32 @@ impl TextDataRowEncoder {
         Ok(())
     }
 
+    pub fn encode_binary_format_field<T>(&mut self, value: &T, data_type: &Type) -> PgWireResult<()>
+    where
+        T: ToSql + Sized,
+    {
+        if let IsNull::No = value.to_sql(data_type, &mut self.field_buffer)? {
+            let buf = self.field_buffer.split().freeze();
+            self.buffer.fields_mut().push(Some(buf));
+        } else {
+            self.buffer.fields_mut().push(None);
+        };
+
+        self.field_buffer.clear();
+        Ok(())
+    }
+
     pub fn finish(self) -> PgWireResult<DataRow> {
         Ok(self.buffer)
     }
 }
 
-pub fn text_query_response<S>(mut field_defs: Vec<FieldInfo>, row_stream: S) -> QueryResponse
-where
-    S: Stream<Item = PgWireResult<DataRow>> + Send + Unpin + 'static,
-{
-    field_defs
-        .iter_mut()
-        .for_each(|f| f.format = FORMAT_CODE_TEXT);
-
-    QueryResponse {
-        row_schema: Some(field_defs),
-        data_rows: row_stream.boxed(),
-    }
-}
-
-pub fn binary_query_response<S>(row_stream: S) -> QueryResponse
+pub fn query_response<S>(field_defs: Option<Vec<FieldInfo>>, row_stream: S) -> QueryResponse
 where
     S: Stream<Item = PgWireResult<DataRow>> + Send + Unpin + 'static,
 {
     QueryResponse {
-        row_schema: None,
+        row_schema: field_defs,
         data_rows: row_stream.boxed(),
     }
 }

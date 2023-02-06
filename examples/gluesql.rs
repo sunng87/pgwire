@@ -7,7 +7,7 @@ use tokio::net::TcpListener;
 use gluesql::prelude::*;
 use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
-use pgwire::api::results::{text_query_response, FieldInfo, Response, Tag, TextDataRowEncoder};
+use pgwire::api::results::{query_response, DataRowEncoder, FieldFormat, FieldInfo, Response, Tag};
 use pgwire::api::{ClientInfo, StatelessMakeHandler, Type};
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
@@ -34,39 +34,68 @@ impl SimpleQueryHandler for GluesqlProcessor {
                             let fields = labels
                                 .iter()
                                 .map(|label| {
-                                    FieldInfo::new(label.into(), None, None, Type::UNKNOWN)
+                                    FieldInfo::new(
+                                        label.into(),
+                                        None,
+                                        None,
+                                        Type::UNKNOWN,
+                                        FieldFormat::Text,
+                                    )
                                 })
                                 .collect::<Vec<_>>();
                             let nfields = fields.len();
 
                             let mut results = Vec::with_capacity(rows.len());
                             for row in rows {
-                                let mut encoder = TextDataRowEncoder::new(nfields);
+                                let mut encoder = DataRowEncoder::new(nfields);
                                 for field in row.iter() {
                                     match field {
-                                        Value::Bool(v) => encoder.append_field(Some(v))?,
-                                        Value::I8(v) => encoder.append_field(Some(v))?,
-                                        Value::I16(v) => encoder.append_field(Some(v))?,
-                                        Value::I32(v) => encoder.append_field(Some(v))?,
-                                        Value::I64(v) => encoder.append_field(Some(v))?,
-                                        Value::I128(v) => encoder.append_field(Some(v))?,
-                                        Value::U8(v) => encoder.append_field(Some(v))?,
-                                        Value::F64(v) => encoder.append_field(Some(v))?,
-                                        Value::Str(v) => encoder.append_field(Some(v))?,
-                                        Value::Bytea(v) => {
-                                            encoder.append_field(Some(&hex::encode(v)))?
+                                        Value::Bool(v) => {
+                                            encoder.encode_text_format_field(Some(v))?
                                         }
-                                        Value::Date(v) => encoder.append_field(Some(v))?,
-                                        Value::Time(v) => encoder.append_field(Some(v))?,
-                                        Value::Timestamp(v) => encoder.append_field(Some(v))?,
+                                        Value::I8(v) => {
+                                            encoder.encode_text_format_field(Some(v))?
+                                        }
+                                        Value::I16(v) => {
+                                            encoder.encode_text_format_field(Some(v))?
+                                        }
+                                        Value::I32(v) => {
+                                            encoder.encode_text_format_field(Some(v))?
+                                        }
+                                        Value::I64(v) => {
+                                            encoder.encode_text_format_field(Some(v))?
+                                        }
+                                        Value::I128(v) => {
+                                            encoder.encode_text_format_field(Some(v))?
+                                        }
+                                        Value::U8(v) => {
+                                            encoder.encode_text_format_field(Some(v))?
+                                        }
+                                        Value::F64(v) => {
+                                            encoder.encode_text_format_field(Some(v))?
+                                        }
+                                        Value::Str(v) => {
+                                            encoder.encode_text_format_field(Some(v))?
+                                        }
+                                        Value::Bytea(v) => encoder
+                                            .encode_text_format_field(Some(&hex::encode(v)))?,
+                                        Value::Date(v) => {
+                                            encoder.encode_text_format_field(Some(v))?
+                                        }
+                                        Value::Time(v) => {
+                                            encoder.encode_text_format_field(Some(v))?
+                                        }
+                                        Value::Timestamp(v) => {
+                                            encoder.encode_text_format_field(Some(v))?
+                                        }
                                         _ => unimplemented!(),
                                     }
                                 }
                                 results.push(encoder.finish());
                             }
 
-                            Ok(Response::Query(text_query_response(
-                                fields,
+                            Ok(Response::Query(query_response(
+                                Some(fields),
                                 stream::iter(results.into_iter()),
                             )))
                         }
