@@ -4,13 +4,6 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use futures::stream;
 use futures::Stream;
-use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
-use pgwire::api::store::MemPortalStore;
-use pgwire::messages::data::DataRow;
-use rusqlite::Rows;
-use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
-use tokio::net::TcpListener;
-
 use pgwire::api::auth::md5pass::{hash_md5_password, MakeMd5PasswordAuthStartupHandler};
 use pgwire::api::auth::{
     AuthSource, DefaultServerParameterProvider, LoginInfo, Password, ServerParameterProvider,
@@ -20,9 +13,15 @@ use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
     query_response, DataRowEncoder, DescribeResponse, FieldFormat, FieldInfo, Response, Tag,
 };
+use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
+use pgwire::api::store::MemPortalStore;
 use pgwire::api::{ClientInfo, MakeHandler, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
+use pgwire::messages::data::DataRow;
 use pgwire::tokio::process_socket;
+use rusqlite::Rows;
+use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
+use tokio::net::TcpListener;
 
 pub struct SqliteBackend {
     conn: Arc<Mutex<Connection>>,
