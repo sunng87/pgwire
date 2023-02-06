@@ -48,7 +48,7 @@ pub trait QueryParser {
 }
 
 /// A demo parser implementation. Never use it in serious application.
-#[derive(new, Debug)]
+#[derive(new, Debug, Default)]
 pub struct NoopQueryParser;
 
 impl QueryParser for NoopQueryParser {
