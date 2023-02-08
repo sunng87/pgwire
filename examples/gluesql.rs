@@ -8,7 +8,7 @@ use gluesql::prelude::*;
 use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{query_response, DataRowEncoder, FieldFormat, FieldInfo, Response, Tag};
-use pgwire::api::{ClientInfo, StatelessMakeHandler, Type};
+use pgwire::api::{ClientInfo, MakeHandler, StatelessMakeHandler, Type};
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
 
@@ -157,9 +157,9 @@ pub async fn main() {
     println!("Listening to {}", server_addr);
     loop {
         let incoming_socket = listener.accept().await.unwrap();
-        let authenticator_ref = authenticator.clone();
-        let processor_ref = processor.clone();
-        let placeholder_ref = placeholder.clone();
+        let authenticator_ref = authenticator.make();
+        let processor_ref = processor.make();
+        let placeholder_ref = placeholder.make();
         tokio::spawn(async move {
             process_socket(
                 incoming_socket.0,

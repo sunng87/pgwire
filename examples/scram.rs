@@ -14,7 +14,7 @@ use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, P
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{Response, Tag};
 
-use pgwire::api::{ClientInfo, StatelessMakeHandler};
+use pgwire::api::{ClientInfo, MakeHandler, StatelessMakeHandler};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 
@@ -98,9 +98,9 @@ pub async fn main() {
     loop {
         let incoming_socket = listener.accept().await.unwrap();
         let tls_acceptor_ref = tls_acceptor.clone();
-        let authenticator_ref = authenticator.clone();
-        let processor_ref = processor.clone();
-        let placeholder_ref = placeholder.clone();
+        let authenticator_ref = authenticator.make();
+        let processor_ref = processor.make();
+        let placeholder_ref = placeholder.make();
         tokio::spawn(async move {
             process_socket(
                 incoming_socket.0,
