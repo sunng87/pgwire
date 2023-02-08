@@ -12,7 +12,7 @@ use tokio_util::codec::{Decoder, Encoder, Framed};
 use crate::api::auth::StartupHandler;
 use crate::api::query::ExtendedQueryHandler;
 use crate::api::query::SimpleQueryHandler;
-use crate::api::{ClientInfo, ClientInfoHolder, MakeHandler, PgWireConnectionState};
+use crate::api::{ClientInfo, ClientInfoHolder, PgWireConnectionState};
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::response::ReadyForQuery;
 use crate::messages::response::READY_STATUS_IDLE;
@@ -213,29 +213,22 @@ async fn peek_for_sslrequest(
     }
 }
 
-pub async fn process_socket<A, AM, Q, QM, EQ, EQM>(
+pub async fn process_socket<A, Q, EQ>(
     mut tcp_socket: TcpStream,
     tls_acceptor: Option<Arc<TlsAcceptor>>,
-    make_startup_handler: Arc<AM>,
-    make_query_handler: Arc<QM>,
-    make_extended_query_handler: Arc<EQM>,
+    startup_handler: Arc<A>,
+    query_handler: Arc<Q>,
+    extended_query_handler: Arc<EQ>,
 ) -> Result<(), IOError>
 where
     A: StartupHandler + 'static,
-    AM: MakeHandler<Handler = Arc<A>>,
     Q: SimpleQueryHandler + 'static,
-    QM: MakeHandler<Handler = Arc<Q>>,
     EQ: ExtendedQueryHandler + 'static,
-    EQM: MakeHandler<Handler = Arc<EQ>>,
 {
     let addr = tcp_socket.peer_addr()?;
     let ssl = peek_for_sslrequest(&mut tcp_socket, tls_acceptor.is_some()).await?;
 
     let client_info = ClientInfoHolder::new(addr, ssl);
-    let startup_handler = make_startup_handler.make();
-    let query_handler = make_query_handler.make();
-    let extended_query_handler = make_extended_query_handler.make();
-
     if ssl {
         // safe to unwrap tls_acceptor here
         let ssl_socket = tls_acceptor.unwrap().accept(tcp_socket).await?;
