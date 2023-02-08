@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+This release reverts design to use `MakeHandler` in `process_socket`, since it
+stops shared implementation between `StartupHandler` and query handlers.
+
+### Changed
+
+- Update `process_socket` to accept `StartupHandler`, `SimpleQueryHandler` and
+  `ExtendedQueryHandler`. `MakeHandler` should be called upon new socket
+  incoming. Check our updated examples for usage.
+- Removed `Password`, `SASLInitialResponse` and `SASLResponse` from frontend
+  message enum to avoid confusion. `PasswordMessageFamily` is now an enum that
+  contains all these message forms and a raw form. This is because in postgres
+  protocol, password message can only be decoded into concrete type when there
+  is a context. See our MD5 and SCRAM authenticator for usage.
+
 ## [0.9.1] - 2023-02-02
 
 Fixes compatibility with rust-postgres client's prepared statement
