@@ -16,7 +16,7 @@ use pgwire::api::auth::{
     AuthSource, DefaultServerParameterProvider, LoginInfo, Password, ServerParameterProvider,
 };
 use pgwire::api::portal::Portal;
-use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
+use pgwire::api::query::{DescribeResponse, ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{query_response, DataRowEncoder, FieldFormat, FieldInfo, Response, Tag};
 use pgwire::api::{ClientInfo, MakeHandler, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
@@ -297,7 +297,8 @@ impl ExtendedQueryHandler for SqliteBackend {
         &self,
         _client: &mut C,
         query: &StoredStatement<Self::Statement>,
-    ) -> PgWireResult<Vec<FieldInfo>>
+        inference_parameters: bool,
+    ) -> PgWireResult<DescribeResponse>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -305,7 +306,13 @@ impl ExtendedQueryHandler for SqliteBackend {
         let stmt = conn
             .prepare_cached(query.statement())
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+        let param_types = if inference_parameters {
+            Some(query.parameter_types().clone())
+        } else {
+            None
+        };
         row_desc_from_stmt(&stmt, FieldFormat::Binary)
+            .map(|fields| DescribeResponse::new(param_types, fields))
     }
 }
 

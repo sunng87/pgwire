@@ -4,6 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 use futures::stream::StreamExt;
+use postgres_types::Type;
 
 use super::portal::Portal;
 use super::results::{into_row_description, FieldInfo, Tag};
@@ -168,16 +169,18 @@ pub trait ExtendedQueryHandler: Send + Sync {
         match message.target_type() {
             TARGET_TYPE_BYTE_STATEMENT => {
                 if let Some(stmt) = self.portal_store().get_statement(name) {
-                    // respond parameter description first
-                    client
-                        .send(PgWireBackendMessage::ParameterDescription(
-                            ParameterDescription::new(
-                                stmt.parameter_types().iter().map(|t| t.oid()).collect(),
-                            ),
-                        ))
-                        .await?;
-                    let row_schema = self.do_describe(client, stmt.as_ref()).await?;
-                    let row_desc = into_row_description(row_schema);
+                    let describe_response = self.do_describe(client, stmt.as_ref(), true).await?;
+                    if let Some(parameter_types) = describe_response.parameters {
+                        // parameter type inference
+                        client
+                            .send(PgWireBackendMessage::ParameterDescription(
+                                ParameterDescription::new(
+                                    parameter_types.iter().map(|t| t.oid()).collect(),
+                                ),
+                            ))
+                            .await?;
+                    }
+                    let row_desc = into_row_description(describe_response.fields);
                     client
                         .send(PgWireBackendMessage::RowDescription(row_desc))
                         .await?;
@@ -192,7 +195,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
             }
             TARGET_TYPE_BYTE_PORTAL => {
                 if let Some(portal) = self.portal_store().get_portal(name) {
-                    let row_schema = self.do_describe(client, portal.statement()).await?;
+                    let describe_response =
+                        self.do_describe(client, portal.statement(), false).await?;
+                    let row_schema = describe_response.fields;
                     let row_desc = into_row_description(row_schema);
                     client
                         .send(PgWireBackendMessage::RowDescription(row_desc))
@@ -241,7 +246,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
         &self,
         client: &mut C,
         statement: &StoredStatement<Self::Statement>,
-    ) -> PgWireResult<Vec<FieldInfo>>
+        inference_parameters: bool,
+    ) -> PgWireResult<DescribeResponse>
     where
         C: ClientInfo + Unpin + Send + Sync;
 
@@ -259,6 +265,19 @@ pub trait ExtendedQueryHandler: Send + Sync {
     ) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync;
+}
+
+/// Response for frontend describe requests.
+///
+/// There are two types of describe: statement and portal. When describing
+/// statement, frontend expects parameter types inferenced by server. And both
+/// describe messages will require column definitions for resultset being
+/// returned.
+#[derive(Debug, Getters, new)]
+#[getset(get = "pub")]
+pub struct DescribeResponse {
+    parameters: Option<Vec<Type>>,
+    fields: Vec<FieldInfo>,
 }
 
 async fn send_query_response<C>(client: &mut C, results: QueryResponse) -> PgWireResult<()>
@@ -345,7 +364,8 @@ impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
         &self,
         _client: &mut C,
         _statement: &StoredStatement<Self::Statement>,
-    ) -> PgWireResult<Vec<FieldInfo>>
+        _inference_parameters: bool,
+    ) -> PgWireResult<DescribeResponse>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
