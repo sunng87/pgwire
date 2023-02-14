@@ -8,11 +8,12 @@ use super::DEFAULT_NAME;
 #[derive(Debug, Default, new, Getters, Setters)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
 pub struct StoredStatement<S> {
-    // name of the statement, empty string for unnamed
+    /// name of the statement
     id: String,
-    // query statement
+    /// parsed query statement
     statement: S,
-    // type ids of query parameters
+    /// type ids of query parameters, can be empty if frontend asks backend for
+    /// type inference
     parameter_types: Vec<Type>,
 }
 
