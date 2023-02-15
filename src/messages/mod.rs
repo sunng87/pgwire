@@ -1,7 +1,15 @@
+//! `messages` module contains postgresql wire protocol message definitions and
+//! codecs.
+//!
+//! `PgWireFrontendMessage` and `PgWireBackendMessage` are enums that define all
+//! types of supported messages. `Message` trait allows you to encode/decode
+//! them on a `BytesMut` buffer.
+
 use bytes::{Buf, BufMut, BytesMut};
 
 use crate::error::{PgWireError, PgWireResult};
 
+/// Define how message encode and decoded.
 pub trait Message: Sized {
     /// Return the type code of the message. In order to maintain backward
     /// compatibility, `Startup` has no message type.
@@ -13,10 +21,16 @@ pub trait Message: Sized {
     /// Return the length of the message, including the length integer itself.
     fn message_length(&self) -> usize;
 
+    /// Encode body part of the message.
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()>;
 
+    /// Decode body part of the message.
     fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self>;
 
+    /// Default implementation for encoding message.
+    ///
+    /// Message type and length are encoded in this implementation and it calls
+    /// `encode_body` for remaining parts.
     fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         if let Some(mt) = Self::message_type() {
             buf.put_u8(mt);
@@ -26,6 +40,11 @@ pub trait Message: Sized {
         self.encode_body(buf)
     }
 
+    /// Default implementation for decoding message.
+    ///
+    /// Message type and length are decoded in this implementation and it calls
+    /// `decode_body` for remaining parts. Return `None` if the packet is not
+    /// complete for parsing.
     fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
         let offset = Self::message_type().is_some().into();
 
@@ -36,11 +55,17 @@ pub trait Message: Sized {
 }
 
 mod codec;
+/// Data related messages
 pub mod data;
+/// Extended query messages, including request/response for parse, bind and etc.
 pub mod extendedquery;
+/// General response messages
 pub mod response;
+/// Simple query messages, including descriptions
 pub mod simplequery;
+/// Startup messages
 pub mod startup;
+/// Termination messages
 pub mod terminate;
 
 /// Messages sent from Frontend
