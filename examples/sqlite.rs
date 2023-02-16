@@ -16,8 +16,10 @@ use pgwire::api::auth::{
     AuthSource, DefaultServerParameterProvider, LoginInfo, Password, ServerParameterProvider,
 };
 use pgwire::api::portal::Portal;
-use pgwire::api::query::{DescribeResponse, ExtendedQueryHandler, SimpleQueryHandler};
-use pgwire::api::results::{query_response, DataRowEncoder, FieldFormat, FieldInfo, Response, Tag};
+use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
+use pgwire::api::results::{
+    query_response, DataRowEncoder, DescribeResponse, FieldFormat, FieldInfo, Response, Tag,
+};
 use pgwire::api::{ClientInfo, MakeHandler, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;

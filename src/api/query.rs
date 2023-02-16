@@ -4,19 +4,18 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 use futures::stream::StreamExt;
-use postgres_types::Type;
 
 use super::portal::Portal;
-use super::results::{into_row_description, FieldInfo, Tag};
+use super::results::{into_row_description, Tag};
 use super::stmt::{NoopQueryParser, QueryParser, StoredStatement};
 use super::store::{MemPortalStore, PortalStore};
 use super::{ClientInfo, DEFAULT_NAME};
-use crate::api::results::{QueryResponse, Response};
+use crate::api::results::{DescribeResponse, QueryResponse, Response};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::data::ParameterDescription;
 use crate::messages::extendedquery::{
-    Bind, BindComplete, Close, Describe, Execute, Parse, ParseComplete, Sync as PgSync,
-    TARGET_TYPE_BYTE_PORTAL, TARGET_TYPE_BYTE_STATEMENT,
+    Bind, BindComplete, Close, CloseComplete, Describe, Execute, Parse, ParseComplete,
+    Sync as PgSync, TARGET_TYPE_BYTE_PORTAL, TARGET_TYPE_BYTE_STATEMENT,
 };
 use crate::messages::response::{EmptyQueryResponse, ReadyForQuery, READY_STATUS_IDLE};
 use crate::messages::simplequery::Query;
@@ -170,7 +169,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
             TARGET_TYPE_BYTE_STATEMENT => {
                 if let Some(stmt) = self.portal_store().get_statement(name) {
                     let describe_response = self.do_describe(client, stmt.as_ref(), true).await?;
-                    if let Some(parameter_types) = describe_response.parameters {
+                    if let Some(parameter_types) = describe_response.parameters() {
                         // parameter type inference
                         client
                             .send(PgWireBackendMessage::ParameterDescription(
@@ -180,7 +179,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                             ))
                             .await?;
                     }
-                    let row_desc = into_row_description(describe_response.fields);
+                    let row_desc = into_row_description(describe_response.take_fields());
                     client
                         .send(PgWireBackendMessage::RowDescription(row_desc))
                         .await?;
@@ -197,7 +196,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 if let Some(portal) = self.portal_store().get_portal(name) {
                     let describe_response =
                         self.do_describe(client, portal.statement(), false).await?;
-                    let row_schema = describe_response.fields;
+                    let row_schema = describe_response.take_fields();
                     let row_desc = into_row_description(row_schema);
                     client
                         .send(PgWireBackendMessage::RowDescription(row_desc))
@@ -222,7 +221,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         Ok(())
     }
 
-    async fn on_close<C>(&self, _client: &mut C, message: Close) -> PgWireResult<()>
+    async fn on_close<C>(&self, client: &mut C, message: Close) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -238,6 +237,14 @@ pub trait ExtendedQueryHandler: Send + Sync {
             }
             _ => {}
         }
+        client
+            .send(PgWireBackendMessage::CloseComplete(CloseComplete))
+            .await?;
+        client
+            .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+                READY_STATUS_IDLE,
+            )))
+            .await?;
         Ok(())
     }
 
@@ -265,19 +272,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
     ) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync;
-}
-
-/// Response for frontend describe requests.
-///
-/// There are two types of describe: statement and portal. When describing
-/// statement, frontend expects parameter types inferenced by server. And both
-/// describe messages will require column definitions for resultset being
-/// returned.
-#[derive(Debug, Getters, new)]
-#[getset(get = "pub")]
-pub struct DescribeResponse {
-    parameters: Option<Vec<Type>>,
-    fields: Vec<FieldInfo>,
 }
 
 async fn send_query_response<C>(client: &mut C, results: QueryResponse) -> PgWireResult<()>

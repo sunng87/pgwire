@@ -156,6 +156,25 @@ where
     }
 }
 
+/// Response for frontend describe requests.
+///
+/// There are two types of describe: statement and portal. When describing
+/// statement, frontend expects parameter types inferenced by server. And both
+/// describe messages will require column definitions for resultset being
+/// returned.
+#[derive(Debug, Getters, new)]
+#[getset(get = "pub")]
+pub struct DescribeResponse {
+    parameters: Option<Vec<Type>>,
+    fields: Vec<FieldInfo>,
+}
+
+impl DescribeResponse {
+    pub(crate) fn take_fields(self) -> Vec<FieldInfo> {
+        self.fields
+    }
+}
+
 /// Query response types:
 ///
 /// * Query: the response contains data rows
