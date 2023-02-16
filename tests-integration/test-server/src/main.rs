@@ -5,13 +5,15 @@ use std::time::{Duration, SystemTime};
 use async_trait::async_trait;
 use futures::stream;
 use futures::StreamExt;
-use pgwire::api::auth::md5pass::{hash_md5_password, MakeMd5PasswordAuthStartupHandler};
+use pgwire::api::auth::scram::{gen_salted_password, MakeSASLScramAuthStartupHandler};
 use pgwire::api::auth::{
     AuthSource, DefaultServerParameterProvider, LoginInfo, Password, ServerParameterProvider,
 };
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
-use pgwire::api::results::{query_response, DataRowEncoder, FieldFormat, FieldInfo, Response, Tag};
+use pgwire::api::results::{
+    query_response, DataRowEncoder, DescribeResponse, FieldFormat, FieldInfo, Response, Tag,
+};
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::store::MemPortalStore;
 use pgwire::api::{ClientInfo, MakeHandler, Type};
@@ -19,19 +21,19 @@ use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 use tokio::net::TcpListener;
 
-struct DummyMd5AuthSource;
+const ITERATIONS: usize = 4096;
+struct DummyAuthSource;
 
 #[async_trait]
-impl AuthSource for DummyMd5AuthSource {
+impl AuthSource for DummyAuthSource {
     async fn get_password(&self, login_info: &LoginInfo) -> PgWireResult<Password> {
         println!("login info: {:?}", login_info);
 
-        let salt = vec![0, 0, 0, 0];
         let password = "pencil";
+        let salt = vec![0, 20, 40, 80];
 
-        let hash_password =
-            hash_md5_password(login_info.user().as_ref().unwrap(), password, salt.as_ref());
-        Ok(Password::new(Some(salt), hash_password.as_bytes().to_vec()))
+        let hash_password = gen_salted_password(password, salt.as_ref(), ITERATIONS);
+        Ok(Password::new(Some(salt), hash_password))
     }
 }
 
@@ -152,7 +154,8 @@ impl ExtendedQueryHandler for DummyDatabase {
         &self,
         _client: &mut C,
         _query: &StoredStatement<Self::Statement>,
-    ) -> PgWireResult<Vec<FieldInfo>>
+        parameter_type_infer: bool,
+    ) -> PgWireResult<DescribeResponse>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -171,7 +174,14 @@ impl ExtendedQueryHandler for DummyDatabase {
             Type::TIMESTAMP,
             FieldFormat::Binary,
         );
-        Ok(vec![f1, f2, f3])
+        Ok(DescribeResponse::new(
+            if parameter_type_infer {
+                Some(vec![Type::INT4])
+            } else {
+                None
+            },
+            vec![f1, f2, f3],
+        ))
     }
 }
 
@@ -187,10 +197,11 @@ impl MakeHandler for MakeDummyDatabase {
 
 #[tokio::main]
 pub async fn main() {
-    let authenticator = Arc::new(MakeMd5PasswordAuthStartupHandler::new(
-        Arc::new(DummyMd5AuthSource),
-        Arc::new(DummyParameters),
-    ));
+    let mut authenticator = MakeSASLScramAuthStartupHandler::new(
+        Arc::new(DummyAuthSource),
+        Arc::new(DefaultServerParameterProvider),
+    );
+    authenticator.set_iterations(ITERATIONS);
     let processor = Arc::new(MakeDummyDatabase);
 
     let server_addr = "127.0.0.1:5432";
@@ -198,8 +209,8 @@ pub async fn main() {
     println!("Listening to {}", server_addr);
     loop {
         let incoming_socket = listener.accept().await.unwrap();
-        let authenticator_ref = authenticator.clone();
-        let processor_ref = processor.clone();
+        let authenticator_ref = authenticator.make();
+        let processor_ref = processor.make();
         tokio::spawn(async move {
             process_socket(
                 incoming_socket.0,
