@@ -7,10 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+Further improve extended query support. Now the server can respond statement
+describe correctly.
+
 ### Added
 
-- Added `integer_datetimes` parameter on startup so clients like jdbc will parse
+- Add some docs.
+- Add `integer_datetimes` parameter on startup so clients like jdbc will parse
   time types as integer.
+- `DescribeResponse` that contains information for both `ParameterDescription`
+  and `RowDescription`.
+
+### Changed
+
+- Update `do_describe` of `ExtendedQueryHandler`. Add new bool argument
+  `inference_parameters` to check if parameter types from statement is required
+  to return.
+
+### Fixed
+
+- The default implementation of `ExtendedQueryHandler` now correctly responds
+  `Close` message with `CloseComplete`
 
 ## [0.10.0] - 2023-02-08
 
