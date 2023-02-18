@@ -27,5 +27,9 @@ fn main() {
         println!("{:?}", row.get::<usize, Option<SystemTime>>(2));
     }
 
+    client
+        .simple_query("INSERT INTO testtable VALUES (1)")
+        .unwrap();
+
     client.close().unwrap();
 }
