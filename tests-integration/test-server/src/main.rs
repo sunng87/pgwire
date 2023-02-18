@@ -67,7 +67,7 @@ impl SimpleQueryHandler for DummyDatabase {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        println!("{:?}", query);
+        println!("simple query: {:?}", query);
         if query.starts_with("SELECT") {
             let f1 = FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Text);
             let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text);
@@ -124,7 +124,7 @@ impl ExtendedQueryHandler for DummyDatabase {
         C: ClientInfo + Unpin + Send + Sync,
     {
         let query = portal.statement().statement();
-        println!("{:?}", query);
+        println!("extended query: {:?}", query);
         if query.starts_with("SELECT") {
             let data = vec![
                 (Some(0), Some("Tom"), Some(SystemTime::now())),
@@ -153,12 +153,13 @@ impl ExtendedQueryHandler for DummyDatabase {
     async fn do_describe<C>(
         &self,
         _client: &mut C,
-        _query: &StoredStatement<Self::Statement>,
+        query: &StoredStatement<Self::Statement>,
         parameter_type_infer: bool,
     ) -> PgWireResult<DescribeResponse>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
+        println!("describe: {:?}", query);
         let f1 = FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Binary);
         let f2 = FieldInfo::new(
             "name".into(),
