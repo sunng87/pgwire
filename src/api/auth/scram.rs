@@ -107,7 +107,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                 let supported_mechanisms = if self.server_cert_sig.is_some() {
                     vec!["SCRAM-SHA-256".to_owned(), "SCRAM-SHA-256-PLUS".to_owned()]
                 } else {
-                    vec!["SCRAM-SHA-256-PLUS".to_owned()]
+                    vec!["SCRAM-SHA-256".to_owned()]
                 };
                 client
                     .send(PgWireBackendMessage::Authentication(Authentication::SASL(

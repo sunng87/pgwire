@@ -28,6 +28,7 @@ describe correctly.
 
 - The default implementation of `ExtendedQueryHandler` now correctly responds
   `Close` message with `CloseComplete`
+- Correct SCRAM mechanism name in plain connection
 
 ## [0.10.0] - 2023-02-08
 
