@@ -1,7 +1,6 @@
 #!/bin/bash
 set -e
 
-trap "kill 0" EXIT
 cd tests-integration
 
 ## start test server
