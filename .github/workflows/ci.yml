@@ -63,6 +63,21 @@ jobs:
     - name: Build and run tests
       run: cargo test --all-features
 
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [test]
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    - run: |
+        pip install psycopg
+        pip install psycopg2
+    - run: ./tests-integration/test.sh
+
   msrv:
     name: MSRV
     runs-on: ubuntu-latest
