@@ -11,6 +11,7 @@ homepage = "https://github.com/sunng87/pgwire"
 repository = "https://github.com/sunng87/pgwire"
 documentation = "https://docs.rs/crate/pgwire/"
 readme = "README.md"
+rust-version = "1.63"
 
 [dependencies]
 log = "0.4"
