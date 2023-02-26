@@ -22,7 +22,7 @@ pub struct Portal<S> {
     statement: Arc<StoredStatement<S>>,
     parameter_format: Format,
     parameters: Vec<Option<Bytes>>,
-    result_column_format_codes: Vec<i16>,
+    result_column_format: Format,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -44,11 +44,31 @@ impl From<i16> for Format {
 }
 
 impl Format {
-    fn parameter_format_of(&self, idx: usize) -> i16 {
+    pub fn format_for(&self, idx: usize) -> i16 {
         match self {
             Format::UnifiedText => FORMAT_CODE_TEXT,
             Format::UnifiedBinary => FORMAT_CODE_BINARY,
             Format::Individual(ref fv) => fv[idx],
+        }
+    }
+
+    /// Test if `idx` field is text format
+    pub fn is_text(&self, idx: usize) -> bool {
+        self.format_for(idx) == FORMAT_CODE_TEXT
+    }
+
+    /// Test if `idx` field is binary format
+    pub fn is_binary(&self, idx: usize) -> bool {
+        self.format_for(idx) == FORMAT_CODE_BINARY
+    }
+
+    fn from_codes(codes: &[i16]) -> Self {
+        if codes.is_empty() {
+            Format::UnifiedText
+        } else if codes.len() == 1 {
+            Format::from(codes[0])
+        } else {
+            Format::Individual(codes.to_vec())
         }
     }
 }
@@ -61,21 +81,18 @@ impl<S: Clone> Portal<S> {
             .clone()
             .unwrap_or_else(|| DEFAULT_NAME.to_owned());
 
+        // param format
+        let param_format = Format::from_codes(bind.parameter_format_codes());
+
         // format
-        let format = if bind.parameter_format_codes().is_empty() {
-            Format::UnifiedText
-        } else if bind.parameter_format_codes().len() == 1 {
-            Format::from(bind.parameter_format_codes()[0])
-        } else {
-            Format::Individual(bind.parameter_format_codes().clone())
-        };
+        let result_format = Format::from_codes(bind.result_column_format_codes());
 
         Ok(Portal {
             name: portal_name,
             statement,
-            parameter_format: format,
+            parameter_format: param_format,
             parameters: bind.parameters().clone(),
-            result_column_format_codes: bind.result_column_format_codes().clone(),
+            result_column_format: result_format,
         })
     }
 
@@ -95,7 +112,7 @@ impl<S: Clone> Portal<S> {
             .get(idx)
             .ok_or_else(|| PgWireError::ParameterIndexOutOfBound(idx))?;
 
-        let _format = self.parameter_format().parameter_format_of(idx);
+        let _format = self.parameter_format().format_for(idx);
 
         let ty = self
             .statement
