@@ -19,3 +19,8 @@ pushd python
 python client2.py
 python client3.py
 popd
+
+### jdbc
+pushd jdbc
+bb test.bb
+popd
