@@ -94,9 +94,9 @@ pub(crate) fn into_row_description(fields: Vec<FieldInfo>) -> RowDescription {
 
 #[derive(Getters)]
 #[getset(get = "pub")]
-pub struct QueryResponse {
+pub struct QueryResponse<'a> {
     pub(crate) row_schema: Option<Vec<FieldInfo>>,
-    pub(crate) data_rows: BoxStream<'static, PgWireResult<DataRow>>,
+    pub(crate) data_rows: BoxStream<'a, PgWireResult<DataRow>>,
 }
 
 pub struct DataRowEncoder {
@@ -146,9 +146,9 @@ impl DataRowEncoder {
     }
 }
 
-pub fn query_response<S>(field_defs: Option<Vec<FieldInfo>>, row_stream: S) -> QueryResponse
+pub fn query_response<'a, S>(field_defs: Option<Vec<FieldInfo>>, row_stream: S) -> QueryResponse<'a>
 where
-    S: Stream<Item = PgWireResult<DataRow>> + Send + Unpin + 'static,
+    S: Stream<Item = PgWireResult<DataRow>> + Send + Unpin + 'a,
 {
     QueryResponse {
         row_schema: field_defs,
@@ -180,8 +180,8 @@ impl DescribeResponse {
 /// * Query: the response contains data rows
 /// * Execution: response for ddl/dml execution
 /// * Error: error response
-pub enum Response {
-    Query(QueryResponse),
+pub enum Response<'a> {
+    Query(QueryResponse<'a>),
     Execution(Tag),
     Error(Box<ErrorInfo>),
 }

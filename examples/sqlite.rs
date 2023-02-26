@@ -75,7 +75,7 @@ impl ServerParameterProvider for SqliteParameters {
 
 #[async_trait]
 impl SimpleQueryHandler for SqliteBackend {
-    async fn do_query<C>(&self, _client: &C, query: &str) -> PgWireResult<Vec<Response>>
+    async fn do_query<'a, C>(&self, _client: &C, query: &'a str) -> PgWireResult<Vec<Response<'a>>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -258,12 +258,12 @@ impl ExtendedQueryHandler for SqliteBackend {
         self.query_parser.clone()
     }
 
-    async fn do_query<C>(
+    async fn do_query<'a, C>(
         &self,
         _client: &mut C,
-        portal: &Portal<Self::Statement>,
+        portal: &'a Portal<Self::Statement>,
         _max_rows: usize,
-    ) -> PgWireResult<Response>
+    ) -> PgWireResult<Response<'a>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
