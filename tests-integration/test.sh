@@ -24,3 +24,8 @@ popd
 pushd jdbc
 bb test.bb
 popd
+
+### node
+pushd nodejs
+npm run test
+popd

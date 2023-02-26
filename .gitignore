@@ -2,3 +2,4 @@
 /Cargo.lock
 tests-integration/test-server/target
 tests-integration/rust-client/target
+node_modules
