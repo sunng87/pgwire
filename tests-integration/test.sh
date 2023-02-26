@@ -27,5 +27,6 @@ popd
 
 ### node
 pushd nodejs
+npm install
 npm run test
 popd
