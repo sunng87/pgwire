@@ -216,6 +216,10 @@ fn get_params(portal: &Portal<String>) -> Vec<Box<dyn ToSql>> {
                 let param = portal.parameter::<bool>(i).unwrap();
                 results.push(Box::new(param) as Box<dyn ToSql>);
             }
+            &Type::INT2 => {
+                let param = portal.parameter::<i16>(i).unwrap();
+                results.push(Box::new(param) as Box<dyn ToSql>);
+            }
             &Type::INT4 => {
                 let param = portal.parameter::<i32>(i).unwrap();
                 results.push(Box::new(param) as Box<dyn ToSql>);
@@ -236,7 +240,9 @@ fn get_params(portal: &Portal<String>) -> Vec<Box<dyn ToSql>> {
                 let param = portal.parameter::<f64>(i).unwrap();
                 results.push(Box::new(param) as Box<dyn ToSql>);
             }
-            _ => {}
+            _ => {
+                unimplemented!("parameter type not supported")
+            }
         }
     }
 
