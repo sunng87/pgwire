@@ -63,7 +63,7 @@ struct DummyDatabase {
 
 #[async_trait]
 impl SimpleQueryHandler for DummyDatabase {
-    async fn do_query<C>(&self, _client: &C, query: &str) -> PgWireResult<Vec<Response>>
+    async fn do_query<'a, C>(&self, _client: &C, query: &'a str) -> PgWireResult<Vec<Response<'a>>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -114,12 +114,12 @@ impl ExtendedQueryHandler for DummyDatabase {
         self.query_parser.clone()
     }
 
-    async fn do_query<C>(
+    async fn do_query<'a, C>(
         &self,
         _client: &mut C,
-        portal: &Portal<Self::Statement>,
+        portal: &'a Portal<Self::Statement>,
         _max_rows: usize,
-    ) -> PgWireResult<Response>
+    ) -> PgWireResult<Response<'a>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -135,11 +135,29 @@ impl ExtendedQueryHandler for DummyDatabase {
                 ),
                 (Some(2), None, None),
             ];
+            let result_column_format = portal.result_column_format();
             let data_row_stream = stream::iter(data.into_iter()).map(|r| {
                 let mut encoder = DataRowEncoder::new(3);
-                encoder.encode_binary_format_field(&r.0, &Type::INT4)?;
-                encoder.encode_binary_format_field(&r.1, &Type::VARCHAR)?;
-                encoder.encode_binary_format_field(&r.2, &Type::TIMESTAMP)?;
+
+                if result_column_format.is_binary(0) {
+                    encoder.encode_binary_format_field(&r.0, &Type::INT4)?;
+                } else {
+                    encoder.encode_text_format_field(r.0.as_ref())?;
+                }
+
+                if result_column_format.is_binary(1) {
+                    encoder.encode_binary_format_field(&r.1, &Type::VARCHAR)?;
+                } else {
+                    encoder.encode_text_format_field(r.1.as_ref())?;
+                }
+
+                if result_column_format.is_binary(2) {
+                    encoder.encode_binary_format_field(&r.2, &Type::TIMESTAMP)?;
+                } else {
+                    encoder.encode_text_format_field(Some(
+                        &"2023-02-01 22:27:42.165585".to_string(),
+                    ))?;
+                }
 
                 encoder.finish()
             });
@@ -160,20 +178,14 @@ impl ExtendedQueryHandler for DummyDatabase {
         C: ClientInfo + Unpin + Send + Sync,
     {
         println!("describe: {:?}", query);
-        let f1 = FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Binary);
-        let f2 = FieldInfo::new(
-            "name".into(),
-            None,
-            None,
-            Type::VARCHAR,
-            FieldFormat::Binary,
-        );
+        let f1 = FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Text);
+        let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text);
         let f3 = FieldInfo::new(
             "name".into(),
             None,
             None,
             Type::TIMESTAMP,
-            FieldFormat::Binary,
+            FieldFormat::Text,
         );
         Ok(DescribeResponse::new(
             if parameter_type_infer {
