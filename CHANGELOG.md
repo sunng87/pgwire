@@ -23,6 +23,8 @@ describe correctly.
 - Update `do_describe` of `ExtendedQueryHandler`. Add new bool argument
   `inference_parameters` to check if parameter types from statement is required
   to return.
+- Updated resultset `Response::QueryResponse` lifetime from `'static` to portal
+  or query string, this allows reference of portal in stream.
 
 ### Fixed
 
