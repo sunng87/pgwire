@@ -69,7 +69,11 @@ pub trait SimpleQueryHandler: Send + Sync {
     }
 
     /// Provide your query implementation using the incoming query string.
-    async fn do_query<'a, C>(&self, client: &C, query: &'a str) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<'a, 'b: 'a, C>(
+        &'b self,
+        client: &C,
+        query: &'a str,
+    ) -> PgWireResult<Vec<Response<'a>>>
     where
         C: ClientInfo + Unpin + Send + Sync;
 }
@@ -263,8 +267,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
     /// - `client`: Information of the client sending the query
     /// - `portal`: Statement and parameters for the query
     /// - `max_rows`: Max requested rows of the query
-    async fn do_query<'a, C>(
-        &self,
+    async fn do_query<'a, 'b: 'a, C>(
+        &'b self,
         client: &mut C,
         portal: &'a Portal<Self::Statement>,
         max_rows: usize,
@@ -341,8 +345,8 @@ impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
         unimplemented!("Extended Query is not implemented on this server.")
     }
 
-    async fn do_query<'a, C>(
-        &self,
+    async fn do_query<'a, 'b: 'a, C>(
+        &'b self,
         _client: &mut C,
         _portal: &'a Portal<Self::Statement>,
         _max_rows: usize,
