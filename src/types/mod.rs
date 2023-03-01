@@ -136,7 +136,7 @@ impl ToSqlText for SystemTime {
     where
         Self: Sized,
     {
-        let datetime: DateTime<Utc> = DateTime::<Utc>::from(self.clone());
+        let datetime: DateTime<Utc> = DateTime::<Utc>::from(*self);
         let fmt = datetime.format("%Y-%m-%d %H:%M:%S%.6f").to_string();
         out.put_slice(fmt.as_bytes());
         Ok(IsNull::No)

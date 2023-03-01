@@ -117,20 +117,17 @@ impl DataRowEncoder {
     where
         T: ToSql + ToSqlText + Sized,
     {
-        if format == FORMAT_CODE_TEXT {
-            if let IsNull::No = value.to_sql_text(data_type, &mut self.field_buffer)? {
-                let buf = self.field_buffer.split().freeze();
-                self.buffer.fields_mut().push(Some(buf));
-            } else {
-                self.buffer.fields_mut().push(None);
-            };
+        let is_null = if format == FORMAT_CODE_TEXT {
+            value.to_sql_text(data_type, &mut self.field_buffer)?
         } else {
-            if let IsNull::No = value.to_sql(data_type, &mut self.field_buffer)? {
-                let buf = self.field_buffer.split().freeze();
-                self.buffer.fields_mut().push(Some(buf));
-            } else {
-                self.buffer.fields_mut().push(None);
-            };
+            value.to_sql(data_type, &mut self.field_buffer)?
+        };
+
+        if let IsNull::No = is_null {
+            let buf = self.field_buffer.split().freeze();
+            self.buffer.fields_mut().push(Some(buf));
+        } else {
+            self.buffer.fields_mut().push(None);
         }
         self.field_buffer.clear();
         Ok(())
