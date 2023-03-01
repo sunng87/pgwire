@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use futures::{
     stream::{BoxStream, StreamExt},
     Stream,
@@ -13,6 +13,7 @@ use crate::{
         data::{DataRow, FieldDescription, RowDescription, FORMAT_CODE_BINARY, FORMAT_CODE_TEXT},
         response::CommandComplete,
     },
+    types::ToSqlText,
 };
 
 #[derive(Debug, Eq, PartialEq)]
@@ -112,31 +113,25 @@ impl DataRowEncoder {
         }
     }
 
-    pub fn encode_text_format_field<T>(&mut self, value: Option<&T>) -> PgWireResult<()>
+    pub fn encode_field<T>(&mut self, value: &T, data_type: &Type, format: i16) -> PgWireResult<()>
     where
-        T: ToString,
+        T: ToSql + ToSqlText + Sized,
     {
-        if let Some(value) = value {
-            self.buffer
-                .fields_mut()
-                .push(Some(Bytes::copy_from_slice(value.to_string().as_bytes())));
+        if format == FORMAT_CODE_TEXT {
+            if let IsNull::No = value.to_sql_text(data_type, &mut self.field_buffer)? {
+                let buf = self.field_buffer.split().freeze();
+                self.buffer.fields_mut().push(Some(buf));
+            } else {
+                self.buffer.fields_mut().push(None);
+            };
         } else {
-            self.buffer.fields_mut().push(None);
+            if let IsNull::No = value.to_sql(data_type, &mut self.field_buffer)? {
+                let buf = self.field_buffer.split().freeze();
+                self.buffer.fields_mut().push(Some(buf));
+            } else {
+                self.buffer.fields_mut().push(None);
+            };
         }
-        Ok(())
-    }
-
-    pub fn encode_binary_format_field<T>(&mut self, value: &T, data_type: &Type) -> PgWireResult<()>
-    where
-        T: ToSql + Sized,
-    {
-        if let IsNull::No = value.to_sql(data_type, &mut self.field_buffer)? {
-            let buf = self.field_buffer.split().freeze();
-            self.buffer.fields_mut().push(Some(buf));
-        } else {
-            self.buffer.fields_mut().push(None);
-        };
-
         self.field_buffer.clear();
         Ok(())
     }
