@@ -8,7 +8,7 @@ use pgwire::api::auth::md5pass::{hash_md5_password, MakeMd5PasswordAuthStartupHa
 use pgwire::api::auth::{
     AuthSource, DefaultServerParameterProvider, LoginInfo, Password, ServerParameterProvider,
 };
-use pgwire::api::portal::Portal;
+use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
     query_response, DataRowEncoder, DescribeResponse, FieldFormat, FieldInfo, Response, Tag,
@@ -87,7 +87,7 @@ impl SimpleQueryHandler for SqliteBackend {
             let header = row_desc_from_stmt(&stmt, FieldFormat::Text)?;
             stmt.query(())
                 .map(|rows| {
-                    let s = encode_text_row_data(rows, columns);
+                    let s = encode_row_data(rows, columns, &Format::UnifiedText);
                     vec![Response::Query(query_response(Some(header), s))]
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
@@ -135,9 +135,10 @@ fn row_desc_from_stmt(stmt: &Statement, format: FieldFormat) -> PgWireResult<Vec
         .collect()
 }
 
-fn encode_text_row_data(
+fn encode_row_data(
     mut rows: Rows,
     columns: usize,
+    fmt: &Format,
 ) -> impl Stream<Item = PgWireResult<DataRow>> {
     let mut results = Vec::new();
     while let Ok(Some(row)) = rows.next() {
@@ -145,57 +146,32 @@ fn encode_text_row_data(
         for idx in 0..columns {
             let data = row.get_ref_unwrap::<usize>(idx);
             match data {
-                ValueRef::Null => encoder.encode_text_format_field(None::<&i8>).unwrap(),
-                ValueRef::Integer(i) => {
-                    encoder.encode_text_format_field(Some(&i)).unwrap();
-                }
-                ValueRef::Real(f) => {
-                    encoder.encode_text_format_field(Some(&f)).unwrap();
-                }
-                ValueRef::Text(t) => {
-                    encoder
-                        .encode_text_format_field(Some(&String::from_utf8_lossy(t)))
-                        .unwrap();
-                }
-                ValueRef::Blob(b) => {
-                    encoder
-                        .encode_text_format_field(Some(&hex::encode(b)))
-                        .unwrap();
-                }
-            }
-        }
-
-        results.push(encoder.finish());
-    }
-
-    stream::iter(results.into_iter())
-}
-
-fn encode_binary_row_data(
-    mut rows: Rows,
-    headers: Arc<Vec<FieldInfo>>,
-) -> impl Stream<Item = PgWireResult<DataRow>> {
-    let mut results = Vec::new();
-    while let Ok(Some(row)) = rows.next() {
-        let mut encoder = DataRowEncoder::new(headers.len());
-        for idx in 0..headers.len() {
-            let data = row.get_ref_unwrap::<usize>(idx);
-            let dtype = headers[idx].datatype();
-            match data {
                 ValueRef::Null => encoder
-                    .encode_binary_format_field(&None::<i8>, dtype)
+                    .encode_field(&None::<i8>, &Type::CHAR, fmt.format_for(idx))
                     .unwrap(),
                 ValueRef::Integer(i) => {
-                    encoder.encode_binary_format_field(&i, dtype).unwrap();
+                    encoder
+                        .encode_field(&i, &Type::INT8, fmt.format_for(idx))
+                        .unwrap();
                 }
                 ValueRef::Real(f) => {
-                    encoder.encode_binary_format_field(&f, dtype).unwrap();
+                    encoder
+                        .encode_field(&f, &Type::FLOAT8, fmt.format_for(idx))
+                        .unwrap();
                 }
                 ValueRef::Text(t) => {
-                    encoder.encode_binary_format_field(&t, dtype).unwrap();
+                    encoder
+                        .encode_field(
+                            &String::from_utf8_lossy(t).as_ref(),
+                            &Type::VARCHAR,
+                            fmt.format_for(idx),
+                        )
+                        .unwrap();
                 }
                 ValueRef::Blob(b) => {
-                    encoder.encode_binary_format_field(&b, dtype).unwrap();
+                    encoder
+                        .encode_field(&b, &Type::BYTEA, fmt.format_for(idx))
+                        .unwrap();
                 }
             }
         }
@@ -287,7 +263,7 @@ impl ExtendedQueryHandler for SqliteBackend {
             let header = Arc::new(row_desc_from_stmt(&stmt, FieldFormat::Binary)?);
             stmt.query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
                 .map(|rows| {
-                    let s = encode_binary_row_data(rows, header);
+                    let s = encode_row_data(rows, header.len(), portal.result_column_format());
                     Response::Query(query_response(None, s))
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))

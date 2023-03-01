@@ -44,6 +44,7 @@ impl From<i16> for Format {
 }
 
 impl Format {
+    /// Get format code for given index
     pub fn format_for(&self, idx: usize) -> i16 {
         match self {
             Format::UnifiedText => FORMAT_CODE_TEXT,

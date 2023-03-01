@@ -5,11 +5,11 @@ use futures::{stream, StreamExt};
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::noop::NoopStartupHandler;
-
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{query_response, DataRowEncoder, FieldFormat, FieldInfo, Response, Tag};
 use pgwire::api::{ClientInfo, MakeHandler, StatelessMakeHandler, Type};
 use pgwire::error::PgWireResult;
+use pgwire::messages::data::FORMAT_CODE_TEXT;
 use pgwire::tokio::process_socket;
 
 pub struct DummyProcessor;
@@ -32,8 +32,8 @@ impl SimpleQueryHandler for DummyProcessor {
             ];
             let data_row_stream = stream::iter(data.into_iter()).map(|r| {
                 let mut encoder = DataRowEncoder::new(2);
-                encoder.encode_text_format_field(r.0.as_ref())?;
-                encoder.encode_text_format_field(r.1.as_ref())?;
+                encoder.encode_field(&r.0, &Type::INT4, FORMAT_CODE_TEXT)?;
+                encoder.encode_field(&r.1, &Type::VARCHAR, FORMAT_CODE_TEXT)?;
 
                 encoder.finish()
             });

@@ -23,7 +23,7 @@ futures = "0.3"
 async-trait = "0.1"
 rand = "0.8"
 thiserror = "1"
-postgres-types = "0.2"
+postgres-types = { version = "0.2", features = ["with-chrono-0_4"]}
 md5 = "0.7"
 hex = "0.4"
 ## scram libraries
@@ -49,9 +49,9 @@ gluesql = "0.13"
 
 [features]
 default = ["tokio", "time-format"]
-tokio = ["dep:tokio", "tokio-util", "tokio-rustls"]
+tokio = ["dep:tokio", "dep:tokio-util", "dep:tokio-rustls"]
 time-format = ["dep:chrono"]
 
 [[example]]
 name = "server"
-required-features = ["tokio_support"]
+required-features = ["tokio"]

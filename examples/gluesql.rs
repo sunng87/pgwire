@@ -10,6 +10,7 @@ use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{query_response, DataRowEncoder, FieldFormat, FieldInfo, Response, Tag};
 use pgwire::api::{ClientInfo, MakeHandler, StatelessMakeHandler, Type};
 use pgwire::error::{PgWireError, PgWireResult};
+use pgwire::messages::data::FORMAT_CODE_TEXT;
 use pgwire::tokio::process_socket;
 
 pub struct GluesqlProcessor {
@@ -50,44 +51,66 @@ impl SimpleQueryHandler for GluesqlProcessor {
                                 let mut encoder = DataRowEncoder::new(nfields);
                                 for field in row.iter() {
                                     match field {
-                                        Value::Bool(v) => {
-                                            encoder.encode_text_format_field(Some(v))?
-                                        }
-                                        Value::I8(v) => {
-                                            encoder.encode_text_format_field(Some(v))?
-                                        }
-                                        Value::I16(v) => {
-                                            encoder.encode_text_format_field(Some(v))?
-                                        }
-                                        Value::I32(v) => {
-                                            encoder.encode_text_format_field(Some(v))?
-                                        }
-                                        Value::I64(v) => {
-                                            encoder.encode_text_format_field(Some(v))?
-                                        }
-                                        Value::I128(v) => {
-                                            encoder.encode_text_format_field(Some(v))?
-                                        }
-                                        Value::U8(v) => {
-                                            encoder.encode_text_format_field(Some(v))?
-                                        }
-                                        Value::F64(v) => {
-                                            encoder.encode_text_format_field(Some(v))?
-                                        }
-                                        Value::Str(v) => {
-                                            encoder.encode_text_format_field(Some(v))?
-                                        }
-                                        Value::Bytea(v) => encoder
-                                            .encode_text_format_field(Some(&hex::encode(v)))?,
-                                        Value::Date(v) => {
-                                            encoder.encode_text_format_field(Some(v))?
-                                        }
-                                        Value::Time(v) => {
-                                            encoder.encode_text_format_field(Some(v))?
-                                        }
-                                        Value::Timestamp(v) => {
-                                            encoder.encode_text_format_field(Some(v))?
-                                        }
+                                        Value::Bool(v) => encoder.encode_field(
+                                            v,
+                                            &Type::BOOL,
+                                            FORMAT_CODE_TEXT,
+                                        )?,
+                                        Value::I8(v) => encoder.encode_field(
+                                            v,
+                                            &Type::CHAR,
+                                            FORMAT_CODE_TEXT,
+                                        )?,
+                                        Value::I16(v) => encoder.encode_field(
+                                            v,
+                                            &Type::INT2,
+                                            FORMAT_CODE_TEXT,
+                                        )?,
+                                        Value::I32(v) => encoder.encode_field(
+                                            v,
+                                            &Type::INT4,
+                                            FORMAT_CODE_TEXT,
+                                        )?,
+                                        Value::I64(v) => encoder.encode_field(
+                                            v,
+                                            &Type::INT8,
+                                            FORMAT_CODE_TEXT,
+                                        )?,
+                                        Value::U8(v) => encoder.encode_field(
+                                            &(*v as i8),
+                                            &Type::CHAR,
+                                            FORMAT_CODE_TEXT,
+                                        )?,
+                                        Value::F64(v) => encoder.encode_field(
+                                            v,
+                                            &Type::FLOAT8,
+                                            FORMAT_CODE_TEXT,
+                                        )?,
+                                        Value::Str(v) => encoder.encode_field(
+                                            v,
+                                            &Type::VARCHAR,
+                                            FORMAT_CODE_TEXT,
+                                        )?,
+                                        Value::Bytea(v) => encoder.encode_field(
+                                            v,
+                                            &Type::BYTEA,
+                                            FORMAT_CODE_TEXT,
+                                        )?,
+                                        Value::Date(v) => encoder.encode_field(
+                                            v,
+                                            &Type::DATE,
+                                            FORMAT_CODE_TEXT,
+                                        )?,
+                                        Value::Time(v) => encoder.encode_field(
+                                            v,
+                                            &Type::TIME,
+                                            FORMAT_CODE_TEXT,
+                                        )?,
+                                        Value::Timestamp(v) => encoder.encode_field(
+                                            v,
+                                            &Type::TIMESTAMP,
+                                            FORMAT_CODE_TEXT,
+                                        )?,
                                         _ => unimplemented!(),
                                     }
                                 }
