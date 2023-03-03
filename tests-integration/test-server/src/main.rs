@@ -18,6 +18,7 @@ use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::store::MemPortalStore;
 use pgwire::api::{ClientInfo, MakeHandler, Type};
 use pgwire::error::PgWireResult;
+use pgwire::messages::data::FORMAT_CODE_TEXT;
 use pgwire::tokio::process_socket;
 use tokio::net::TcpListener;
 
@@ -80,9 +81,9 @@ impl SimpleQueryHandler for DummyDatabase {
             ];
             let data_row_stream = stream::iter(data.into_iter()).map(|r| {
                 let mut encoder = DataRowEncoder::new(3);
-                encoder.encode_text_format_field(r.0.as_ref())?;
-                encoder.encode_text_format_field(r.1.as_ref())?;
-                encoder.encode_text_format_field(r.2.as_ref())?;
+                encoder.encode_field(&r.0, &Type::INT4, FORMAT_CODE_TEXT)?;
+                encoder.encode_field(&r.1, &Type::VARCHAR, FORMAT_CODE_TEXT)?;
+                encoder.encode_field(&r.2, &Type::TIMESTAMP, FORMAT_CODE_TEXT)?;
 
                 encoder.finish()
             });
@@ -139,25 +140,9 @@ impl ExtendedQueryHandler for DummyDatabase {
             let data_row_stream = stream::iter(data.into_iter()).map(|r| {
                 let mut encoder = DataRowEncoder::new(3);
 
-                if result_column_format.is_binary(0) {
-                    encoder.encode_binary_format_field(&r.0, &Type::INT4)?;
-                } else {
-                    encoder.encode_text_format_field(r.0.as_ref())?;
-                }
-
-                if result_column_format.is_binary(1) {
-                    encoder.encode_binary_format_field(&r.1, &Type::VARCHAR)?;
-                } else {
-                    encoder.encode_text_format_field(r.1.as_ref())?;
-                }
-
-                if result_column_format.is_binary(2) {
-                    encoder.encode_binary_format_field(&r.2, &Type::TIMESTAMP)?;
-                } else {
-                    encoder.encode_text_format_field(Some(
-                        &"2023-02-01 22:27:42.165585".to_string(),
-                    ))?;
-                }
+                encoder.encode_field(&r.0, &Type::INT4, result_column_format.format_for(0))?;
+                encoder.encode_field(&r.1, &Type::VARCHAR, result_column_format.format_for(1))?;
+                encoder.encode_field(&r.2, &Type::TIMESTAMP, result_column_format.format_for(2))?;
 
                 encoder.finish()
             });
@@ -180,13 +165,7 @@ impl ExtendedQueryHandler for DummyDatabase {
         println!("describe: {:?}", query);
         let f1 = FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Text);
         let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text);
-        let f3 = FieldInfo::new(
-            "name".into(),
-            None,
-            None,
-            Type::TIMESTAMP,
-            FieldFormat::Text,
-        );
+        let f3 = FieldInfo::new("ts".into(), None, None, Type::TIMESTAMP, FieldFormat::Text);
         Ok(DescribeResponse::new(
             if parameter_type_infer {
                 Some(vec![Type::INT4])

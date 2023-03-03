@@ -46,5 +46,7 @@ pub mod error;
 /// the protocol layer.
 pub mod messages;
 /// server entry-point for tokio based application.
-#[cfg(feature = "tokio_support")]
+#[cfg(feature = "tokio")]
 pub mod tokio;
+/// types and encoding related helper
+pub mod types;

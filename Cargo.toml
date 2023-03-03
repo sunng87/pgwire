@@ -23,8 +23,9 @@ futures = "0.3"
 async-trait = "0.1"
 rand = "0.8"
 thiserror = "1"
-postgres-types = "0.2"
+postgres-types = { version = "0.2", features = ["with-chrono-0_4"]}
 md5 = "0.7"
+hex = "0.4"
 ## scram libraries
 base64 = "0.21"
 ring = "0.16"
@@ -35,8 +36,9 @@ tokio = { version = "1.19", features = ["net", "rt", "io-util"], optional = true
 tokio-util = { version = "0.7.3", features = ["codec", "io"], optional = true }
 tokio-rustls = { version = "0.23", optional = true }
 
+chrono = { version = "0.4", optional = true, features = ["std"] }
+
 [dev-dependencies]
-hex = "0.4"
 tokio = { version = "1.19", features = ["rt-multi-thread", "net", "macros"]}
 rusqlite = { version = "0.28.0", features = ["bundled", "column_decltype"] }
 ## for loading custom cert files
@@ -46,9 +48,10 @@ rustls-pemfile = { version = "1.0" }
 gluesql = "0.13"
 
 [features]
-default = ["tokio_support"]
-tokio_support = ["tokio", "tokio-util", "tokio-rustls"]
+default = ["tokio", "time-format"]
+tokio = ["dep:tokio", "dep:tokio-util", "dep:tokio-rustls"]
+time-format = ["dep:chrono"]
 
 [[example]]
 name = "server"
-required-features = ["tokio_support"]
+required-features = ["tokio"]
