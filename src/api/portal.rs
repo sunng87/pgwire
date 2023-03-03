@@ -5,13 +5,10 @@ use postgres_types::FromSqlOwned;
 
 use crate::{
     error::{PgWireError, PgWireResult},
-    messages::{
-        data::{FORMAT_CODE_BINARY, FORMAT_CODE_TEXT},
-        extendedquery::Bind,
-    },
+    messages::{data::FORMAT_CODE_BINARY, extendedquery::Bind},
 };
 
-use super::{stmt::StoredStatement, DEFAULT_NAME};
+use super::{results::FieldFormat, stmt::StoredStatement, DEFAULT_NAME};
 
 /// Represent a prepared sql statement and its parameters bound by a `Bind`
 /// request.
@@ -35,32 +32,32 @@ pub enum Format {
 
 impl From<i16> for Format {
     fn from(v: i16) -> Format {
-        if v == FORMAT_CODE_TEXT {
-            Format::UnifiedText
-        } else {
+        if v == FORMAT_CODE_BINARY {
             Format::UnifiedBinary
+        } else {
+            Format::UnifiedText
         }
     }
 }
 
 impl Format {
     /// Get format code for given index
-    pub fn format_for(&self, idx: usize) -> i16 {
+    pub fn format_for(&self, idx: usize) -> FieldFormat {
         match self {
-            Format::UnifiedText => FORMAT_CODE_TEXT,
-            Format::UnifiedBinary => FORMAT_CODE_BINARY,
-            Format::Individual(ref fv) => fv[idx],
+            Format::UnifiedText => FieldFormat::Text,
+            Format::UnifiedBinary => FieldFormat::Binary,
+            Format::Individual(ref fv) => FieldFormat::from(fv[idx]),
         }
     }
 
     /// Test if `idx` field is text format
     pub fn is_text(&self, idx: usize) -> bool {
-        self.format_for(idx) == FORMAT_CODE_TEXT
+        self.format_for(idx) == FieldFormat::Text
     }
 
     /// Test if `idx` field is binary format
     pub fn is_binary(&self, idx: usize) -> bool {
-        self.format_for(idx) == FORMAT_CODE_BINARY
+        self.format_for(idx) == FieldFormat::Binary
     }
 
     fn from_codes(codes: &[i16]) -> Self {

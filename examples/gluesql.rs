@@ -10,7 +10,6 @@ use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{query_response, DataRowEncoder, FieldFormat, FieldInfo, Response, Tag};
 use pgwire::api::{ClientInfo, MakeHandler, StatelessMakeHandler, Type};
 use pgwire::error::{PgWireError, PgWireResult};
-use pgwire::messages::data::FORMAT_CODE_TEXT;
 use pgwire::tokio::process_socket;
 
 pub struct GluesqlProcessor {
@@ -54,62 +53,62 @@ impl SimpleQueryHandler for GluesqlProcessor {
                                         Value::Bool(v) => encoder.encode_field(
                                             v,
                                             &Type::BOOL,
-                                            FORMAT_CODE_TEXT,
+                                            FieldFormat::Text,
                                         )?,
                                         Value::I8(v) => encoder.encode_field(
                                             v,
                                             &Type::CHAR,
-                                            FORMAT_CODE_TEXT,
+                                            FieldFormat::Text,
                                         )?,
                                         Value::I16(v) => encoder.encode_field(
                                             v,
                                             &Type::INT2,
-                                            FORMAT_CODE_TEXT,
+                                            FieldFormat::Text,
                                         )?,
                                         Value::I32(v) => encoder.encode_field(
                                             v,
                                             &Type::INT4,
-                                            FORMAT_CODE_TEXT,
+                                            FieldFormat::Text,
                                         )?,
                                         Value::I64(v) => encoder.encode_field(
                                             v,
                                             &Type::INT8,
-                                            FORMAT_CODE_TEXT,
+                                            FieldFormat::Text,
                                         )?,
                                         Value::U8(v) => encoder.encode_field(
                                             &(*v as i8),
                                             &Type::CHAR,
-                                            FORMAT_CODE_TEXT,
+                                            FieldFormat::Text,
                                         )?,
                                         Value::F64(v) => encoder.encode_field(
                                             v,
                                             &Type::FLOAT8,
-                                            FORMAT_CODE_TEXT,
+                                            FieldFormat::Text,
                                         )?,
                                         Value::Str(v) => encoder.encode_field(
                                             v,
                                             &Type::VARCHAR,
-                                            FORMAT_CODE_TEXT,
+                                            FieldFormat::Text,
                                         )?,
                                         Value::Bytea(v) => encoder.encode_field(
                                             v,
                                             &Type::BYTEA,
-                                            FORMAT_CODE_TEXT,
+                                            FieldFormat::Text,
                                         )?,
                                         Value::Date(v) => encoder.encode_field(
                                             v,
                                             &Type::DATE,
-                                            FORMAT_CODE_TEXT,
+                                            FieldFormat::Text,
                                         )?,
                                         Value::Time(v) => encoder.encode_field(
                                             v,
                                             &Type::TIME,
-                                            FORMAT_CODE_TEXT,
+                                            FieldFormat::Text,
                                         )?,
                                         Value::Timestamp(v) => encoder.encode_field(
                                             v,
                                             &Type::TIMESTAMP,
-                                            FORMAT_CODE_TEXT,
+                                            FieldFormat::Text,
                                         )?,
                                         _ => unimplemented!(),
                                     }

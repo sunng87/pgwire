@@ -18,7 +18,6 @@ use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::store::MemPortalStore;
 use pgwire::api::{ClientInfo, MakeHandler, Type};
 use pgwire::error::PgWireResult;
-use pgwire::messages::data::FORMAT_CODE_TEXT;
 use pgwire::tokio::process_socket;
 use tokio::net::TcpListener;
 
@@ -81,9 +80,9 @@ impl SimpleQueryHandler for DummyDatabase {
             ];
             let data_row_stream = stream::iter(data.into_iter()).map(|r| {
                 let mut encoder = DataRowEncoder::new(3);
-                encoder.encode_field(&r.0, &Type::INT4, FORMAT_CODE_TEXT)?;
-                encoder.encode_field(&r.1, &Type::VARCHAR, FORMAT_CODE_TEXT)?;
-                encoder.encode_field(&r.2, &Type::TIMESTAMP, FORMAT_CODE_TEXT)?;
+                encoder.encode_field(&r.0, &Type::INT4, FieldFormat::Text)?;
+                encoder.encode_field(&r.1, &Type::VARCHAR, FieldFormat::Text)?;
+                encoder.encode_field(&r.2, &Type::TIMESTAMP, FieldFormat::Text)?;
 
                 encoder.finish()
             });

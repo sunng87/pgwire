@@ -49,6 +49,7 @@ impl From<Tag> for CommandComplete {
     }
 }
 
+/// Describe encoding of a data field.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum FieldFormat {
     Text,
@@ -56,10 +57,23 @@ pub enum FieldFormat {
 }
 
 impl FieldFormat {
-    pub(crate) fn value(&self) -> i16 {
+    /// Get format code for the encoding.
+    pub fn value(&self) -> i16 {
         match self {
             Self::Text => FORMAT_CODE_TEXT,
             Self::Binary => FORMAT_CODE_BINARY,
+        }
+    }
+
+    /// Parse FieldFormat from format code.
+    ///
+    /// 0 for text format, 1 for binary format. If the input is neither 0 nor 1,
+    /// here we return text as default value.
+    pub fn from(code: i16) -> Self {
+        if code == FORMAT_CODE_BINARY {
+            FieldFormat::Binary
+        } else {
+            FieldFormat::Text
         }
     }
 }
@@ -113,11 +127,16 @@ impl DataRowEncoder {
         }
     }
 
-    pub fn encode_field<T>(&mut self, value: &T, data_type: &Type, format: i16) -> PgWireResult<()>
+    pub fn encode_field<T>(
+        &mut self,
+        value: &T,
+        data_type: &Type,
+        format: FieldFormat,
+    ) -> PgWireResult<()>
     where
         T: ToSql + ToSqlText + Sized,
     {
-        let is_null = if format == FORMAT_CODE_TEXT {
+        let is_null = if format == FieldFormat::Text {
             value.to_sql_text(data_type, &mut self.field_buffer)?
         } else {
             value.to_sql(data_type, &mut self.field_buffer)?

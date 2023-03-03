@@ -5,8 +5,8 @@ use super::codec;
 use super::Message;
 use crate::error::PgWireResult;
 
-pub const FORMAT_CODE_TEXT: i16 = 0;
-pub const FORMAT_CODE_BINARY: i16 = 1;
+pub(crate) const FORMAT_CODE_TEXT: i16 = 0;
+pub(crate) const FORMAT_CODE_BINARY: i16 = 1;
 
 #[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
