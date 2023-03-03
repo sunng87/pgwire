@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Added
+
+- `ToSqlText` trait and default implementation for some types. This trait is
+  similar to `ToSql` from `postgres-types` package. It provide text format
+  encoding while `ToSql` are binary by default.
+
+### Changed
+
+- Updated `DataRowEncoder` encode API with unified `encode_field` for both
+  binary and text encoding. It accepts `Format` to decide which encoding to use.
+  In simple query, it's always text encode. In extended query, client describes
+  its preferred formats in `Bind` request, and can be retrieved from `portal`
+  argument in `do_query()`.
+
 ## [0.11.1] - 2023-02-26
 
 ### Fixed
