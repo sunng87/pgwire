@@ -3,7 +3,7 @@ use std::{error::Error, fmt};
 
 use bytes::{BufMut, BytesMut};
 use chrono::offset::Utc;
-use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
 use postgres_types::{IsNull, Type, WrongType};
 
 pub trait ToSqlText: fmt::Debug {
@@ -143,17 +143,47 @@ impl ToSqlText for SystemTime {
     }
 }
 
-impl ToSqlText for NaiveDateTime {
+impl<Tz: TimeZone> ToSqlText for DateTime<Tz>
+where
+    Tz::Offset: std::fmt::Display,
+{
     fn to_sql_text(
         &self,
-        _ty: &Type,
+        ty: &Type,
         out: &mut BytesMut,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
     {
-        let fmt = self.format("%Y-%m-%d %H:%M:%S%.6f").to_string();
-        out.put_slice(fmt.as_bytes());
+        let fmt = match ty {
+            &Type::TIMESTAMP => "%Y-%m-%d %H:%M:%S%.6f",
+            &Type::TIMESTAMPTZ => "%Y-%m-%d %H:%M:%S%.6f%:::z",
+            &Type::DATE => "%Y-%m-%d",
+            &Type::TIME => "%H:%M:%S%.6f",
+            &Type::TIMETZ => "%H:%M:%S%.6f%:::z",
+            _ => Err(Box::new(WrongType::new::<DateTime<Tz>>(ty.clone())))?,
+        };
+        out.put_slice(self.format(fmt).to_string().as_bytes());
+        Ok(IsNull::No)
+    }
+}
+
+impl ToSqlText for NaiveDateTime {
+    fn to_sql_text(
+        &self,
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
+        let fmt = match ty {
+            &Type::TIMESTAMP => "%Y-%m-%d %H:%M:%S%.6f",
+            &Type::DATE => "%Y-%m-%d",
+            &Type::TIME => "%H:%M:%S%.6f",
+            _ => Err(Box::new(WrongType::new::<NaiveDateTime>(ty.clone())))?,
+        };
+        out.put_slice(self.format(fmt).to_string().as_bytes());
         Ok(IsNull::No)
     }
 }
@@ -198,6 +228,7 @@ impl ToSqlText for NaiveTime {
 #[cfg(test)]
 mod test {
     use super::*;
+    use chrono::offset::Local;
 
     #[test]
     fn test_date_time_format() {
@@ -209,5 +240,11 @@ mod test {
         let date = NaiveDate::from_ymd_opt(2023, 3, 5).unwrap();
         let mut buf = BytesMut::new();
         assert!(date.to_sql_text(&Type::INT8, &mut buf).is_err());
+
+        let date = Local::now();
+        let mut buf = BytesMut::new();
+        date.to_sql_text(&Type::TIMESTAMPTZ, &mut buf).unwrap();
+        // format: 2023-02-01 22:31:49.479895+08
+        assert_eq!(29, String::from_utf8_lossy(buf.freeze().as_ref()).len());
     }
 }
