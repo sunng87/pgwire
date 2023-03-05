@@ -4,7 +4,7 @@ use std::{error::Error, fmt};
 use bytes::{BufMut, BytesMut};
 use chrono::offset::Utc;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime};
-use postgres_types::{IsNull, Type};
+use postgres_types::{IsNull, Type, WrongType};
 
 pub trait ToSqlText: fmt::Debug {
     /// Converts value to text format of Postgres type.
@@ -161,13 +161,17 @@ impl ToSqlText for NaiveDateTime {
 impl ToSqlText for NaiveDate {
     fn to_sql_text(
         &self,
-        _ty: &Type,
+        ty: &Type,
         out: &mut BytesMut,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
     {
-        let fmt = self.format("%Y-%m-%d").to_string();
+        let fmt = match ty {
+            &Type::DATE => self.format("%Y-%m-%d").to_string(),
+            _ => Err(Box::new(WrongType::new::<NaiveDate>(ty.clone())))?,
+        };
+
         out.put_slice(fmt.as_bytes());
         Ok(IsNull::No)
     }
@@ -176,14 +180,34 @@ impl ToSqlText for NaiveDate {
 impl ToSqlText for NaiveTime {
     fn to_sql_text(
         &self,
-        _ty: &Type,
+        ty: &Type,
         out: &mut BytesMut,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
     {
-        let fmt = self.format("%H:%M:%S%.6f").to_string();
+        let fmt = match ty {
+            &Type::TIME => self.format("%H:%M:%S%.6f").to_string(),
+            _ => Err(Box::new(WrongType::new::<NaiveTime>(ty.clone())))?,
+        };
         out.put_slice(fmt.as_bytes());
         Ok(IsNull::No)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_date_time_format() {
+        let date = NaiveDate::from_ymd_opt(2023, 3, 5).unwrap();
+        let mut buf = BytesMut::new();
+        date.to_sql_text(&Type::DATE, &mut buf).unwrap();
+        assert_eq!("2023-03-05", String::from_utf8_lossy(buf.freeze().as_ref()));
+
+        let date = NaiveDate::from_ymd_opt(2023, 3, 5).unwrap();
+        let mut buf = BytesMut::new();
+        assert!(date.to_sql_text(&Type::INT8, &mut buf).is_err());
     }
 }
