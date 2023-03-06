@@ -8,7 +8,9 @@ use tokio::sync::Mutex;
 
 use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
-use pgwire::api::results::{query_response, DataRowEncoder, FieldFormat, FieldInfo, Response, Tag};
+use pgwire::api::results::{
+    query_response, DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag,
+};
 use pgwire::api::{ClientInfo, MakeHandler, StatelessMakeHandler, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
@@ -51,22 +53,9 @@ impl SimpleQueryHandler for DfSessionService {
                 .await
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
 
-            todo!()
-
-            // let data_row_stream = stream::iter(data.into_iter()).map(|r| {
-            //     let mut encoder = DataRowEncoder::new(2);
-            //     encoder.encode_field(&r.0, &Type::INT4, FieldFormat::Text)?;
-            //     encoder.encode_field(&r.1, &Type::VARCHAR, FieldFormat::Text)?;
-
-            //     encoder.finish()
-            // });
-
-            // Ok(vec![Response::Query(query_response(
-            //     Some(vec![f1, f2]),
-            //     data_row_stream,
-            // ))])
+            let resp = encode_dataframe(df).await?;
+            Ok(vec![Response::Query(resp)])
         } else {
-            // TODO: notifcation, this service is readonly
             Ok(vec![Response::Error(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "XX000".to_owned(),
@@ -74,6 +63,17 @@ impl SimpleQueryHandler for DfSessionService {
             )))])
         }
     }
+}
+
+async fn encode_dataframe<'a>(df: DataFrame) -> PgWireResult<QueryResponse<'a>> {
+    let schema = df.schema();
+
+    let recordbatch_stream = df
+        .execute_stream()
+        .await
+        .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+
+    todo!()
 }
 
 #[tokio::main]
