@@ -155,12 +155,12 @@ where
     where
         Self: Sized,
     {
-        let fmt = match ty {
-            &Type::TIMESTAMP => "%Y-%m-%d %H:%M:%S%.6f",
-            &Type::TIMESTAMPTZ => "%Y-%m-%d %H:%M:%S%.6f%:::z",
-            &Type::DATE => "%Y-%m-%d",
-            &Type::TIME => "%H:%M:%S%.6f",
-            &Type::TIMETZ => "%H:%M:%S%.6f%:::z",
+        let fmt = match *ty {
+            Type::TIMESTAMP => "%Y-%m-%d %H:%M:%S%.6f",
+            Type::TIMESTAMPTZ => "%Y-%m-%d %H:%M:%S%.6f%:::z",
+            Type::DATE => "%Y-%m-%d",
+            Type::TIME => "%H:%M:%S%.6f",
+            Type::TIMETZ => "%H:%M:%S%.6f%:::z",
             _ => Err(Box::new(WrongType::new::<DateTime<Tz>>(ty.clone())))?,
         };
         out.put_slice(self.format(fmt).to_string().as_bytes());
@@ -177,10 +177,10 @@ impl ToSqlText for NaiveDateTime {
     where
         Self: Sized,
     {
-        let fmt = match ty {
-            &Type::TIMESTAMP => "%Y-%m-%d %H:%M:%S%.6f",
-            &Type::DATE => "%Y-%m-%d",
-            &Type::TIME => "%H:%M:%S%.6f",
+        let fmt = match *ty {
+            Type::TIMESTAMP => "%Y-%m-%d %H:%M:%S%.6f",
+            Type::DATE => "%Y-%m-%d",
+            Type::TIME => "%H:%M:%S%.6f",
             _ => Err(Box::new(WrongType::new::<NaiveDateTime>(ty.clone())))?,
         };
         out.put_slice(self.format(fmt).to_string().as_bytes());
@@ -197,8 +197,8 @@ impl ToSqlText for NaiveDate {
     where
         Self: Sized,
     {
-        let fmt = match ty {
-            &Type::DATE => self.format("%Y-%m-%d").to_string(),
+        let fmt = match *ty {
+            Type::DATE => self.format("%Y-%m-%d").to_string(),
             _ => Err(Box::new(WrongType::new::<NaiveDate>(ty.clone())))?,
         };
 
@@ -216,8 +216,8 @@ impl ToSqlText for NaiveTime {
     where
         Self: Sized,
     {
-        let fmt = match ty {
-            &Type::TIME => self.format("%H:%M:%S%.6f").to_string(),
+        let fmt = match *ty {
+            Type::TIME => self.format("%H:%M:%S%.6f").to_string(),
             _ => Err(Box::new(WrongType::new::<NaiveTime>(ty.clone())))?,
         };
         out.put_slice(fmt.as_bytes());
