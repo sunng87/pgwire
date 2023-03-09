@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use datafusion::arrow::datatypes::DataType;
 use datafusion::prelude::*;
 use futures::{stream, StreamExt};
 use tokio::net::TcpListener;
@@ -65,15 +66,60 @@ impl SimpleQueryHandler for DfSessionService {
     }
 }
 
+fn into_pg_type(df_type: &DataType) -> PgWireResult<Type> {
+    Ok(match df_type {
+        DataType::Null => Type::UNKNOWN,
+        DataType::Boolean => Type::BOOL,
+        DataType::Int8 => Type::CHAR,
+        DataType::Int16 => Type::INT2,
+        DataType::Int32 => Type::INT4,
+        DataType::Int64 => Type::INT8,
+        DataType::UInt8 => Type::CHAR,
+        DataType::UInt16 => Type::INT2,
+        DataType::UInt32 => Type::INT4,
+        DataType::UInt64 => Type::INT8,
+        DataType::Timestamp(_, _) => Type::TIMESTAMP,
+        DataType::Time32(_) | DataType::Time64(_) => Type::TIME,
+        DataType::Date32 | DataType::Date64 => Type::DATE,
+        DataType::Binary => Type::BYTEA,
+        DataType::Float32 => Type::FLOAT4,
+        DataType::Float64 => Type::FLOAT8,
+        DataType::Utf8 => Type::VARCHAR,
+        _ => {
+            return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                "ERROR".to_owned(),
+                "XX000".to_owned(),
+                format!("Unsupported Datatype {df_type}"),
+            ))));
+        }
+    })
+}
+
 async fn encode_dataframe<'a>(df: DataFrame) -> PgWireResult<QueryResponse<'a>> {
     let schema = df.schema();
+    let fields = schema
+        .fields()
+        .iter()
+        .map(|f| {
+            let pg_type = into_pg_type(f.data_type())?;
+            Ok(FieldInfo::new(
+                f.name().into(),
+                None,
+                None,
+                pg_type,
+                FieldFormat::Text,
+            ))
+        })
+        .collect::<PgWireResult<Vec<FieldInfo>>>()?;
 
     let recordbatch_stream = df
         .execute_stream()
         .await
         .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
 
-    todo!()
+    let pg_row_stream = recordbatch_stream.map(|rb| todo!());
+
+    Ok(query_response(Some(fields), pg_row_stream))
 }
 
 #[tokio::main]
