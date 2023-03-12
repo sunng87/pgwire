@@ -1,7 +1,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use datafusion::arrow::datatypes::DataType;
+use datafusion::arrow::array::{Array, BooleanArray, PrimitiveArray};
+use datafusion::arrow::datatypes::{
+    DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt32Type,
+};
+use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
 use futures::{stream, StreamExt};
 use tokio::net::TcpListener;
@@ -116,10 +120,86 @@ async fn encode_dataframe<'a>(df: DataFrame) -> PgWireResult<QueryResponse<'a>> 
         .execute_stream()
         .await
         .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+    let fields2 = fields.clone();
 
-    let pg_row_stream = recordbatch_stream.map(|rb| todo!());
+    let pg_row_stream = recordbatch_stream
+        .map(move |rb: datafusion::error::Result<RecordBatch>| {
+            let rb = rb.unwrap();
+            let rows = rb.num_rows();
+            let cols = rb.num_columns();
+            let mut results = Vec::with_capacity(rows);
 
-    Ok(query_response(Some(fields), pg_row_stream))
+            for row in 0..rows {
+                let mut encoder = DataRowEncoder::new(cols);
+                for col in 0..cols {
+                    let array = rb.column(col);
+                    let f = &fields2[col];
+                    if array.is_null(row) {
+                        encoder
+                            .encode_field(&None::<i8>, f.datatype(), *f.format())
+                            .unwrap();
+                    } else {
+                        encode_value(&mut encoder, array, row, f.datatype(), *f.format()).unwrap();
+                    }
+                }
+                results.push(encoder.finish());
+            }
+
+            stream::iter(results)
+        })
+        .flatten();
+
+    Ok(query_response(Some(fields.clone()), pg_row_stream))
+}
+
+fn get_bool_value(arr: &Arc<dyn Array>, idx: usize) -> bool {
+    arr.as_any()
+        .downcast_ref::<BooleanArray>()
+        .unwrap()
+        .value(idx)
+}
+
+macro_rules! get_primitive_value {
+    ($name:ident, $t:ty, $pt:ty) => {
+        fn $name(arr: &Arc<dyn Array>, idx: usize) -> $pt {
+            arr.as_any()
+                .downcast_ref::<PrimitiveArray<$t>>()
+                .unwrap()
+                .value(idx)
+        }
+    };
+}
+
+get_primitive_value!(get_i8_value, Int8Type, i8);
+get_primitive_value!(get_i16_value, Int16Type, i16);
+get_primitive_value!(get_i32_value, Int32Type, i32);
+get_primitive_value!(get_i64_value, Int64Type, i64);
+// get_primitive_value!(get_u8_value, UInt8Type, u8);
+// get_primitive_value!(get_u16_value, UInt16Type, u16);
+get_primitive_value!(get_u32_value, UInt32Type, u32);
+// get_primitive_value!(get_u64_value, UInt64Type, u64);
+get_primitive_value!(get_f32_value, Float32Type, f32);
+get_primitive_value!(get_f64_value, Float64Type, f64);
+
+fn encode_value(
+    encoder: &mut DataRowEncoder,
+    arr: &Arc<dyn Array>,
+    idx: usize,
+    pg_type: &Type,
+    format: FieldFormat,
+) -> PgWireResult<()> {
+    match arr.data_type() {
+        DataType::Boolean => encoder.encode_field(&get_bool_value(arr, idx), pg_type, format)?,
+        DataType::Int8 => encoder.encode_field(&get_i8_value(arr, idx), pg_type, format)?,
+        DataType::Int16 => encoder.encode_field(&get_i16_value(arr, idx), pg_type, format)?,
+        DataType::Int32 => encoder.encode_field(&get_i32_value(arr, idx), pg_type, format)?,
+        DataType::Int64 => encoder.encode_field(&get_i64_value(arr, idx), pg_type, format)?,
+        DataType::UInt32 => encoder.encode_field(&get_u32_value(arr, idx), pg_type, format)?,
+        DataType::Float32 => encoder.encode_field(&get_f32_value(arr, idx), pg_type, format)?,
+        DataType::Float64 => encoder.encode_field(&get_f64_value(arr, idx), pg_type, format)?,
+        _ => unimplemented!(),
+    }
+    Ok(())
 }
 
 #[tokio::main]
