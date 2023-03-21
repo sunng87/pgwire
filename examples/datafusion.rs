@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use datafusion::arrow::array::{Array, BooleanArray, PrimitiveArray};
+use datafusion::arrow::array::{Array, BooleanArray, PrimitiveArray, StringArray};
 use datafusion::arrow::datatypes::{
     DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt32Type,
 };
@@ -40,9 +40,11 @@ impl SimpleQueryHandler for DfSessionService {
     {
         println!("{:?}", query);
         if query.starts_with("LOAD") {
-            let commands = query.split(" ").collect::<Vec<&str>>();
-            let table_name = commands[1];
-            let csv_path = commands[2];
+            let command = query.trim_end();
+            let command = command.strip_suffix(";").unwrap_or(command);
+            let args = command.split(" ").collect::<Vec<&str>>();
+            let table_name = args[2];
+            let csv_path = args[1];
             let ctx = self.session_context.lock().await;
             ctx.register_csv(table_name, csv_path, CsvReadOptions::new())
                 .await
@@ -64,7 +66,7 @@ impl SimpleQueryHandler for DfSessionService {
             Ok(vec![Response::Error(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "XX000".to_owned(),
-                "Datafusion is a readonly execution engine.".to_owned(),
+                "Datafusion is a readonly execution engine. To load data, call\nLOAD csv_file_path table_name;".to_owned(),
             )))])
         }
     }
@@ -181,6 +183,13 @@ get_primitive_value!(get_u32_value, UInt32Type, u32);
 get_primitive_value!(get_f32_value, Float32Type, f32);
 get_primitive_value!(get_f64_value, Float64Type, f64);
 
+fn get_utf8_value(arr: &Arc<dyn Array>, idx: usize) -> &str {
+    arr.as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap()
+        .value(idx)
+}
+
 fn encode_value(
     encoder: &mut DataRowEncoder,
     arr: &Arc<dyn Array>,
@@ -197,7 +206,18 @@ fn encode_value(
         DataType::UInt32 => encoder.encode_field(&get_u32_value(arr, idx), pg_type, format)?,
         DataType::Float32 => encoder.encode_field(&get_f32_value(arr, idx), pg_type, format)?,
         DataType::Float64 => encoder.encode_field(&get_f64_value(arr, idx), pg_type, format)?,
-        _ => unimplemented!(),
+        DataType::Utf8 => encoder.encode_field(&get_utf8_value(arr, idx), pg_type, format)?,
+        _ => {
+            return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                "ERROR".to_owned(),
+                "XX000".to_owned(),
+                format!(
+                    "Unsupported Datatype {} and array {:?}",
+                    arr.data_type(),
+                    &arr
+                ),
+            ))))
+        }
     }
     Ok(())
 }

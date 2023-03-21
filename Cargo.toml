@@ -47,8 +47,8 @@ rustls-pemfile = { version = "1.0" }
 ## rustls-native-certs loads roots from current system
 gluesql = "0.13"
 ## for datafusion example
-datafusion = "19"
-sqlparser = "0.30"
+datafusion = "20"
+sqlparser = "0.32"
 
 [features]
 default = ["tokio", "time-format"]
