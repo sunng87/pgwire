@@ -70,6 +70,9 @@ Examples are provided to demo the very basic usage of `pgwire` on server side:
 - `examples/server.rs`: demos a server that always returns fixed results.
 - `examples/secure_server.rs`: demos a server with ssl support and always
   returns fixed results.
+- `examples/datafusion.rs`: demos a postgres compatible server backed by
+  datafusion query engine. This example allows you to `LOAD` csv files as
+  datafusion table and run `SELECT` queries on them.
 
 ### Client/Frontend
 
