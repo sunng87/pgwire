@@ -328,6 +328,7 @@ where
 }
 
 /// An enum holds borrowed statement or portal
+#[derive(Debug)]
 pub enum StatementOrPortal<'a, S> {
     Statement(&'a StoredStatement<S>),
     Portal(&'a Portal<S>),
