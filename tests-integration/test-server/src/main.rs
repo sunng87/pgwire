@@ -10,11 +10,11 @@ use pgwire::api::auth::{
     AuthSource, DefaultServerParameterProvider, LoginInfo, Password, ServerParameterProvider,
 };
 use pgwire::api::portal::Portal;
-use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
+use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal};
 use pgwire::api::results::{
     query_response, DataRowEncoder, DescribeResponse, FieldFormat, FieldInfo, Response, Tag,
 };
-use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
+use pgwire::api::stmt::NoopQueryParser;
 use pgwire::api::store::MemPortalStore;
 use pgwire::api::{ClientInfo, MakeHandler, Type};
 use pgwire::error::PgWireResult;
@@ -155,24 +155,20 @@ impl ExtendedQueryHandler for DummyDatabase {
     async fn do_describe<C>(
         &self,
         _client: &mut C,
-        query: &StoredStatement<Self::Statement>,
-        parameter_type_infer: bool,
+        target: StatementOrPortal<'_, Self::Statement>,
     ) -> PgWireResult<DescribeResponse>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        println!("describe: {:?}", query);
+        println!("describe: {:?}", target);
+        let param_types = match target {
+            StatementOrPortal::Statement(_) => Some(vec![Type::INT4]),
+            StatementOrPortal::Portal(_) => None,
+        };
         let f1 = FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Text);
         let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text);
         let f3 = FieldInfo::new("ts".into(), None, None, Type::TIMESTAMP, FieldFormat::Text);
-        Ok(DescribeResponse::new(
-            if parameter_type_infer {
-                Some(vec![Type::INT4])
-            } else {
-                None
-            },
-            vec![f1, f2, f3],
-        ))
+        Ok(DescribeResponse::new(param_types, vec![f1, f2, f3]))
     }
 }
 

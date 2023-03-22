@@ -171,7 +171,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
         match message.target_type() {
             TARGET_TYPE_BYTE_STATEMENT => {
                 if let Some(stmt) = self.portal_store().get_statement(name) {
-                    let describe_response = self.do_describe(client, stmt.as_ref(), true).await?;
+                    let describe_response = self
+                        .do_describe(client, StatementOrPortal::Statement(&stmt))
+                        .await?;
                     if let Some(parameter_types) = describe_response.parameters() {
                         // parameter type inference
                         client
@@ -197,8 +199,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
             }
             TARGET_TYPE_BYTE_PORTAL => {
                 if let Some(portal) = self.portal_store().get_portal(name) {
-                    let describe_response =
-                        self.do_describe(client, portal.statement(), false).await?;
+                    let describe_response = self
+                        .do_describe(client, StatementOrPortal::Portal(&portal))
+                        .await?;
                     let row_schema = describe_response.take_fields();
                     let row_desc = into_row_description(row_schema);
                     client
@@ -255,8 +258,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
     async fn do_describe<C>(
         &self,
         client: &mut C,
-        statement: &StoredStatement<Self::Statement>,
-        inference_parameters: bool,
+        target: StatementOrPortal<'_, Self::Statement>,
     ) -> PgWireResult<DescribeResponse>
     where
         C: ClientInfo + Unpin + Send + Sync;
@@ -325,6 +327,13 @@ where
     Ok(())
 }
 
+/// An enum holds borrowed statement or portal
+#[derive(Debug)]
+pub enum StatementOrPortal<'a, S> {
+    Statement(&'a StoredStatement<S>),
+    Portal(&'a Portal<S>),
+}
+
 /// A placeholder extended query handler. It panics when extended query messages
 /// received. This handler is for demo only, never use it in serious
 /// application.
@@ -360,8 +369,7 @@ impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
     async fn do_describe<C>(
         &self,
         _client: &mut C,
-        _statement: &StoredStatement<Self::Statement>,
-        _inference_parameters: bool,
+        _statement: StatementOrPortal<'_, Self::Statement>,
     ) -> PgWireResult<DescribeResponse>
     where
         C: ClientInfo + Unpin + Send + Sync,

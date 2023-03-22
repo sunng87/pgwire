@@ -9,11 +9,11 @@ use pgwire::api::auth::{
     AuthSource, DefaultServerParameterProvider, LoginInfo, Password, ServerParameterProvider,
 };
 use pgwire::api::portal::{Format, Portal};
-use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
+use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal};
 use pgwire::api::results::{
     query_response, DataRowEncoder, DescribeResponse, FieldFormat, FieldInfo, Response, Tag,
 };
-use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
+use pgwire::api::stmt::NoopQueryParser;
 use pgwire::api::store::MemPortalStore;
 use pgwire::api::{ClientInfo, MakeHandler, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
@@ -279,23 +279,29 @@ impl ExtendedQueryHandler for SqliteBackend {
     async fn do_describe<C>(
         &self,
         _client: &mut C,
-        query: &StoredStatement<Self::Statement>,
-        inference_parameters: bool,
+        target: StatementOrPortal<'_, Self::Statement>,
     ) -> PgWireResult<DescribeResponse>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
         let conn = self.conn.lock().unwrap();
-        let stmt = conn
-            .prepare_cached(query.statement())
-            .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-        let param_types = if inference_parameters {
-            Some(query.parameter_types().clone())
-        } else {
-            None
-        };
-        row_desc_from_stmt(&stmt, FieldFormat::Binary)
-            .map(|fields| DescribeResponse::new(param_types, fields))
+        match target {
+            StatementOrPortal::Statement(stmt) => {
+                let param_types = Some(stmt.parameter_types().clone());
+                let stmt = conn
+                    .prepare_cached(stmt.statement())
+                    .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+                row_desc_from_stmt(&stmt, FieldFormat::Binary)
+                    .map(|fields| DescribeResponse::new(param_types, fields))
+            }
+            StatementOrPortal::Portal(portal) => {
+                let stmt = conn
+                    .prepare_cached(portal.statement().statement())
+                    .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+                row_desc_from_stmt(&stmt, FieldFormat::Binary)
+                    .map(|fields| DescribeResponse::new(None, fields))
+            }
+        }
     }
 }
 
