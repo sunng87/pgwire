@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   In simple query, it's always text encode. In extended query, client describes
   its preferred formats in `Bind` request, and can be retrieved from `portal`
   argument in `do_query()`.
+- Updated `do_describe` API from `ExtendedQueryHandler` to include full
+  information about requested `Statement` or `Portal`.
 
 ## [0.11.1] - 2023-02-26
 
