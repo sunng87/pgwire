@@ -11,7 +11,7 @@ use pgwire::api::auth::{
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal};
 use pgwire::api::results::{
-    query_response, DataRowEncoder, DescribeResponse, FieldFormat, FieldInfo, Response, Tag,
+    query_response, DataRowEncoder, DescribeResponse, FieldInfo, Response, Tag,
 };
 use pgwire::api::stmt::NoopQueryParser;
 use pgwire::api::store::MemPortalStore;
@@ -83,12 +83,11 @@ impl SimpleQueryHandler for SqliteBackend {
             let mut stmt = conn
                 .prepare(query)
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-            let columns = stmt.column_count();
-            let header = row_desc_from_stmt(&stmt, FieldFormat::Text)?;
+            let header = Arc::new(row_desc_from_stmt(&stmt, &Format::UnifiedText)?);
             stmt.query(())
                 .map(|rows| {
-                    let s = encode_row_data(rows, columns, &Format::UnifiedText);
-                    vec![Response::Query(query_response(Some(header), s))]
+                    let s = encode_row_data(rows, header.clone());
+                    vec![Response::Query(query_response(header, s))]
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {
@@ -119,17 +118,18 @@ fn name_to_type(name: &str) -> PgWireResult<Type> {
     }
 }
 
-fn row_desc_from_stmt(stmt: &Statement, format: FieldFormat) -> PgWireResult<Vec<FieldInfo>> {
+fn row_desc_from_stmt(stmt: &Statement, format: &Format) -> PgWireResult<Vec<FieldInfo>> {
     stmt.columns()
         .iter()
-        .map(|col| {
+        .enumerate()
+        .map(|(idx, col)| {
             let field_type = name_to_type(col.decl_type().unwrap())?;
             Ok(FieldInfo::new(
                 col.name().to_owned(),
                 None,
                 None,
                 field_type,
-                format,
+                format.format_for(idx),
             ))
         })
         .collect()
@@ -137,41 +137,29 @@ fn row_desc_from_stmt(stmt: &Statement, format: FieldFormat) -> PgWireResult<Vec
 
 fn encode_row_data(
     mut rows: Rows,
-    columns: usize,
-    fmt: &Format,
+    schema: Arc<Vec<FieldInfo>>,
 ) -> impl Stream<Item = PgWireResult<DataRow>> {
     let mut results = Vec::new();
+    let ncols = schema.len();
     while let Ok(Some(row)) = rows.next() {
-        let mut encoder = DataRowEncoder::new(columns);
-        for idx in 0..columns {
+        let mut encoder = DataRowEncoder::new(schema.clone());
+        for idx in 0..ncols {
             let data = row.get_ref_unwrap::<usize>(idx);
             match data {
-                ValueRef::Null => encoder
-                    .encode_field(&None::<i8>, &Type::CHAR, fmt.format_for(idx))
-                    .unwrap(),
+                ValueRef::Null => encoder.encode_field(&None::<i8>).unwrap(),
                 ValueRef::Integer(i) => {
-                    encoder
-                        .encode_field(&i, &Type::INT8, fmt.format_for(idx))
-                        .unwrap();
+                    encoder.encode_field(&i).unwrap();
                 }
                 ValueRef::Real(f) => {
-                    encoder
-                        .encode_field(&f, &Type::FLOAT8, fmt.format_for(idx))
-                        .unwrap();
+                    encoder.encode_field(&f).unwrap();
                 }
                 ValueRef::Text(t) => {
                     encoder
-                        .encode_field(
-                            &String::from_utf8_lossy(t).as_ref(),
-                            &Type::VARCHAR,
-                            fmt.format_for(idx),
-                        )
+                        .encode_field(&String::from_utf8_lossy(t).as_ref())
                         .unwrap();
                 }
                 ValueRef::Blob(b) => {
-                    encoder
-                        .encode_field(&b, &Type::BYTEA, fmt.format_for(idx))
-                        .unwrap();
+                    encoder.encode_field(&b).unwrap();
                 }
             }
         }
@@ -260,11 +248,11 @@ impl ExtendedQueryHandler for SqliteBackend {
             .collect::<Vec<&dyn rusqlite::ToSql>>();
 
         if query.to_uppercase().starts_with("SELECT") {
-            let header = Arc::new(row_desc_from_stmt(&stmt, FieldFormat::Binary)?);
+            let header = Arc::new(row_desc_from_stmt(&stmt, portal.result_column_format())?);
             stmt.query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
                 .map(|rows| {
-                    let s = encode_row_data(rows, header.len(), portal.result_column_format());
-                    Response::Query(query_response(None, s))
+                    let s = encode_row_data(rows, header.clone());
+                    Response::Query(query_response(header, s))
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {
@@ -291,14 +279,14 @@ impl ExtendedQueryHandler for SqliteBackend {
                 let stmt = conn
                     .prepare_cached(stmt.statement())
                     .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-                row_desc_from_stmt(&stmt, FieldFormat::Binary)
+                row_desc_from_stmt(&stmt, &Format::UnifiedBinary)
                     .map(|fields| DescribeResponse::new(param_types, fields))
             }
             StatementOrPortal::Portal(portal) => {
                 let stmt = conn
                     .prepare_cached(portal.statement().statement())
                     .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-                row_desc_from_stmt(&stmt, FieldFormat::Binary)
+                row_desc_from_stmt(&stmt, portal.result_column_format())
                     .map(|fields| DescribeResponse::new(None, fields))
             }
         }

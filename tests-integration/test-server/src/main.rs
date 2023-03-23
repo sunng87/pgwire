@@ -9,10 +9,10 @@ use pgwire::api::auth::scram::{gen_salted_password, MakeSASLScramAuthStartupHand
 use pgwire::api::auth::{
     AuthSource, DefaultServerParameterProvider, LoginInfo, Password, ServerParameterProvider,
 };
-use pgwire::api::portal::Portal;
+use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal};
 use pgwire::api::results::{
-    query_response, DataRowEncoder, DescribeResponse, FieldFormat, FieldInfo, Response, Tag,
+    query_response, DataRowEncoder, DescribeResponse, FieldInfo, Response, Tag,
 };
 use pgwire::api::stmt::NoopQueryParser;
 use pgwire::api::store::MemPortalStore;
@@ -61,6 +61,27 @@ struct DummyDatabase {
     query_parser: Arc<NoopQueryParser>,
 }
 
+impl DummyDatabase {
+    fn schema(&self, format: &Format) -> Vec<FieldInfo> {
+        let f1 = FieldInfo::new("id".into(), None, None, Type::INT4, format.format_for(0));
+        let f2 = FieldInfo::new(
+            "name".into(),
+            None,
+            None,
+            Type::VARCHAR,
+            format.format_for(1),
+        );
+        let f3 = FieldInfo::new(
+            "ts".into(),
+            None,
+            None,
+            Type::TIMESTAMP,
+            format.format_for(2),
+        );
+        vec![f1, f2, f3]
+    }
+}
+
 #[async_trait]
 impl SimpleQueryHandler for DummyDatabase {
     async fn do_query<'a, C>(&self, _client: &C, query: &'a str) -> PgWireResult<Vec<Response<'a>>>
@@ -69,26 +90,24 @@ impl SimpleQueryHandler for DummyDatabase {
     {
         println!("simple query: {:?}", query);
         if query.starts_with("SELECT") {
-            let f1 = FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Text);
-            let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text);
-            let f3 = FieldInfo::new("ts".into(), None, None, Type::TIMESTAMP, FieldFormat::Text);
-
+            let schema = Arc::new(self.schema(&Format::UnifiedText));
+            let schema_ref = schema.clone();
             let data = vec![
                 (Some(0), Some("Tom"), Some("2023-02-01 22:27:25.042674")),
                 (Some(1), Some("Jerry"), Some("2023-02-01 22:27:42.165585")),
                 (Some(2), None, None),
             ];
-            let data_row_stream = stream::iter(data.into_iter()).map(|r| {
-                let mut encoder = DataRowEncoder::new(3);
-                encoder.encode_field(&r.0, &Type::INT4, FieldFormat::Text)?;
-                encoder.encode_field(&r.1, &Type::VARCHAR, FieldFormat::Text)?;
-                encoder.encode_field(&r.2, &Type::TIMESTAMP, FieldFormat::Text)?;
+            let data_row_stream = stream::iter(data.into_iter()).map(move |r| {
+                let mut encoder = DataRowEncoder::new(schema_ref.clone());
+                encoder.encode_field(&r.0)?;
+                encoder.encode_field(&r.1)?;
+                encoder.encode_field(&r.2)?;
 
                 encoder.finish()
             });
 
             Ok(vec![Response::Query(query_response(
-                Some(vec![f1, f2, f3]),
+                schema,
                 data_row_stream,
             ))])
         } else {
@@ -135,18 +154,19 @@ impl ExtendedQueryHandler for DummyDatabase {
                 ),
                 (Some(2), None, None),
             ];
-            let result_column_format = portal.result_column_format();
-            let data_row_stream = stream::iter(data.into_iter()).map(|r| {
-                let mut encoder = DataRowEncoder::new(3);
+            let schema = Arc::new(self.schema(portal.result_column_format()));
+            let schema_ref = schema.clone();
+            let data_row_stream = stream::iter(data.into_iter()).map(move |r| {
+                let mut encoder = DataRowEncoder::new(schema_ref.clone());
 
-                encoder.encode_field(&r.0, &Type::INT4, result_column_format.format_for(0))?;
-                encoder.encode_field(&r.1, &Type::VARCHAR, result_column_format.format_for(1))?;
-                encoder.encode_field(&r.2, &Type::TIMESTAMP, result_column_format.format_for(2))?;
+                encoder.encode_field(&r.0)?;
+                encoder.encode_field(&r.1)?;
+                encoder.encode_field(&r.2)?;
 
                 encoder.finish()
             });
 
-            Ok(Response::Query(query_response(None, data_row_stream)))
+            Ok(Response::Query(query_response(schema, data_row_stream)))
         } else {
             Ok(Response::Execution(Tag::new_for_execution("OK", Some(1))))
         }
@@ -161,14 +181,17 @@ impl ExtendedQueryHandler for DummyDatabase {
         C: ClientInfo + Unpin + Send + Sync,
     {
         println!("describe: {:?}", target);
-        let param_types = match target {
-            StatementOrPortal::Statement(_) => Some(vec![Type::INT4]),
-            StatementOrPortal::Portal(_) => None,
-        };
-        let f1 = FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Text);
-        let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text);
-        let f3 = FieldInfo::new("ts".into(), None, None, Type::TIMESTAMP, FieldFormat::Text);
-        Ok(DescribeResponse::new(param_types, vec![f1, f2, f3]))
+        match target {
+            StatementOrPortal::Statement(_) => {
+                let param_types = Some(vec![Type::INT4]);
+                let schema = self.schema(&Format::UnifiedText);
+                Ok(DescribeResponse::new(param_types, schema))
+            }
+            StatementOrPortal::Portal(portal) => {
+                let schema = self.schema(portal.result_column_format());
+                Ok(DescribeResponse::new(None, schema))
+            }
+        }
     }
 }
 

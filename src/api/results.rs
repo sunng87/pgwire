@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::Arc};
 
 use bytes::BytesMut;
 use futures::{
@@ -88,10 +88,10 @@ pub struct FieldInfo {
     format: FieldFormat,
 }
 
-impl From<FieldInfo> for FieldDescription {
-    fn from(fi: FieldInfo) -> Self {
+impl From<&FieldInfo> for FieldDescription {
+    fn from(fi: &FieldInfo) -> Self {
         FieldDescription::new(
-            fi.name,                   // name
+            fi.name.clone(),           // name
             fi.table_id.unwrap_or(0),  // table_id
             fi.column_id.unwrap_or(0), // column_id
             fi.datatype.oid(),         // type_id
@@ -103,31 +103,36 @@ impl From<FieldInfo> for FieldDescription {
     }
 }
 
-pub(crate) fn into_row_description(fields: Vec<FieldInfo>) -> RowDescription {
-    RowDescription::new(fields.into_iter().map(Into::into).collect())
+pub(crate) fn into_row_description(fields: &Vec<FieldInfo>) -> RowDescription {
+    RowDescription::new(fields.iter().map(Into::into).collect())
 }
 
 #[derive(Getters)]
 #[getset(get = "pub")]
 pub struct QueryResponse<'a> {
-    pub(crate) row_schema: Option<Vec<FieldInfo>>,
+    pub(crate) row_schema: Arc<Vec<FieldInfo>>,
     pub(crate) data_rows: BoxStream<'a, PgWireResult<DataRow>>,
 }
 
 pub struct DataRowEncoder {
     buffer: DataRow,
     field_buffer: BytesMut,
+    schema: Arc<Vec<FieldInfo>>,
+    col_index: usize,
 }
 
 impl DataRowEncoder {
-    pub fn new(ncols: usize) -> DataRowEncoder {
+    pub fn new(fields: Arc<Vec<FieldInfo>>) -> DataRowEncoder {
+        let ncols = fields.len();
         Self {
             buffer: DataRow::new(Vec::with_capacity(ncols)),
             field_buffer: BytesMut::with_capacity(8),
+            schema: fields,
+            col_index: 0,
         }
     }
 
-    pub fn encode_field<T>(
+    pub fn encode_field_with_type_and_format<T>(
         &mut self,
         value: &T,
         data_type: &Type,
@@ -148,6 +153,33 @@ impl DataRowEncoder {
         } else {
             self.buffer.fields_mut().push(None);
         }
+
+        self.col_index += 1;
+        self.field_buffer.clear();
+        Ok(())
+    }
+
+    pub fn encode_field<T>(&mut self, value: &T) -> PgWireResult<()>
+    where
+        T: ToSql + ToSqlText + Sized,
+    {
+        let data_type = self.schema[self.col_index].datatype();
+        let format = self.schema[self.col_index].format();
+
+        let is_null = if *format == FieldFormat::Text {
+            value.to_sql_text(data_type, &mut self.field_buffer)?
+        } else {
+            value.to_sql(data_type, &mut self.field_buffer)?
+        };
+
+        if let IsNull::No = is_null {
+            let buf = self.field_buffer.split().freeze();
+            self.buffer.fields_mut().push(Some(buf));
+        } else {
+            self.buffer.fields_mut().push(None);
+        }
+
+        self.col_index += 1;
         self.field_buffer.clear();
         Ok(())
     }
@@ -157,7 +189,7 @@ impl DataRowEncoder {
     }
 }
 
-pub fn query_response<'a, S>(field_defs: Option<Vec<FieldInfo>>, row_stream: S) -> QueryResponse<'a>
+pub fn query_response<'a, S>(field_defs: Arc<Vec<FieldInfo>>, row_stream: S) -> QueryResponse<'a>
 where
     S: Stream<Item = PgWireResult<DataRow>> + Send + Unpin + 'a,
 {
@@ -180,11 +212,7 @@ pub struct DescribeResponse {
     fields: Vec<FieldInfo>,
 }
 
-impl DescribeResponse {
-    pub(crate) fn take_fields(self) -> Vec<FieldInfo> {
-        self.fields
-    }
-}
+impl DescribeResponse {}
 
 /// Query response types:
 ///
@@ -199,6 +227,8 @@ pub enum Response<'a> {
 
 #[cfg(test)]
 mod test {
+    use std::time::SystemTime;
+
     use super::*;
 
     #[test]
@@ -207,5 +237,25 @@ mod test {
         let cc = CommandComplete::from(tag);
 
         assert_eq!(cc.tag(), "INSERT 100");
+    }
+
+    #[test]
+    fn test_data_row_encoder() {
+        let schema = Arc::new(vec![
+            FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Text),
+            FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text),
+            FieldInfo::new("ts".into(), None, None, Type::TIMESTAMP, FieldFormat::Text),
+        ]);
+        let mut encoder = DataRowEncoder::new(schema);
+        encoder.encode_field(&2001).unwrap();
+        encoder.encode_field(&"udev").unwrap();
+        encoder.encode_field(&SystemTime::now()).unwrap();
+
+        let row = encoder.finish().unwrap();
+
+        assert_eq!(row.fields().len(), 3);
+        assert_eq!(row.fields()[0].as_ref().unwrap().len(), 4);
+        assert_eq!(row.fields()[1].as_ref().unwrap().len(), 4);
+        assert_eq!(row.fields()[2].as_ref().unwrap().len(), 26);
     }
 }
