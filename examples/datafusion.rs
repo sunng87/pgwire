@@ -13,9 +13,7 @@ use tokio::sync::Mutex;
 
 use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
-use pgwire::api::results::{
-    query_response, DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag,
-};
+use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
 use pgwire::api::{ClientInfo, MakeHandler, StatelessMakeHandler, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
@@ -103,27 +101,29 @@ fn into_pg_type(df_type: &DataType) -> PgWireResult<Type> {
 
 async fn encode_dataframe<'a>(df: DataFrame) -> PgWireResult<QueryResponse<'a>> {
     let schema = df.schema();
-    let fields = schema
-        .fields()
-        .iter()
-        .map(|f| {
-            let pg_type = into_pg_type(f.data_type())?;
-            Ok(FieldInfo::new(
-                f.name().into(),
-                None,
-                None,
-                pg_type,
-                FieldFormat::Text,
-            ))
-        })
-        .collect::<PgWireResult<Vec<FieldInfo>>>()?;
+    let fields = Arc::new(
+        schema
+            .fields()
+            .iter()
+            .map(|f| {
+                let pg_type = into_pg_type(f.data_type())?;
+                Ok(FieldInfo::new(
+                    f.name().into(),
+                    None,
+                    None,
+                    pg_type,
+                    FieldFormat::Text,
+                ))
+            })
+            .collect::<PgWireResult<Vec<FieldInfo>>>()?,
+    );
 
     let recordbatch_stream = df
         .execute_stream()
         .await
         .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-    let fields2 = fields.clone();
 
+    let fields_ref = fields.clone();
     let pg_row_stream = recordbatch_stream
         .map(move |rb: datafusion::error::Result<RecordBatch>| {
             let rb = rb.unwrap();
@@ -132,16 +132,13 @@ async fn encode_dataframe<'a>(df: DataFrame) -> PgWireResult<QueryResponse<'a>> 
             let mut results = Vec::with_capacity(rows);
 
             for row in 0..rows {
-                let mut encoder = DataRowEncoder::new(cols);
+                let mut encoder = DataRowEncoder::new(fields_ref.clone());
                 for col in 0..cols {
                     let array = rb.column(col);
-                    let f = &fields2[col];
                     if array.is_null(row) {
-                        encoder
-                            .encode_field(&None::<i8>, f.datatype(), *f.format())
-                            .unwrap();
+                        encoder.encode_field(&None::<i8>).unwrap();
                     } else {
-                        encode_value(&mut encoder, array, row, f.datatype(), *f.format()).unwrap();
+                        encode_value(&mut encoder, array, row).unwrap();
                     }
                 }
                 results.push(encoder.finish());
@@ -151,7 +148,7 @@ async fn encode_dataframe<'a>(df: DataFrame) -> PgWireResult<QueryResponse<'a>> 
         })
         .flatten();
 
-    Ok(query_response(Some(fields.clone()), pg_row_stream))
+    Ok(QueryResponse::new(fields, pg_row_stream))
 }
 
 fn get_bool_value(arr: &Arc<dyn Array>, idx: usize) -> bool {
@@ -194,19 +191,17 @@ fn encode_value(
     encoder: &mut DataRowEncoder,
     arr: &Arc<dyn Array>,
     idx: usize,
-    pg_type: &Type,
-    format: FieldFormat,
 ) -> PgWireResult<()> {
     match arr.data_type() {
-        DataType::Boolean => encoder.encode_field(&get_bool_value(arr, idx), pg_type, format)?,
-        DataType::Int8 => encoder.encode_field(&get_i8_value(arr, idx), pg_type, format)?,
-        DataType::Int16 => encoder.encode_field(&get_i16_value(arr, idx), pg_type, format)?,
-        DataType::Int32 => encoder.encode_field(&get_i32_value(arr, idx), pg_type, format)?,
-        DataType::Int64 => encoder.encode_field(&get_i64_value(arr, idx), pg_type, format)?,
-        DataType::UInt32 => encoder.encode_field(&get_u32_value(arr, idx), pg_type, format)?,
-        DataType::Float32 => encoder.encode_field(&get_f32_value(arr, idx), pg_type, format)?,
-        DataType::Float64 => encoder.encode_field(&get_f64_value(arr, idx), pg_type, format)?,
-        DataType::Utf8 => encoder.encode_field(&get_utf8_value(arr, idx), pg_type, format)?,
+        DataType::Boolean => encoder.encode_field(&get_bool_value(arr, idx))?,
+        DataType::Int8 => encoder.encode_field(&get_i8_value(arr, idx))?,
+        DataType::Int16 => encoder.encode_field(&get_i16_value(arr, idx))?,
+        DataType::Int32 => encoder.encode_field(&get_i32_value(arr, idx))?,
+        DataType::Int64 => encoder.encode_field(&get_i64_value(arr, idx))?,
+        DataType::UInt32 => encoder.encode_field(&get_u32_value(arr, idx))?,
+        DataType::Float32 => encoder.encode_field(&get_f32_value(arr, idx))?,
+        DataType::Float64 => encoder.encode_field(&get_f64_value(arr, idx))?,
+        DataType::Utf8 => encoder.encode_field(&get_utf8_value(arr, idx))?,
         _ => {
             return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),

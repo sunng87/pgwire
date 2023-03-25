@@ -44,7 +44,7 @@ pub trait SimpleQueryHandler: Send + Sync {
             for r in resp {
                 match r {
                     Response::Query(results) => {
-                        send_query_response(client, results).await?;
+                        send_query_response(client, results, true).await?;
                     }
                     Response::Execution(tag) => {
                         send_execution_response(client, tag).await?;
@@ -138,7 +138,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 .await?
             {
                 Response::Query(results) => {
-                    send_query_response(client, results).await?;
+                    send_query_response(client, results, false).await?;
                 }
                 Response::Execution(tag) => {
                     send_execution_response(client, tag).await?;
@@ -184,7 +184,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                             ))
                             .await?;
                     }
-                    let row_desc = into_row_description(describe_response.take_fields());
+                    let row_desc = into_row_description(describe_response.fields());
                     client
                         .send(PgWireBackendMessage::RowDescription(row_desc))
                         .await?;
@@ -202,7 +202,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                     let describe_response = self
                         .do_describe(client, StatementOrPortal::Portal(&portal))
                         .await?;
-                    let row_schema = describe_response.take_fields();
+                    let row_schema = describe_response.fields();
                     let row_desc = into_row_description(row_schema);
                     client
                         .send(PgWireBackendMessage::RowDescription(row_desc))
@@ -279,7 +279,11 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C: ClientInfo + Unpin + Send + Sync;
 }
 
-async fn send_query_response<'a, C>(client: &mut C, results: QueryResponse<'a>) -> PgWireResult<()>
+async fn send_query_response<'a, C>(
+    client: &mut C,
+    results: QueryResponse<'a>,
+    send_describe: bool,
+) -> PgWireResult<()>
 where
     C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
     C::Error: Debug,
@@ -292,8 +296,8 @@ where
 
     // Simple query has row_schema in query response. For extended query,
     // row_schema is returned as response of `Describe`.
-    if let Some(row_schema) = row_schema {
-        let row_desc = into_row_description(row_schema);
+    if send_describe {
+        let row_desc = into_row_description(&row_schema);
         client
             .send(PgWireBackendMessage::RowDescription(row_desc))
             .await?;
