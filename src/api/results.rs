@@ -103,7 +103,7 @@ impl From<&FieldInfo> for FieldDescription {
     }
 }
 
-pub(crate) fn into_row_description(fields: &Vec<FieldInfo>) -> RowDescription {
+pub(crate) fn into_row_description(fields: &[FieldInfo]) -> RowDescription {
     RowDescription::new(fields.iter().map(Into::into).collect())
 }
 
