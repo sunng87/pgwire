@@ -114,6 +114,19 @@ pub struct QueryResponse<'a> {
     pub(crate) data_rows: BoxStream<'a, PgWireResult<DataRow>>,
 }
 
+impl<'a> QueryResponse<'a> {
+    /// Create `QueryResponse` from column schemas and stream of data row
+    pub fn new<S>(field_defs: Arc<Vec<FieldInfo>>, row_stream: S) -> QueryResponse<'a>
+    where
+        S: Stream<Item = PgWireResult<DataRow>> + Send + Unpin + 'a,
+    {
+        QueryResponse {
+            row_schema: field_defs,
+            data_rows: row_stream.boxed(),
+        }
+    }
+}
+
 pub struct DataRowEncoder {
     buffer: DataRow,
     field_buffer: BytesMut,
@@ -122,6 +135,7 @@ pub struct DataRowEncoder {
 }
 
 impl DataRowEncoder {
+    /// New DataRowEncoder from schemas of column
     pub fn new(fields: Arc<Vec<FieldInfo>>) -> DataRowEncoder {
         let ncols = fields.len();
         Self {
@@ -132,6 +146,10 @@ impl DataRowEncoder {
         }
     }
 
+    /// Encode value with custom type and format
+    ///
+    /// This encode function ignores data type and format information from
+    /// schema of this encoder.
     pub fn encode_field_with_type_and_format<T>(
         &mut self,
         value: &T,
@@ -159,6 +177,9 @@ impl DataRowEncoder {
         Ok(())
     }
 
+    /// Encode value using type and format, defined by schema
+    ///
+    /// Panic when encoding more columns than provided as schema.
     pub fn encode_field<T>(&mut self, value: &T) -> PgWireResult<()>
     where
         T: ToSql + ToSqlText + Sized,
@@ -184,18 +205,9 @@ impl DataRowEncoder {
         Ok(())
     }
 
-    pub fn finish(self) -> PgWireResult<DataRow> {
+    pub fn finish(mut self) -> PgWireResult<DataRow> {
+        self.col_index = 0;
         Ok(self.buffer)
-    }
-}
-
-pub fn query_response<'a, S>(field_defs: Arc<Vec<FieldInfo>>, row_stream: S) -> QueryResponse<'a>
-where
-    S: Stream<Item = PgWireResult<DataRow>> + Send + Unpin + 'a,
-{
-    QueryResponse {
-        row_schema: field_defs,
-        data_rows: row_stream.boxed(),
     }
 }
 

@@ -7,7 +7,7 @@ use tokio::net::TcpListener;
 use gluesql::prelude::*;
 use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
-use pgwire::api::results::{query_response, DataRowEncoder, FieldFormat, FieldInfo, Response, Tag};
+use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
 use pgwire::api::{ClientInfo, MakeHandler, StatelessMakeHandler, Type};
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
@@ -126,7 +126,7 @@ impl SimpleQueryHandler for GluesqlProcessor {
                                 results.push(encoder.finish());
                             }
 
-                            Ok(Response::Query(query_response(
+                            Ok(Response::Query(QueryResponse::new(
                                 fields,
                                 stream::iter(results.into_iter()),
                             )))

@@ -6,7 +6,7 @@ use tokio::net::TcpListener;
 
 use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
-use pgwire::api::results::{query_response, DataRowEncoder, FieldFormat, FieldInfo, Response, Tag};
+use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
 use pgwire::api::{ClientInfo, MakeHandler, StatelessMakeHandler, Type};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
@@ -39,7 +39,7 @@ impl SimpleQueryHandler for DummyProcessor {
                 encoder.finish()
             });
 
-            Ok(vec![Response::Query(query_response(
+            Ok(vec![Response::Query(QueryResponse::new(
                 schema,
                 data_row_stream,
             ))])

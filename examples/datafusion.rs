@@ -13,9 +13,7 @@ use tokio::sync::Mutex;
 
 use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
-use pgwire::api::results::{
-    query_response, DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag,
-};
+use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
 use pgwire::api::{ClientInfo, MakeHandler, StatelessMakeHandler, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
@@ -150,7 +148,7 @@ async fn encode_dataframe<'a>(df: DataFrame) -> PgWireResult<QueryResponse<'a>> 
         })
         .flatten();
 
-    Ok(query_response(fields, pg_row_stream))
+    Ok(QueryResponse::new(fields, pg_row_stream))
 }
 
 fn get_bool_value(arr: &Arc<dyn Array>, idx: usize) -> bool {

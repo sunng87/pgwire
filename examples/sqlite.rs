@@ -11,7 +11,7 @@ use pgwire::api::auth::{
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal};
 use pgwire::api::results::{
-    query_response, DataRowEncoder, DescribeResponse, FieldInfo, Response, Tag,
+    DataRowEncoder, DescribeResponse, FieldInfo, QueryResponse, Response, Tag,
 };
 use pgwire::api::stmt::NoopQueryParser;
 use pgwire::api::store::MemPortalStore;
@@ -87,7 +87,7 @@ impl SimpleQueryHandler for SqliteBackend {
             stmt.query(())
                 .map(|rows| {
                     let s = encode_row_data(rows, header.clone());
-                    vec![Response::Query(query_response(header, s))]
+                    vec![Response::Query(QueryResponse::new(header, s))]
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {
@@ -252,7 +252,7 @@ impl ExtendedQueryHandler for SqliteBackend {
             stmt.query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
                 .map(|rows| {
                     let s = encode_row_data(rows, header.clone());
-                    Response::Query(query_response(header, s))
+                    Response::Query(QueryResponse::new(header, s))
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {
