@@ -16,12 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Updated `DataRowEncoder` encode API with unified `encode_field` for both
-  binary and text encoding. It accepts `Format` to decide which encoding to use.
-  In simple query, it's always text encode. In extended query, client describes
-  its preferred formats in `Bind` request, and can be retrieved from `portal`
-  argument in `do_query()`.
+  binary and text encoding. `DataRowEncoder::new` now accepts
+  `Arc<Vec<FieldInfo>>` instead of column count. The encoder now has type and
+  format information for each column. `encode_field` no longer requires `Type`
+  and `FieldFormat`. A new `encode_field_with_type_and_format` is provided for
+  custom use-case.
 - Updated `do_describe` API from `ExtendedQueryHandler` to include full
   information about requested `Statement` or `Portal`.
+- `query_response` function is replaced by `QueryResponse::new`
 
 ## [0.11.1] - 2023-02-26
 
