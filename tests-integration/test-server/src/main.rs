@@ -12,7 +12,7 @@ use pgwire::api::auth::{
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal};
 use pgwire::api::results::{
-    query_response, DataRowEncoder, DescribeResponse, FieldInfo, Response, Tag,
+    DataRowEncoder, DescribeResponse, FieldInfo, QueryResponse, Response, Tag,
 };
 use pgwire::api::stmt::NoopQueryParser;
 use pgwire::api::store::MemPortalStore;
@@ -106,7 +106,7 @@ impl SimpleQueryHandler for DummyDatabase {
                 encoder.finish()
             });
 
-            Ok(vec![Response::Query(query_response(
+            Ok(vec![Response::Query(QueryResponse::new(
                 schema,
                 data_row_stream,
             ))])
@@ -166,7 +166,7 @@ impl ExtendedQueryHandler for DummyDatabase {
                 encoder.finish()
             });
 
-            Ok(Response::Query(query_response(schema, data_row_stream)))
+            Ok(Response::Query(QueryResponse::new(schema, data_row_stream)))
         } else {
             Ok(Response::Execution(Tag::new_for_execution("OK", Some(1))))
         }
