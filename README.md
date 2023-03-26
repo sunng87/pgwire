@@ -49,21 +49,39 @@ with its usage.
   - [ ] Query Cancellation API
   - [x] Error and Notice API
 
+## About Postgres Wire Protocol
+
+Postgres Wire Protocol is a relatively general-purpose Layer-7 protocol. There
+are 3 parts of the protocol:
+
+- Startup: client-server handshake and authentication.
+- Simple Query: The legacy query protocol of postgresql. Query are provided as
+  string, and server is allowed to stream data in response.
+- Extended Query: A new sub-protocol for query which has ability to cache the
+  query on server-side and reuse it with new parameters. The response part is
+  identical to Simple Query.
+
+Also note that Postgres Wire Protocol has no semantics about SQL, so literally
+you can use any query language, data formats or even natural language to
+interact with the backend.
+
+The response are always encoded as data row format. And there is a field
+description as header of the data to describe its name, type and format.
+
+
 ## Usage
 
 ### Server/Backend
 
 To use `pgwire` in your server application, you will need to implement two key
 components: **startup processor*** and **query processor**. For query
-processing, there are two kinds of queries: simple and extended. In simple mode,
-the sql command is passed to postgresql server as a string. In extended query
-mode, a sql command follows `parse`-`bind`-`describe`(optional)-`execute`
-lifecycle.
+processing, there are two kinds of queries: simple and extended.
 
 Examples are provided to demo the very basic usage of `pgwire` on server side:
 
 - `examples/sqlite.rs`: uses an in-memory sqlite database at its core and serves
-  it with postgresql protocol.
+  it with postgresql protocol. This is a full example with both simple and
+  extended query implementation.
 - `examples/gluesql.rs`: uses an in-memory
   [gluesql](https://github.com/gluesql/gluesql) at its core and serves
   it with postgresql protocol.

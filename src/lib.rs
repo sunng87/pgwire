@@ -6,6 +6,25 @@
 //! postgresql comptiable servers. So at the moment, this library focus on
 //! server development.
 //!
+//! ## About Postgres Wire Protocol
+//!
+//! Postgres Wire Protocol is a relatively general-purpose Layer-7
+//! protocol. There are 3 parts of the protocol:
+//!
+//! - Startup: client-server handshake and authentication.
+//! - Simple Query: The legacy query protocol of postgresql. Query are provided
+//! as string, and server is allowed to stream data in response.
+//! - Extended Query: A new sub-protocol for query which has ability to cache
+//! the query on server-side and reuse it with new parameters. The response part
+//! is identical to Simple Query.
+//!
+//! Also note that Postgres Wire Protocol has no semantics about SQL, so
+//! literally you can use any query language, data formats or even natural
+//! language to interact with the backend.
+//!
+//! The response are always encoded as data row format. And there is a field
+//! description as header of the data to describe its name, type and format.
+//!
 //! ## Components
 //!
 //! There are two main components in postgresql wire protocol: **startup** and
