@@ -74,8 +74,11 @@ description as header of the data to describe its name, type and format.
 ### Server/Backend
 
 To use `pgwire` in your server application, you will need to implement two key
-components: **startup processor*** and **query processor**. For query
-processing, there are two kinds of queries: simple and extended.
+components: **startup processor** and **query processor**. For query
+processing, there are two kinds of queries: simple and extended. By adding
+`SimpleQueryHandler` to your application, you will get `psql` command-line tool
+compatibility. And for more language drivers and additional prepared statement,
+binary encoding support, `ExtendedQueryHandler` is required.
 
 Examples are provided to demo the very basic usage of `pgwire` on server side:
 
@@ -88,6 +91,9 @@ Examples are provided to demo the very basic usage of `pgwire` on server side:
 - `examples/server.rs`: demos a server that always returns fixed results.
 - `examples/secure_server.rs`: demos a server with ssl support and always
   returns fixed results.
+- `examples/scram.rs`: demos how to configure more secure authentication
+  mechanism:
+  [SCRAM](https://en.wikipedia.org/wiki/Salted_Challenge_Response_Authentication_Mechanism)
 - `examples/datafusion.rs`: demos a postgres compatible server backed by
   datafusion query engine. This example allows you to `LOAD` csv files as
   datafusion table and run `SELECT` queries on them.
