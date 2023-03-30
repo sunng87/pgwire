@@ -16,6 +16,8 @@ with its usage.
 ## Status
 
 - [x] Message format
+  - [x] Frontend-Backend protocol messages
+  - [ ] Logical replication streaming protocol message
 - [x] Backend TCP/TLS server on Tokio
 - [ ] Frontend-Backend interaction over TCP
   - [x] SSL Request and Response
@@ -37,6 +39,7 @@ with its usage.
   - [x] Cancel
   - [x] Error and Notice
   - [ ] Copy
+- [ ] Logical replication over TCP
 - [ ] APIs
   - [x] Startup APIs
     - [x] AuthSource API, fetching and hashing passwords
@@ -48,6 +51,7 @@ with its usage.
   - [x] ResultSet builder/encoder API
   - [ ] Query Cancellation API
   - [x] Error and Notice API
+  - [ ] Logical replication server API
 
 ## About Postgres Wire Protocol
 
