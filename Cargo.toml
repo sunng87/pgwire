@@ -11,7 +11,7 @@ homepage = "https://github.com/sunng87/pgwire"
 repository = "https://github.com/sunng87/pgwire"
 documentation = "https://docs.rs/crate/pgwire/"
 readme = "README.md"
-rust-version = "1.64"
+rust-version = "1.65"
 
 [dependencies]
 log = "0.4"
@@ -30,7 +30,7 @@ hex = "0.4"
 base64 = "0.21"
 ring = "0.16"
 stringprep = "0.1.2"
-x509-certificate = "0.18"
+x509-certificate = "0.19"
 
 tokio = { version = "1.19", features = ["net", "rt", "io-util"], optional = true}
 tokio-util = { version = "0.7.3", features = ["codec", "io"], optional = true }
