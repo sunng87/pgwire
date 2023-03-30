@@ -10,8 +10,8 @@ write PostgreSQL comptible servers and clients.
 
 This library is a work in progress and in its relatively early stage. There is
 no guarantee for API stability. I'm constantly introducing break changes during
-this period. And also sorry for lack of API docs, examples may get you familiar
-with its usage.
+this period. And also sorry for lack of some API docs, examples
+(`pgwire/examples`) may get you familiar with its usage.
 
 ## Status
 
@@ -86,19 +86,20 @@ binary encoding support, `ExtendedQueryHandler` is required.
 
 Examples are provided to demo the very basic usage of `pgwire` on server side:
 
-- `examples/sqlite.rs`: uses an in-memory sqlite database at its core and serves
-  it with postgresql protocol. This is a full example with both simple and
-  extended query implementation.
-- `examples/gluesql.rs`: uses an in-memory
+- `pgwire/examples/sqlite.rs`: uses an in-memory sqlite database at its core and
+  serves it with postgresql protocol. This is a full example with both simple
+  and extended query implementation.
+- `pgwire/examples/gluesql.rs`: uses an in-memory
   [gluesql](https://github.com/gluesql/gluesql) at its core and serves
   it with postgresql protocol.
-- `examples/server.rs`: demos a server that always returns fixed results.
-- `examples/secure_server.rs`: demos a server with ssl support and always
+- `pgwire/examples/server.rs`: demos a server that always returns fixed
+  results.
+- `pgwire/examples/secure_server.rs`: demos a server with ssl support and always
   returns fixed results.
-- `examples/scram.rs`: demos how to configure more secure authentication
+- `pgwire/examples/scram.rs`: demos how to configure more secure authentication
   mechanism:
   [SCRAM](https://en.wikipedia.org/wiki/Salted_Challenge_Response_Authentication_Mechanism)
-- `examples/datafusion.rs`: demos a postgres compatible server backed by
+- `pgwire/examples/datafusion.rs`: demos a postgres compatible server backed by
   datafusion query engine. This example allows you to `LOAD` csv files as
   datafusion table and run `SELECT` queries on them.
 
