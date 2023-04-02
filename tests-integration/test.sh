@@ -6,7 +6,7 @@ cd tests-integration
 ## start test server
 pushd test-server
 cargo build
-./target/debug/test-server &
+../../target/debug/test-server &
 popd
 
 ## run rust-client
