@@ -58,3 +58,10 @@ time-format = ["dep:chrono"]
 [[example]]
 name = "server"
 required-features = ["tokio"]
+
+[workspace]
+members = [
+    ".",
+    "tests-integration/rust-client",
+    "tests-integration/test-server"
+]
