@@ -21,6 +21,11 @@ use crate::messages::response::{EmptyQueryResponse, ReadyForQuery, READY_STATUS_
 use crate::messages::simplequery::Query;
 use crate::messages::PgWireBackendMessage;
 
+fn is_empty_query(q: &str) -> bool {
+    let trimmed_query = q.trim();
+    trimmed_query == ";" || trimmed_query.is_empty()
+}
+
 /// handler for processing simple query.
 #[async_trait]
 pub trait SimpleQueryHandler: Send + Sync {
@@ -35,7 +40,7 @@ pub trait SimpleQueryHandler: Send + Sync {
     {
         client.set_state(super::PgWireConnectionState::QueryInProgress);
         let query_string = query.query();
-        if query_string.is_empty() {
+        if is_empty_query(query_string) {
             client
                 .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
                 .await?;
