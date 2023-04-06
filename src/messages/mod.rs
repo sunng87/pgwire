@@ -177,6 +177,7 @@ pub enum PgWireBackendMessage {
     ParameterDescription(data::ParameterDescription),
     RowDescription(data::RowDescription),
     DataRow(data::DataRow),
+    NoData(data::NoData),
 }
 
 impl PgWireBackendMessage {
@@ -200,6 +201,7 @@ impl PgWireBackendMessage {
             Self::ParameterDescription(msg) => msg.encode(buf),
             Self::RowDescription(msg) => msg.encode(buf),
             Self::DataRow(msg) => msg.encode(buf),
+            Self::NoData(msg) => msg.encode(buf),
         }
     }
 
@@ -257,6 +259,9 @@ impl PgWireBackendMessage {
                 }
                 data::MESSAGE_TYPE_BYTE_DATA_ROW => {
                     data::DataRow::decode(buf).map(|v| v.map(Self::DataRow))
+                }
+                data::MESSAGE_TYPE_BYTE_NO_DATA => {
+                    data::NoData::decode(buf).map(|v| v.map(Self::NoData))
                 }
                 _ => Err(PgWireError::InvalidMessageType(first_byte)),
             }
@@ -492,5 +497,11 @@ mod test {
         let item2 = PasswordMessageFamily::decode(&mut buffer).unwrap().unwrap();
         assert_eq!(buffer.remaining(), 0);
         assert_eq!(saslinitialresp, item2.into_sasl_initial_response().unwrap());
+    }
+
+    #[test]
+    fn test_no_data() {
+        let nodata = NoData::new();
+        roundtrip!(nodata, NoData);
     }
 }

@@ -3,7 +3,20 @@
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+and this project adheres to [Semantic
+Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased] - ReleaseDate
+
+### Added
+
+- Message `NoData` that sends from backend when empty query executed in extended
+  query context.
+- Add `EmptyQuery` to `Response` enum to represent response for empty query.
+
+### Fixed
+
+- Empty query check for `SimpleQueryHandler`. #75
 
 ## [0.12.0] - 2023-03-26
 

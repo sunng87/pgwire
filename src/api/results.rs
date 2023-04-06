@@ -232,6 +232,7 @@ impl DescribeResponse {}
 /// * Execution: response for ddl/dml execution
 /// * Error: error response
 pub enum Response<'a> {
+    EmptyQuery,
     Query(QueryResponse<'a>),
     Execution(Tag),
     Error(Box<ErrorInfo>),
