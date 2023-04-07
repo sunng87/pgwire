@@ -377,11 +377,13 @@ where
         client
             .send(PgWireBackendMessage::RowDescription(row_desc))
             .await?;
-        client
-            .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                READY_STATUS_IDLE,
-            )))
-            .await?;
+        if include_parameters {
+            client
+                .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+                    READY_STATUS_IDLE,
+                )))
+                .await?;
+        }
     }
 
     Ok(())
