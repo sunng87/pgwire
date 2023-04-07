@@ -162,7 +162,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 .await?
             {
                 Response::EmptyQuery => {
-                    client.feed(PgWireBackendMessage::NoData(NoData)).await?;
                     client
                         .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
                         .await?;
@@ -207,25 +206,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                     let describe_response = self
                         .do_describe(client, StatementOrPortal::Statement(&stmt))
                         .await?;
-                    if let Some(parameter_types) = describe_response.parameters() {
-                        // parameter type inference
-                        client
-                            .send(PgWireBackendMessage::ParameterDescription(
-                                ParameterDescription::new(
-                                    parameter_types.iter().map(|t| t.oid()).collect(),
-                                ),
-                            ))
-                            .await?;
-                    }
-                    let row_desc = into_row_description(describe_response.fields());
-                    client
-                        .send(PgWireBackendMessage::RowDescription(row_desc))
-                        .await?;
-                    client
-                        .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                            READY_STATUS_IDLE,
-                        )))
-                        .await?;
+                    send_describe_response(client, &describe_response, true).await?;
                 } else {
                     return Err(PgWireError::StatementNotFound(name.to_owned()));
                 }
@@ -235,11 +216,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                     let describe_response = self
                         .do_describe(client, StatementOrPortal::Portal(&portal))
                         .await?;
-                    let row_schema = describe_response.fields();
-                    let row_desc = into_row_description(row_schema);
-                    client
-                        .send(PgWireBackendMessage::RowDescription(row_desc))
-                        .await?;
+                    send_describe_response(client, &describe_response, false).await?;
                 } else {
                     return Err(PgWireError::PortalNotFound(name.to_owned()));
                 }
@@ -366,6 +343,46 @@ where
     client
         .send(PgWireBackendMessage::CommandComplete(tag.into()))
         .await?;
+
+    Ok(())
+}
+
+async fn send_describe_response<C>(
+    client: &mut C,
+    describe_response: &DescribeResponse,
+    include_parameters: bool,
+) -> PgWireResult<()>
+where
+    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+{
+    if describe_response.is_no_data() {
+        client.send(PgWireBackendMessage::NoData(NoData)).await?;
+    } else {
+        if include_parameters {
+            if let Some(parameter_types) = describe_response.parameters() {
+                // parameter type inference
+                client
+                    .send(PgWireBackendMessage::ParameterDescription(
+                        ParameterDescription::new(
+                            parameter_types.iter().map(|t| t.oid()).collect(),
+                        ),
+                    ))
+                    .await?;
+            }
+        }
+
+        let row_desc = into_row_description(describe_response.fields());
+        client
+            .send(PgWireBackendMessage::RowDescription(row_desc))
+            .await?;
+        client
+            .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+                READY_STATUS_IDLE,
+            )))
+            .await?;
+    }
 
     Ok(())
 }

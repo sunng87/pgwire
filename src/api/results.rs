@@ -224,7 +224,21 @@ pub struct DescribeResponse {
     fields: Vec<FieldInfo>,
 }
 
-impl DescribeResponse {}
+impl DescribeResponse {
+    /// Create an no_data instance of `DescribeResponse`. This is typically used
+    /// when client tries to describe an empty query.
+    pub fn no_data() -> Self {
+        DescribeResponse {
+            parameters: None,
+            fields: vec![],
+        }
+    }
+
+    /// Return true if the `DescribeResponse` is empty/nodata
+    pub fn is_no_data(&self) -> bool {
+        self.parameters.is_none() && self.fields.is_empty()
+    }
+}
 
 /// Query response types:
 ///
