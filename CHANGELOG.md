@@ -10,13 +10,14 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Message `NoData` that sends from backend when empty query executed in extended
-  query context.
+- Message `NoData` that sends from backend when `Describe` sent on an empty
+  query.
 - Add `EmptyQuery` to `Response` enum to represent response for empty query.
+- Add `no_data` constructor to `DescribeResponse` for empty query.
 
-### Fixed
+### Changed
 
-- Empty query check for `SimpleQueryHandler`. #75
+- Improved empty query check for `SimpleQueryHandler`. #75
 
 ## [0.12.0] - 2023-03-26
 
