@@ -187,3 +187,30 @@ impl Message for DataRow {
         Ok(DataRow { fields })
     }
 }
+
+/// postgres response when query returns no data, sent from backend to frontend
+/// in extended query
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct NoData;
+
+pub const MESSAGE_TYPE_BYTE_NO_DATA: u8 = b'n';
+
+impl Message for NoData {
+    #[inline]
+    fn message_type() -> Option<u8> {
+        Some(MESSAGE_TYPE_BYTE_NO_DATA)
+    }
+
+    fn message_length(&self) -> usize {
+        4
+    }
+
+    fn encode_body(&self, _buf: &mut BytesMut) -> PgWireResult<()> {
+        Ok(())
+    }
+
+    fn decode_body(_buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+        Ok(NoData::new())
+    }
+}

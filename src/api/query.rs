@@ -12,7 +12,7 @@ use super::store::{MemPortalStore, PortalStore};
 use super::{ClientInfo, DEFAULT_NAME};
 use crate::api::results::{DescribeResponse, QueryResponse, Response};
 use crate::error::{PgWireError, PgWireResult};
-use crate::messages::data::ParameterDescription;
+use crate::messages::data::{NoData, ParameterDescription};
 use crate::messages::extendedquery::{
     Bind, BindComplete, Close, CloseComplete, Describe, Execute, Parse, ParseComplete,
     Sync as PgSync, TARGET_TYPE_BYTE_PORTAL, TARGET_TYPE_BYTE_STATEMENT,
@@ -32,6 +32,9 @@ pub trait SimpleQueryHandler: Send + Sync {
     /// Executed on `Query` request arrived. This is how postgres respond to
     /// simple query. The default implementation calls `do_query` with the
     /// incoming query string.
+    ///
+    /// This handle checks empty query by default, if the query string is empty
+    /// or `;`, it returns `EmptyQueryResponse` and does not call `self.do_query`.
     async fn on_query<C>(&self, client: &mut C, query: Query) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -48,6 +51,11 @@ pub trait SimpleQueryHandler: Send + Sync {
             let resp = self.do_query(client, query.query()).await?;
             for r in resp {
                 match r {
+                    Response::EmptyQuery => {
+                        client
+                            .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
+                            .await?;
+                    }
                     Response::Query(results) => {
                         send_query_response(client, results, true).await?;
                     }
@@ -95,6 +103,10 @@ pub trait ExtendedQueryHandler: Send + Sync {
     /// Get a reference to associated `QueryParser` implementation
     fn query_parser(&self) -> Arc<Self::QueryParser>;
 
+    /// Called when client sends `parse` command.
+    ///
+    /// The default implementation parsed query with `Self::QueryParser` and
+    /// stores it in `Self::PortalStore`.
     async fn on_parse<C>(&self, client: &mut C, message: Parse) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -110,6 +122,10 @@ pub trait ExtendedQueryHandler: Send + Sync {
         Ok(())
     }
 
+    /// Called when client sends `bind` command.
+    ///
+    /// The default implementation associate parameters with previous parsed
+    /// statement and stores in `Self::PortalStore` as well.
     async fn on_bind<C>(&self, client: &mut C, message: Bind) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -130,6 +146,14 @@ pub trait ExtendedQueryHandler: Send + Sync {
         }
     }
 
+    /// Called when client sends `execute` command.
+    ///
+    /// The default implementation delegates the query to `self::do_query` and
+    /// sends response messages according to `Response` from `self::do_query`.
+    ///
+    /// Note that, different from `SimpleQueryHandler`, this implementation
+    /// won't check empty query because it cannot understand parsed
+    /// `Self::Statement`.
     async fn on_execute<C>(&self, client: &mut C, message: Execute) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -142,6 +166,11 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 .do_query(client, portal.as_ref(), *message.max_rows() as usize)
                 .await?
             {
+                Response::EmptyQuery => {
+                    client
+                        .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
+                        .await?;
+                }
                 Response::Query(results) => {
                     send_query_response(client, results, false).await?;
                 }
@@ -166,6 +195,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
         }
     }
 
+    /// Called when client sends `describe` command.
+    ///
+    /// The default implementation delegates the call to `self::do_describe`.
     async fn on_describe<C>(&self, client: &mut C, message: Describe) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -179,25 +211,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                     let describe_response = self
                         .do_describe(client, StatementOrPortal::Statement(&stmt))
                         .await?;
-                    if let Some(parameter_types) = describe_response.parameters() {
-                        // parameter type inference
-                        client
-                            .send(PgWireBackendMessage::ParameterDescription(
-                                ParameterDescription::new(
-                                    parameter_types.iter().map(|t| t.oid()).collect(),
-                                ),
-                            ))
-                            .await?;
-                    }
-                    let row_desc = into_row_description(describe_response.fields());
-                    client
-                        .send(PgWireBackendMessage::RowDescription(row_desc))
-                        .await?;
-                    client
-                        .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                            READY_STATUS_IDLE,
-                        )))
-                        .await?;
+                    send_describe_response(client, &describe_response, true).await?;
                 } else {
                     return Err(PgWireError::StatementNotFound(name.to_owned()));
                 }
@@ -207,11 +221,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                     let describe_response = self
                         .do_describe(client, StatementOrPortal::Portal(&portal))
                         .await?;
-                    let row_schema = describe_response.fields();
-                    let row_desc = into_row_description(row_schema);
-                    client
-                        .send(PgWireBackendMessage::RowDescription(row_desc))
-                        .await?;
+                    send_describe_response(client, &describe_response, false).await?;
                 } else {
                     return Err(PgWireError::PortalNotFound(name.to_owned()));
                 }
@@ -222,6 +232,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
         Ok(())
     }
 
+    /// Called when client sends `sync` command.
+    ///
+    /// The default implementation flushes client buffer.
     async fn on_sync<C>(&self, client: &mut C, _message: PgSync) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -232,6 +245,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
         Ok(())
     }
 
+    /// Called when client sends `close` command.
+    ///
+    /// The default implementation closes certain statement or portal.
     async fn on_close<C>(&self, client: &mut C, message: Close) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -332,6 +348,48 @@ where
     client
         .send(PgWireBackendMessage::CommandComplete(tag.into()))
         .await?;
+
+    Ok(())
+}
+
+async fn send_describe_response<C>(
+    client: &mut C,
+    describe_response: &DescribeResponse,
+    include_parameters: bool,
+) -> PgWireResult<()>
+where
+    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+{
+    if describe_response.is_no_data() {
+        client.send(PgWireBackendMessage::NoData(NoData)).await?;
+    } else {
+        if include_parameters {
+            if let Some(parameter_types) = describe_response.parameters() {
+                // parameter type inference
+                client
+                    .send(PgWireBackendMessage::ParameterDescription(
+                        ParameterDescription::new(
+                            parameter_types.iter().map(|t| t.oid()).collect(),
+                        ),
+                    ))
+                    .await?;
+            }
+        }
+
+        let row_desc = into_row_description(describe_response.fields());
+        client
+            .send(PgWireBackendMessage::RowDescription(row_desc))
+            .await?;
+        if include_parameters {
+            client
+                .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+                    READY_STATUS_IDLE,
+                )))
+                .await?;
+        }
+    }
 
     Ok(())
 }
