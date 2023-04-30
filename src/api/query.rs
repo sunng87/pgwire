@@ -300,7 +300,12 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C: ClientInfo + Unpin + Send + Sync;
 }
 
-async fn send_query_response<'a, C>(
+/// Helper function to send `QueryResponse` and optional `RowDescription` to client
+///
+/// For most cases in extended query implementation, `send_describe` is set to
+/// false because not all `Execute` comes with `Describe`. The client may have
+/// decribed statement/portal before.
+pub async fn send_query_response<'a, C>(
     client: &mut C,
     results: QueryResponse<'a>,
     send_describe: bool,
