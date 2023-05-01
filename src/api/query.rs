@@ -315,10 +315,8 @@ where
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
-    let QueryResponse {
-        row_schema,
-        mut data_rows,
-    } = results;
+    let row_schema = results.row_schema();
+    let mut data_rows = results.data_rows();
 
     // Simple query has row_schema in query response. For extended query,
     // row_schema is returned as response of `Describe`.
