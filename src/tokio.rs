@@ -226,6 +226,7 @@ where
     EQ: ExtendedQueryHandler + 'static,
 {
     let addr = tcp_socket.peer_addr()?;
+    tcp_socket.set_nodelay(true)?;
     let ssl = peek_for_sslrequest(&mut tcp_socket, tls_acceptor.is_some()).await?;
 
     let client_info = ClientInfoHolder::new(addr, ssl);
