@@ -342,7 +342,8 @@ where
     Ok(())
 }
 
-async fn send_execution_response<C>(client: &mut C, tag: Tag) -> PgWireResult<()>
+/// Helper function to send response for DMLs.
+pub async fn send_execution_response<C>(client: &mut C, tag: Tag) -> PgWireResult<()>
 where
     C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
     C::Error: Debug,
@@ -355,7 +356,8 @@ where
     Ok(())
 }
 
-async fn send_describe_response<C>(
+/// Helper function to send response for `Describe`.
+pub async fn send_describe_response<C>(
     client: &mut C,
     describe_response: &DescribeResponse,
     include_parameters: bool,
