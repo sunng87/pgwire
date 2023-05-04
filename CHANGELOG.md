@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Added
+
+- Exposed `send_describe_response` and `send_execution_response` as helper
+  functions for custom `ExtendedQueryHandler` implementation.
+
+### Changed
+
+- `tcp_nodelay` is turned on by default within pgwire for performance
+  consideration.
+- Changed getters of `QueryResponse` to return owned data.
+
 ## [0.13.1] - 2023-04-30
 
 ### Added
