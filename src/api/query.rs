@@ -315,10 +315,8 @@ where
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
-    let QueryResponse {
-        row_schema,
-        mut data_rows,
-    } = results;
+    let row_schema = results.row_schema();
+    let mut data_rows = results.data_rows();
 
     // Simple query has row_schema in query response. For extended query,
     // row_schema is returned as response of `Describe`.
@@ -344,7 +342,8 @@ where
     Ok(())
 }
 
-async fn send_execution_response<C>(client: &mut C, tag: Tag) -> PgWireResult<()>
+/// Helper function to send response for DMLs.
+pub async fn send_execution_response<C>(client: &mut C, tag: Tag) -> PgWireResult<()>
 where
     C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
     C::Error: Debug,
@@ -357,7 +356,8 @@ where
     Ok(())
 }
 
-async fn send_describe_response<C>(
+/// Helper function to send response for `Describe`.
+pub async fn send_describe_response<C>(
     client: &mut C,
     describe_response: &DescribeResponse,
     include_parameters: bool,

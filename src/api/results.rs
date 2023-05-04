@@ -107,11 +107,9 @@ pub(crate) fn into_row_description(fields: &[FieldInfo]) -> RowDescription {
     RowDescription::new(fields.iter().map(Into::into).collect())
 }
 
-#[derive(Getters)]
-#[getset(get = "pub")]
 pub struct QueryResponse<'a> {
-    pub(crate) row_schema: Arc<Vec<FieldInfo>>,
-    pub(crate) data_rows: BoxStream<'a, PgWireResult<DataRow>>,
+    row_schema: Arc<Vec<FieldInfo>>,
+    data_rows: BoxStream<'a, PgWireResult<DataRow>>,
 }
 
 impl<'a> QueryResponse<'a> {
@@ -124,6 +122,16 @@ impl<'a> QueryResponse<'a> {
             row_schema: field_defs,
             data_rows: row_stream.boxed(),
         }
+    }
+
+    /// Get schema of columns
+    pub fn row_schema(&self) -> Arc<Vec<FieldInfo>> {
+        self.row_schema.clone()
+    }
+
+    /// Get owned `BoxStream` of data rows
+    pub fn data_rows(self) -> BoxStream<'a, PgWireResult<DataRow>> {
+        self.data_rows
     }
 }
 
