@@ -48,7 +48,7 @@ rustls-pemfile = { version = "1.0" }
 gluesql = "0.13"
 ## for datafusion example
 datafusion = "24"
-sqlparser = "0.33"
+sqlparser = "0.34"
 
 [features]
 default = ["tokio", "time-format"]
