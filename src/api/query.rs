@@ -183,11 +183,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
                         .await?;
                 }
             }
-            client
-                .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                    READY_STATUS_IDLE,
-                )))
-                .await?;
 
             Ok(())
         } else {
@@ -241,6 +236,11 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
+        client
+            .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+                READY_STATUS_IDLE,
+            )))
+            .await?;
         client.flush().await?;
         Ok(())
     }
@@ -266,11 +266,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
         }
         client
             .send(PgWireBackendMessage::CloseComplete(CloseComplete))
-            .await?;
-        client
-            .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                READY_STATUS_IDLE,
-            )))
             .await?;
         Ok(())
     }
@@ -387,13 +382,6 @@ where
         client
             .send(PgWireBackendMessage::RowDescription(row_desc))
             .await?;
-        if include_parameters {
-            client
-                .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                    READY_STATUS_IDLE,
-                )))
-                .await?;
-        }
     }
 
     Ok(())
