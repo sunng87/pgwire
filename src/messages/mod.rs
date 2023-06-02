@@ -567,4 +567,28 @@ mod test {
         let copydata = CopyData::new(Bytes::from_static("tomcat".as_bytes()));
         roundtrip!(copydata, CopyData);
     }
+
+    #[test]
+    fn test_copy_done() {
+        let copydone = CopyDone::new();
+        roundtrip!(copydone, CopyDone);
+    }
+
+    #[test]
+    fn test_copy_fail() {
+        let copyfail = CopyFail::new("copy failed".to_owned());
+        roundtrip!(copyfail, CopyFail);
+    }
+
+    #[test]
+    fn test_copy_response() {
+        let copyresponse = CopyInResponse::new(0, 3, vec![0, 0, 0]);
+        roundtrip!(copyresponse, CopyInResponse);
+
+        let copyresponse = CopyOutResponse::new(0, 3, vec![0, 0, 0]);
+        roundtrip!(copyresponse, CopyOutResponse);
+
+        let copyresponse = CopyBothResponse::new(0, 3, vec![0, 0, 0]);
+        roundtrip!(copyresponse, CopyBothResponse);
+    }
 }
