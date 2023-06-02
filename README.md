@@ -19,7 +19,7 @@ with its usage.
   - [x] Frontend-Backend protocol messages
   - [ ] Logical replication streaming protocol message
 - [x] Backend TCP/TLS server on Tokio
-- [ ] Frontend-Backend interaction over TCP
+- [x] Frontend-Backend interaction over TCP
   - [x] SSL Request and Response
   - [x] Startup
     - [x] No authentication
@@ -38,7 +38,7 @@ with its usage.
   - [x] Termination
   - [x] Cancel
   - [x] Error and Notice
-  - [ ] Copy
+  - [x] Copy
 - [ ] Logical replication over TCP
 - [ ] APIs
   - [x] Startup APIs
@@ -51,6 +51,10 @@ with its usage.
   - [x] ResultSet builder/encoder API
   - [ ] Query Cancellation API
   - [x] Error and Notice API
+  - [ ] Copy API
+    - [ ] Copy-in
+    - [ ] Copy-out
+    - [ ] Copy-both
   - [ ] Logical replication server API
 
 ## About Postgres Wire Protocol
