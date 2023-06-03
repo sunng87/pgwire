@@ -55,6 +55,8 @@ pub trait Message: Sized {
 }
 
 mod codec;
+/// Copy messages
+pub mod copy;
 /// Data related messages
 pub mod data;
 /// Extended query messages, including request/response for parse, bind and etc.
@@ -85,6 +87,10 @@ pub enum PgWireFrontendMessage {
     Sync(extendedquery::Sync),
 
     Terminate(terminate::Terminate),
+
+    CopyData(copy::CopyData),
+    CopyFail(copy::CopyFail),
+    CopyDone(copy::CopyDone),
 }
 
 impl PgWireFrontendMessage {
@@ -104,6 +110,10 @@ impl PgWireFrontendMessage {
             Self::Sync(msg) => msg.encode(buf),
 
             Self::Terminate(msg) => msg.encode(buf),
+
+            Self::CopyData(msg) => msg.encode(buf),
+            Self::CopyFail(msg) => msg.encode(buf),
+            Self::CopyDone(msg) => msg.encode(buf),
         }
     }
 
@@ -144,6 +154,16 @@ impl PgWireFrontendMessage {
                 terminate::MESSAGE_TYPE_BYTE_TERMINATE => {
                     terminate::Terminate::decode(buf).map(|v| v.map(Self::Terminate))
                 }
+
+                copy::MESSAGE_TYPE_BYTE_COPY_DATA => {
+                    copy::CopyData::decode(buf).map(|v| v.map(Self::CopyData))
+                }
+                copy::MESSAGE_TYPE_BYTE_COPY_FAIL => {
+                    copy::CopyFail::decode(buf).map(|v| v.map(Self::CopyFail))
+                }
+                copy::MESSAGE_TYPE_BYTE_COPY_DONE => {
+                    copy::CopyDone::decode(buf).map(|v| v.map(Self::CopyDone))
+                }
                 _ => Err(PgWireError::InvalidMessageType(first_byte)),
             }
         } else {
@@ -178,6 +198,14 @@ pub enum PgWireBackendMessage {
     RowDescription(data::RowDescription),
     DataRow(data::DataRow),
     NoData(data::NoData),
+
+    // copy
+    CopyData(copy::CopyData),
+    CopyFail(copy::CopyFail),
+    CopyDone(copy::CopyDone),
+    CopyInResponse(copy::CopyInResponse),
+    CopyOutResponse(copy::CopyOutResponse),
+    CopyBothResponse(copy::CopyBothResponse),
 }
 
 impl PgWireBackendMessage {
@@ -202,6 +230,13 @@ impl PgWireBackendMessage {
             Self::RowDescription(msg) => msg.encode(buf),
             Self::DataRow(msg) => msg.encode(buf),
             Self::NoData(msg) => msg.encode(buf),
+
+            Self::CopyData(msg) => msg.encode(buf),
+            Self::CopyFail(msg) => msg.encode(buf),
+            Self::CopyDone(msg) => msg.encode(buf),
+            Self::CopyInResponse(msg) => msg.encode(buf),
+            Self::CopyOutResponse(msg) => msg.encode(buf),
+            Self::CopyBothResponse(msg) => msg.encode(buf),
         }
     }
 
@@ -263,6 +298,25 @@ impl PgWireBackendMessage {
                 data::MESSAGE_TYPE_BYTE_NO_DATA => {
                     data::NoData::decode(buf).map(|v| v.map(Self::NoData))
                 }
+
+                copy::MESSAGE_TYPE_BYTE_COPY_DATA => {
+                    copy::CopyData::decode(buf).map(|v| v.map(Self::CopyData))
+                }
+                copy::MESSAGE_TYPE_BYTE_COPY_FAIL => {
+                    copy::CopyFail::decode(buf).map(|v| v.map(Self::CopyFail))
+                }
+                copy::MESSAGE_TYPE_BYTE_COPY_DONE => {
+                    copy::CopyDone::decode(buf).map(|v| v.map(Self::CopyDone))
+                }
+                copy::MESSAGE_TYPE_BYTE_COPY_IN_RESPONSE => {
+                    copy::CopyInResponse::decode(buf).map(|v| v.map(Self::CopyInResponse))
+                }
+                copy::MESSAGE_TYPE_BYTE_COPY_OUT_RESPONSE => {
+                    copy::CopyOutResponse::decode(buf).map(|v| v.map(Self::CopyOutResponse))
+                }
+                copy::MESSAGE_TYPE_BYTE_COPY_BOTH_RESPONSE => {
+                    copy::CopyBothResponse::decode(buf).map(|v| v.map(Self::CopyBothResponse))
+                }
                 _ => Err(PgWireError::InvalidMessageType(first_byte)),
             }
         } else {
@@ -273,6 +327,7 @@ impl PgWireBackendMessage {
 
 #[cfg(test)]
 mod test {
+    use super::copy::*;
     use super::data::*;
     use super::extendedquery::*;
     use super::response::*;
@@ -285,11 +340,13 @@ mod test {
     macro_rules! roundtrip {
         ($ins:ident, $st:ty) => {
             let mut buffer = BytesMut::new();
-            $ins.encode(&mut buffer).unwrap();
+            $ins.encode(&mut buffer).expect("encode packet");
 
             assert!(buffer.remaining() > 0);
 
-            let item2 = <$st>::decode(&mut buffer).unwrap().unwrap();
+            let item2 = <$st>::decode(&mut buffer)
+                .expect("decode packet")
+                .expect("packet is none");
 
             assert_eq!(buffer.remaining(), 0);
             assert_eq!($ins, item2);
@@ -503,5 +560,35 @@ mod test {
     fn test_no_data() {
         let nodata = NoData::new();
         roundtrip!(nodata, NoData);
+    }
+
+    #[test]
+    fn test_copy_data() {
+        let copydata = CopyData::new(Bytes::from_static("tomcat".as_bytes()));
+        roundtrip!(copydata, CopyData);
+    }
+
+    #[test]
+    fn test_copy_done() {
+        let copydone = CopyDone::new();
+        roundtrip!(copydone, CopyDone);
+    }
+
+    #[test]
+    fn test_copy_fail() {
+        let copyfail = CopyFail::new("copy failed".to_owned());
+        roundtrip!(copyfail, CopyFail);
+    }
+
+    #[test]
+    fn test_copy_response() {
+        let copyresponse = CopyInResponse::new(0, 3, vec![0, 0, 0]);
+        roundtrip!(copyresponse, CopyInResponse);
+
+        let copyresponse = CopyOutResponse::new(0, 3, vec![0, 0, 0]);
+        roundtrip!(copyresponse, CopyOutResponse);
+
+        let copyresponse = CopyBothResponse::new(0, 3, vec![0, 0, 0]);
+        roundtrip!(copyresponse, CopyBothResponse);
     }
 }
