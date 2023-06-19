@@ -45,7 +45,7 @@ rusqlite = { version = "0.29.0", features = ["bundled", "column_decltype"] }
 rustls-pemfile = { version = "1.0" }
 ## webpki-roots has mozilla's set of roots
 ## rustls-native-certs loads roots from current system
-gluesql = "0.13"
+gluesql = "0.14"
 ## for datafusion example
 datafusion = "26"
 sqlparser = "0.34"
