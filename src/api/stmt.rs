@@ -59,7 +59,7 @@ where
     type Statement = QP::Statement;
 
     async fn parse_sql(&self, sql: &str, types: &[Type]) -> PgWireResult<Self::Statement> {
-        self.parse_sql(sql, types).await
+        (**self).parse_sql(sql, types).await
     }
 }
 

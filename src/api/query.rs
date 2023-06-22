@@ -113,7 +113,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let parser = self.query_parser().clone();
+        let parser = self.query_parser();
         let stmt = StoredStatement::parse(&message, parser).await?;
         self.portal_store().put_statement(Arc::new(stmt));
         client
