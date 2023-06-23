@@ -94,7 +94,7 @@ pub trait SimpleQueryHandler: Send + Sync {
 #[async_trait]
 pub trait ExtendedQueryHandler: Send + Sync {
     type Statement: Clone + Send + Sync;
-    type QueryParser: QueryParser<Statement = Self::Statement>;
+    type QueryParser: QueryParser<Statement = Self::Statement> + Send + Sync;
     type PortalStore: PortalStore<Statement = Self::Statement>;
 
     /// Get a reference to associated `PortalStore` implementation
@@ -113,7 +113,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let stmt = StoredStatement::parse(&message, self.query_parser().as_ref())?;
+        let parser = self.query_parser();
+        let stmt = StoredStatement::parse(&message, parser).await?;
         self.portal_store().put_statement(Arc::new(stmt));
         client
             .send(PgWireBackendMessage::ParseComplete(ParseComplete::new()))
