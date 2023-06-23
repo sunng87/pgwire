@@ -8,6 +8,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.15.0] - 2023-06-23
 
+### Added
+
+- Codecs for `Copy` messages. [#91]
+
 ### Changed
 
 - Made `parse_sql` from `QueryParser` an async function because some
