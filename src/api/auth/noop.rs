@@ -23,7 +23,7 @@ impl StartupHandler for NoopStartupHandler {
     {
         if let PgWireFrontendMessage::Startup(ref startup) = message {
             super::save_startup_parameters_to_metadata(client, startup);
-            super::finish_authentication(client, &DefaultServerParameterProvider).await;
+            super::finish_authentication(client, &DefaultServerParameterProvider::default()).await;
         }
         Ok(())
     }

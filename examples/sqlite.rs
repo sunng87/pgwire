@@ -1,13 +1,10 @@
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use futures::stream;
 use futures::Stream;
 use pgwire::api::auth::md5pass::{hash_md5_password, MakeMd5PasswordAuthStartupHandler};
-use pgwire::api::auth::{
-    AuthSource, DefaultServerParameterProvider, LoginInfo, Password, ServerParameterProvider,
-};
+use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal};
 use pgwire::api::results::{
@@ -42,33 +39,6 @@ impl AuthSource for DummyAuthSource {
         let hash_password =
             hash_md5_password(login_info.user().as_ref().unwrap(), password, salt.as_ref());
         Ok(Password::new(Some(salt), hash_password.as_bytes().to_vec()))
-    }
-}
-
-struct SqliteParameters {
-    version: &'static str,
-}
-
-impl SqliteParameters {
-    fn new() -> SqliteParameters {
-        SqliteParameters {
-            version: rusqlite::version(),
-        }
-    }
-}
-
-impl ServerParameterProvider for SqliteParameters {
-    fn server_parameters<C>(&self, client: &C) -> Option<HashMap<String, String>>
-    where
-        C: ClientInfo,
-    {
-        let provider = DefaultServerParameterProvider;
-        if let Some(mut params) = provider.server_parameters(client) {
-            params.insert("server_version".to_owned(), self.version.to_owned());
-            Some(params)
-        } else {
-            None
-        }
     }
 }
 
@@ -323,9 +293,12 @@ impl MakeHandler for MakeSqliteBackend {
 
 #[tokio::main]
 pub async fn main() {
+    let mut parameters = DefaultServerParameterProvider::default();
+    parameters.set_server_version(rusqlite::version().to_owned());
+
     let authenticator = Arc::new(MakeMd5PasswordAuthStartupHandler::new(
         Arc::new(DummyAuthSource),
-        Arc::new(SqliteParameters::new()),
+        Arc::new(parameters),
     ));
     let processor = Arc::new(MakeSqliteBackend::new());
 

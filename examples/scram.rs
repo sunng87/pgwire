@@ -83,7 +83,7 @@ pub async fn main() {
     )));
     let mut authenticator = MakeSASLScramAuthStartupHandler::new(
         Arc::new(DummyAuthDB),
-        Arc::new(DefaultServerParameterProvider),
+        Arc::new(DefaultServerParameterProvider::default()),
     );
     authenticator.set_iterations(ITERATIONS);
 
