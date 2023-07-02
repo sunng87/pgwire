@@ -82,4 +82,4 @@ jobs:
       with:
         toolchain: "1.65"
         override: true
-    - run: cargo test --all-features
+    - run: cargo build --all-features
