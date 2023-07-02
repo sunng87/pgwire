@@ -209,7 +209,7 @@ impl MakeHandler for MakeDummyDatabase {
 pub async fn main() {
     let mut authenticator = MakeSASLScramAuthStartupHandler::new(
         Arc::new(DummyAuthSource),
-        Arc::new(DefaultServerParameterProvider),
+        Arc::new(DefaultServerParameterProvider::default()),
     );
     authenticator.set_iterations(ITERATIONS);
     let processor = Arc::new(MakeDummyDatabase);
