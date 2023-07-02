@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -6,9 +5,7 @@ use async_trait::async_trait;
 use futures::stream;
 use futures::StreamExt;
 use pgwire::api::auth::scram::{gen_salted_password, MakeSASLScramAuthStartupHandler};
-use pgwire::api::auth::{
-    AuthSource, DefaultServerParameterProvider, LoginInfo, Password, ServerParameterProvider,
-};
+use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal};
 use pgwire::api::results::{
@@ -34,24 +31,6 @@ impl AuthSource for DummyAuthSource {
 
         let hash_password = gen_salted_password(password, salt.as_ref(), ITERATIONS);
         Ok(Password::new(Some(salt), hash_password))
-    }
-}
-
-struct DummyParameters;
-
-impl ServerParameterProvider for DummyParameters {
-    fn server_parameters<C>(&self, client: &C) -> Option<HashMap<String, String>>
-    where
-        C: ClientInfo,
-    {
-        let provider = DefaultServerParameterProvider;
-        if let Some(mut params) = provider.server_parameters(client) {
-            params.insert("server_version".to_owned(), "15.1".to_owned());
-            params.insert("integer_datetimes".to_owned(), "on".to_owned());
-            Some(params)
-        } else {
-            None
-        }
     }
 }
 
