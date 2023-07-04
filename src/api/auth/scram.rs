@@ -12,7 +12,6 @@ use futures::{Sink, SinkExt};
 use ring::digest;
 use ring::hmac;
 use ring::pbkdf2;
-use tokio::sync::Mutex;
 use x509_certificate::certificate::CapturedX509Certificate;
 use x509_certificate::SignatureAlgorithm;
 
@@ -36,7 +35,7 @@ pub struct SASLScramAuthStartupHandler<A, P> {
     auth_db: Arc<A>,
     parameter_provider: Arc<P>,
     /// state of the client-server communication
-    state: Mutex<ScramState>,
+    state: ScramState,
     /// base64 encoded certificate signature for tls-server-end-point channel binding
     server_cert_sig: Option<Arc<String>>,
     /// iterations
@@ -91,7 +90,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
     for SASLScramAuthStartupHandler<A, P>
 {
     async fn on_startup<C>(
-        &self,
+        &mut self,
         client: &mut C,
         message: PgWireFrontendMessage,
     ) -> PgWireResult<()>
@@ -117,8 +116,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
             }
             PgWireFrontendMessage::PasswordMessageFamily(msg) => {
                 let salt_and_salted_pass = {
-                    let state = self.state.lock().await;
-                    match *state {
+                    match self.state {
                         ScramState::Initial => {
                             let login_info = LoginInfo::from_client_info(client);
                             self.auth_db.get_password(&login_info).await?
@@ -129,9 +127,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
 
                 let mut success = false;
                 let resp = {
-                    // this should never block
-                    let mut state = self.state.lock().await;
-                    match *state {
+                    match self.state {
                         ScramState::Initial => {
                             // initial response, client_first
                             let resp = msg.into_sasl_initial_response()?;
@@ -165,7 +161,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                             );
                             let server_first_message = server_first.message();
 
-                            *state = ScramState::ServerFirstSent(
+                            self.state = ScramState::ServerFirstSent(
                                 salt_and_salted_pass,
                                 client_first.channel_binding(),
                                 format!("{},{}", client_first.bare(), &server_first_message),
@@ -266,17 +262,21 @@ impl<A, P> MakeSASLScramAuthStartupHandler<A, P> {
     }
 }
 
-impl<A, P> MakeHandler for MakeSASLScramAuthStartupHandler<A, P> {
-    type Handler = Arc<SASLScramAuthStartupHandler<A, P>>;
+impl<A, P> MakeHandler for MakeSASLScramAuthStartupHandler<A, P>
+where
+    A: AuthSource,
+    P: ServerParameterProvider,
+{
+    type Handler = SASLScramAuthStartupHandler<A, P>;
 
     fn make(&self) -> Self::Handler {
-        Arc::new(SASLScramAuthStartupHandler {
+        SASLScramAuthStartupHandler {
             auth_db: self.auth_db.clone(),
             parameter_provider: self.parameter_provider.clone(),
-            state: Mutex::new(ScramState::Initial),
+            state: ScramState::Initial,
             server_cert_sig: self.server_cert_sig.clone(),
             iterations: self.iterations,
-        })
+        }
     }
 }
 

@@ -17,7 +17,7 @@ use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 pub trait StartupHandler: Send + Sync {
     /// A generic frontend message callback during startup phase.
     async fn on_startup<C>(
-        &self,
+        &mut self,
         client: &mut C,
         message: PgWireFrontendMessage,
     ) -> PgWireResult<()>

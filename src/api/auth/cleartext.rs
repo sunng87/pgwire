@@ -23,7 +23,7 @@ impl<V: AuthSource, P: ServerParameterProvider> StartupHandler
     for CleartextPasswordAuthStartupHandler<V, P>
 {
     async fn on_startup<C>(
-        &self,
+        &mut self,
         client: &mut C,
         message: PgWireFrontendMessage,
     ) -> PgWireResult<()>

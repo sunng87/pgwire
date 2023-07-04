@@ -84,7 +84,7 @@ impl<T> ClientInfo for Framed<T, PgWireMessageServerCodec> {
 async fn process_message<S, A, Q, EQ>(
     message: PgWireFrontendMessage,
     socket: &mut Framed<S, PgWireMessageServerCodec>,
-    authenticator: Arc<A>,
+    authenticator: &mut A,
     query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
 ) -> PgWireResult<()>
@@ -216,7 +216,7 @@ async fn peek_for_sslrequest(
 pub async fn process_socket<A, Q, EQ>(
     mut tcp_socket: TcpStream,
     tls_acceptor: Option<Arc<TlsAcceptor>>,
-    startup_handler: Arc<A>,
+    mut startup_handler: A,
     query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
 ) -> Result<(), IOError>
@@ -239,7 +239,7 @@ where
             if let Err(e) = process_message(
                 msg,
                 &mut socket,
-                startup_handler.clone(),
+                &mut startup_handler,
                 query_handler.clone(),
                 extended_query_handler.clone(),
             )
@@ -255,7 +255,7 @@ where
             if let Err(e) = process_message(
                 msg,
                 &mut socket,
-                startup_handler.clone(),
+                &mut startup_handler,
                 query_handler.clone(),
                 extended_query_handler.clone(),
             )

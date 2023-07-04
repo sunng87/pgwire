@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
-use tokio::sync::Mutex;
 
 use super::{
     AuthSource, ClientInfo, LoginInfo, PgWireConnectionState, ServerParameterProvider,
@@ -18,7 +17,7 @@ use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 pub struct Md5PasswordAuthStartupHandler<A, P> {
     auth_source: Arc<A>,
     parameter_provider: Arc<P>,
-    cached_password: Mutex<Vec<u8>>,
+    cached_password: Vec<u8>,
 }
 
 #[async_trait]
@@ -26,7 +25,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
     for Md5PasswordAuthStartupHandler<A, P>
 {
     async fn on_startup<C>(
-        &self,
+        &mut self,
         client: &mut C,
         message: PgWireFrontendMessage,
     ) -> PgWireResult<()>
@@ -48,7 +47,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                     .as_ref()
                     .expect("Salt is required for Md5Password authentication");
 
-                *self.cached_password.lock().await = salt_and_pass.password().clone();
+                self.cached_password = salt_and_pass.password().clone();
 
                 client
                     .send(PgWireBackendMessage::Authentication(
@@ -57,10 +56,12 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                     .await?;
             }
             PgWireFrontendMessage::PasswordMessageFamily(pwd) => {
-                let pwd = pwd.into_password()?;
-                let cached_pass = self.cached_password.lock().await;
+                let pass_match = {
+                    let pwd = pwd.into_password()?;
+                    pwd.password().as_bytes() == self.cached_password
+                };
 
-                if pwd.password().as_bytes() == *cached_pass {
+                if pass_match {
                     super::finish_authentication(client, self.parameter_provider.as_ref()).await
                 } else {
                     let error_info = ErrorInfo::new(
@@ -104,15 +105,19 @@ pub struct MakeMd5PasswordAuthStartupHandler<A, P> {
     parameter_provider: Arc<P>,
 }
 
-impl<V, P> MakeHandler for MakeMd5PasswordAuthStartupHandler<V, P> {
-    type Handler = Arc<Md5PasswordAuthStartupHandler<V, P>>;
+impl<V, P> MakeHandler for MakeMd5PasswordAuthStartupHandler<V, P>
+where
+    V: AuthSource,
+    P: ServerParameterProvider,
+{
+    type Handler = Md5PasswordAuthStartupHandler<V, P>;
 
     fn make(&self) -> Self::Handler {
-        Arc::new(Md5PasswordAuthStartupHandler {
+        Md5PasswordAuthStartupHandler {
             auth_source: self.auth_source.clone(),
             parameter_provider: self.parameter_provider.clone(),
-            cached_password: Mutex::new(vec![]),
-        })
+            cached_password: vec![],
+        }
     }
 }
 

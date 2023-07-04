@@ -81,15 +81,16 @@ pub async fn main() {
     let placeholder = Arc::new(StatelessMakeHandler::new(Arc::new(
         PlaceholderExtendedQueryHandler,
     )));
-    let mut authenticator = MakeSASLScramAuthStartupHandler::new(
+    let mut authenticator_maker = MakeSASLScramAuthStartupHandler::new(
         Arc::new(DummyAuthDB),
         Arc::new(DefaultServerParameterProvider),
     );
-    authenticator.set_iterations(ITERATIONS);
+    authenticator_maker.set_iterations(ITERATIONS);
 
     let cert = fs::read("examples/ssl/server.crt").unwrap();
-    authenticator.configure_certificate(cert.as_ref()).unwrap();
-    let authenticator = Arc::new(authenticator);
+    authenticator_maker
+        .configure_certificate(cert.as_ref())
+        .unwrap();
 
     let server_addr = "127.0.0.1:5432";
     let tls_acceptor = Arc::new(setup_tls().unwrap());
@@ -98,14 +99,14 @@ pub async fn main() {
     loop {
         let incoming_socket = listener.accept().await.unwrap();
         let tls_acceptor_ref = tls_acceptor.clone();
-        let authenticator_ref = authenticator.make();
+        let authenticator = authenticator_maker.make();
         let processor_ref = processor.make();
         let placeholder_ref = placeholder.make();
         tokio::spawn(async move {
             process_socket(
                 incoming_socket.0,
                 Some(tls_acceptor_ref),
-                authenticator_ref,
+                authenticator,
                 processor_ref,
                 placeholder_ref,
             )

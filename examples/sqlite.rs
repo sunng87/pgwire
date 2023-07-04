@@ -323,7 +323,7 @@ impl MakeHandler for MakeSqliteBackend {
 
 #[tokio::main]
 pub async fn main() {
-    let authenticator = Arc::new(MakeMd5PasswordAuthStartupHandler::new(
+    let authenticator_maker = Arc::new(MakeMd5PasswordAuthStartupHandler::new(
         Arc::new(DummyAuthSource),
         Arc::new(SqliteParameters::new()),
     ));
@@ -334,13 +334,13 @@ pub async fn main() {
     println!("Listening to {}", server_addr);
     loop {
         let incoming_socket = listener.accept().await.unwrap();
-        let authenticator_ref = authenticator.make();
+        let authenticator = authenticator_maker.make();
         let processor_ref = processor.make();
         tokio::spawn(async move {
             process_socket(
                 incoming_socket.0,
                 None,
-                authenticator_ref,
+                authenticator,
                 processor_ref.clone(),
                 processor_ref,
             )

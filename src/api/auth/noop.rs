@@ -12,7 +12,7 @@ pub struct NoopStartupHandler;
 #[async_trait]
 impl StartupHandler for NoopStartupHandler {
     async fn on_startup<C>(
-        &self,
+        &mut self,
         client: &mut C,
         message: PgWireFrontendMessage,
     ) -> PgWireResult<()>
