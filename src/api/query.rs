@@ -230,7 +230,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
 
     /// Called when client sends `sync` command.
     ///
-    /// The default implementation flushes client buffer.
+    /// The default implementation flushes client buffer and sends
+    /// `READY_FOR_QUERY` response to client
     async fn on_sync<C>(&self, client: &mut C, _message: PgSync) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -271,7 +272,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         Ok(())
     }
 
-    /// Return resultset metadata without actually execute statement or portal
+    /// Return resultset metadata without actually executing statement or portal
     async fn do_describe<C>(
         &self,
         client: &mut C,

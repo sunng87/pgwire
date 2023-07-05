@@ -33,23 +33,53 @@ pub trait ServerParameterProvider: Send + Sync {
         C: ClientInfo;
 }
 
-/// Default noop parameter provider
-pub struct DefaultServerParameterProvider;
+/// Default noop parameter provider.
+///
+/// This provider responds frontend with default parameters:
+///
+/// - `DateStyle: ISO YMD`: the default text serialization in this library is
+/// using `YMD` style date. If you override this, or use your own serialization
+/// for date types, remember to update this as well.
+/// - `server_encoding: UTF8`
+/// - `client_encoding: UTF8`
+/// - `integer_datetimes: on`:
+///
+#[derive(Debug, Getters, Setters)]
+#[getset(get = "pub", set = "pub")]
+pub struct DefaultServerParameterProvider {
+    server_version: String,
+    server_encoding: String,
+    client_encoding: String,
+    date_style: String,
+    integer_datetimes: String,
+}
+
+impl Default for DefaultServerParameterProvider {
+    fn default() -> Self {
+        Self {
+            server_version: env!("CARGO_PKG_VERSION").to_owned(),
+            server_encoding: "UTF8".to_owned(),
+            client_encoding: "UTF8".to_owned(),
+            date_style: "ISO YMD".to_owned(),
+            integer_datetimes: "on".to_owned(),
+        }
+    }
+}
 
 impl ServerParameterProvider for DefaultServerParameterProvider {
     fn server_parameters<C>(&self, _client: &C) -> Option<HashMap<String, String>>
     where
         C: ClientInfo,
     {
-        let mut params = HashMap::with_capacity(4);
+        let mut params = HashMap::with_capacity(5);
+        params.insert("server_version".to_owned(), self.server_version.clone());
+        params.insert("server_encoding".to_owned(), self.server_encoding.clone());
+        params.insert("client_encoding".to_owned(), self.client_encoding.clone());
+        params.insert("DateStyle".to_owned(), self.date_style.clone());
         params.insert(
-            "server_version".to_owned(),
-            env!("CARGO_PKG_VERSION").to_owned(),
+            "integer_datetimes".to_owned(),
+            self.integer_datetimes.clone(),
         );
-        params.insert("server_encoding".to_owned(), "UTF8".to_owned());
-        params.insert("client_encoding".to_owned(), "UTF8".to_owned());
-        params.insert("DateStyle".to_owned(), "ISO YMD".to_owned());
-        params.insert("integer_datetimes".to_owned(), "on".to_owned());
 
         Some(params)
     }
