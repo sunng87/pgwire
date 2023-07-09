@@ -266,7 +266,11 @@ impl<A, P> MakeSASLScramAuthStartupHandler<A, P> {
     }
 }
 
-impl<A, P> MakeHandler for MakeSASLScramAuthStartupHandler<A, P> {
+impl<A, P> MakeHandler for MakeSASLScramAuthStartupHandler<A, P>
+where
+    A: AuthSource,
+    P: ServerParameterProvider,
+{
     type Handler = Arc<SASLScramAuthStartupHandler<A, P>>;
 
     fn make(&self) -> Self::Handler {

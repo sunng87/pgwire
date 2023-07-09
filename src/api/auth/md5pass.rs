@@ -104,7 +104,11 @@ pub struct MakeMd5PasswordAuthStartupHandler<A, P> {
     parameter_provider: Arc<P>,
 }
 
-impl<V, P> MakeHandler for MakeMd5PasswordAuthStartupHandler<V, P> {
+impl<V, P> MakeHandler for MakeMd5PasswordAuthStartupHandler<V, P>
+where
+    V: AuthSource,
+    P: ServerParameterProvider,
+{
     type Handler = Arc<Md5PasswordAuthStartupHandler<V, P>>;
 
     fn make(&self) -> Self::Handler {
