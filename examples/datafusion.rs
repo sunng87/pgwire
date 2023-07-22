@@ -36,7 +36,7 @@ impl SimpleQueryHandler for DfSessionService {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        println!("{:?}", query);
+        // println!("{:?}", query);
         if query.starts_with("LOAD") {
             let command = query.trim_end();
             let command = command.strip_suffix(";").unwrap_or(command);
@@ -51,7 +51,7 @@ impl SimpleQueryHandler for DfSessionService {
                 "OK",
                 Some(1),
             ))])
-        } else if query.starts_with("SELECT") {
+        } else if query.to_uppercase().starts_with("SELECT") {
             let ctx = self.session_context.lock().await;
             let df = ctx
                 .sql(query)
@@ -129,10 +129,11 @@ async fn encode_dataframe<'a>(df: DataFrame) -> PgWireResult<QueryResponse<'a>> 
             let rb = rb.unwrap();
             let rows = rb.num_rows();
             let cols = rb.num_columns();
-            let mut results = Vec::with_capacity(rows);
 
-            for row in 0..rows {
-                let mut encoder = DataRowEncoder::new(fields_ref.clone());
+            let fields = fields_ref.clone();
+
+            let row_stream = (0..rows).into_iter().map(move |row| {
+                let mut encoder = DataRowEncoder::new(fields.clone());
                 for col in 0..cols {
                     let array = rb.column(col);
                     if array.is_null(row) {
@@ -141,10 +142,10 @@ async fn encode_dataframe<'a>(df: DataFrame) -> PgWireResult<QueryResponse<'a>> 
                         encode_value(&mut encoder, array, row).unwrap();
                     }
                 }
-                results.push(encoder.finish());
-            }
+                encoder.finish()
+            });
 
-            stream::iter(results)
+            stream::iter(row_stream)
         })
         .flatten();
 
@@ -229,6 +230,7 @@ pub async fn main() {
     let server_addr = "127.0.0.1:5432";
     let listener = TcpListener::bind(server_addr).await.unwrap();
     println!("Listening to {}", server_addr);
+    println!("Execute SQL \"LOAD <path/to/csv> <table name>;\" to load your data as table.");
     loop {
         let incoming_socket = listener.accept().await.unwrap();
         let authenticator_ref = authenticator.make();
