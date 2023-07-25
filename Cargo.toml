@@ -30,7 +30,7 @@ hex = "0.4"
 base64 = "0.21"
 ring = "0.16"
 stringprep = "0.1.2"
-x509-certificate = "0.20"
+x509-certificate = "0.21"
 
 tokio = { version = "1.19", features = ["net", "rt", "io-util"], optional = true}
 tokio-util = { version = "0.7.3", features = ["codec", "io"], optional = true }
