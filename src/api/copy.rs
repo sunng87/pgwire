@@ -8,23 +8,35 @@ use super::ClientInfo;
 /// handler for copy messages
 #[async_trait]
 pub trait CopyHandler {
-    async fn on_copy_in<C, S>(&self, client: &mut C, copy_data_stream: S) -> PgWireResult<()>
+    async fn on_copy_in<C, S>(&self, _client: &mut C, _copy_data_stream: S) -> PgWireResult<()>
     where
         C: ClientInfo,
-        S: Stream<Item = CopyData>;
+        S: Stream<Item = CopyData> + Send,
+    {
+        Ok(())
+    }
 
-    async fn on_copy_out<C, S>(&self, client: &mut C) -> PgWireResult<S>
-    where
-        C: ClientInfo,
-        S: Stream<Item = CopyData>;
-
-    async fn on_copy_both<C, S1, S2>(
+    async fn on_copy_out<C>(
         &self,
-        client: &mut C,
-        copy_data_stream: S1,
-    ) -> PgWireResult<S2>
+        _client: &mut C,
+    ) -> PgWireResult<Box<dyn Stream<Item = CopyData> + Send>>
     where
         C: ClientInfo,
-        S1: Stream<Item = CopyData>,
-        S2: Stream<Item = CopyData>;
+    {
+        let stream: Vec<CopyData> = Vec::new();
+        Ok(Box::new(futures::stream::iter(stream)))
+    }
+
+    async fn on_copy_both<C, S1>(
+        &self,
+        _client: &mut C,
+        _copy_data_stream: S1,
+    ) -> PgWireResult<Box<dyn Stream<Item = CopyData> + Send>>
+    where
+        C: ClientInfo,
+        S1: Stream<Item = CopyData> + Send,
+    {
+        let stream: Vec<CopyData> = Vec::new();
+        Ok(Box::new(futures::stream::iter(stream)))
+    }
 }
