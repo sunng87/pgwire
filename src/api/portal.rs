@@ -4,6 +4,7 @@ use bytes::Bytes;
 use postgres_types::FromSqlOwned;
 
 use crate::{
+    api::Type,
     error::{PgWireError, PgWireResult},
     messages::{data::FORMAT_CODE_BINARY, extendedquery::Bind},
 };
@@ -101,10 +102,16 @@ impl<S: Clone> Portal<S> {
 
     /// Attempt to get parameter at given index as type `T`.
     ///
-    pub fn parameter<T>(&self, idx: usize) -> PgWireResult<Option<T>>
+    pub fn parameter<T>(&self, idx: usize, pg_type: &Type) -> PgWireResult<Option<T>>
     where
         T: FromSqlOwned,
     {
+        if !T::accepts(pg_type) {
+            return Err(PgWireError::InvalidRustTypeForParameter(
+                pg_type.name().to_owned(),
+            ));
+        }
+
         let param = self
             .parameters()
             .get(idx)
@@ -112,27 +119,30 @@ impl<S: Clone> Portal<S> {
 
         let _format = self.parameter_format().format_for(idx);
 
-        let ty = self
-            .statement
-            .parameter_types()
-            .get(idx)
-            .ok_or_else(|| PgWireError::ParameterTypeIndexOutOfBound(idx))?;
-
-        if !T::accepts(ty) {
-            return Err(PgWireError::InvalidRustTypeForParameter(
-                ty.name().to_owned(),
-            ));
-        }
-
         if let Some(ref param) = param {
             // TODO: from_sql only works with binary format
             // here we need to check format code first and seek to support text
-            T::from_sql(ty, param)
+            T::from_sql(pg_type, param)
                 .map(|v| Some(v))
                 .map_err(PgWireError::FailedToParseParameter)
         } else {
             // Null
             Ok(None)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use postgres_types::FromSql;
+
+    use super::*;
+
+    #[test]
+    fn test_from_sql() {
+        assert_eq!(
+            "helloworld",
+            String::from_sql(&Type::UNKNOWN, "helloworld".as_bytes()).unwrap()
+        )
     }
 }

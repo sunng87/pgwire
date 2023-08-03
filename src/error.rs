@@ -23,8 +23,6 @@ pub enum PgWireError {
     UnknownTypeId(Oid),
     #[error("Parameter index out of bound: {0:?}")]
     ParameterIndexOutOfBound(usize),
-    #[error("Parameter type index out of bound: {0:?}")]
-    ParameterTypeIndexOutOfBound(usize),
     #[error("Cannot convert postgre type {0:?} to given rust type")]
     InvalidRustTypeForParameter(String),
     #[error("Failed to parse parameter: {0:?}")]
