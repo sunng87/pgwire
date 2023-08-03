@@ -71,7 +71,7 @@ impl Message for Startup {
             }
         }
 
-        codec::decode_packet(buf, 0, |buf, full_len| Self::decode_body(buf, full_len))
+        codec::decode_packet(buf, 0, Self::decode_body)
     }
 
     fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
