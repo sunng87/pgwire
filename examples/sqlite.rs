@@ -147,31 +147,31 @@ fn get_params(portal: &Portal<String>) -> Vec<Box<dyn ToSql>> {
         // we only support a small amount of types for demo
         match param_type {
             &Type::BOOL => {
-                let param = portal.parameter::<bool>(i).unwrap();
+                let param = portal.parameter::<bool>(i, param_type).unwrap();
                 results.push(Box::new(param) as Box<dyn ToSql>);
             }
             &Type::INT2 => {
-                let param = portal.parameter::<i16>(i).unwrap();
+                let param = portal.parameter::<i16>(i, param_type).unwrap();
                 results.push(Box::new(param) as Box<dyn ToSql>);
             }
             &Type::INT4 => {
-                let param = portal.parameter::<i32>(i).unwrap();
+                let param = portal.parameter::<i32>(i, param_type).unwrap();
                 results.push(Box::new(param) as Box<dyn ToSql>);
             }
             &Type::INT8 => {
-                let param = portal.parameter::<i64>(i).unwrap();
+                let param = portal.parameter::<i64>(i, param_type).unwrap();
                 results.push(Box::new(param) as Box<dyn ToSql>);
             }
             &Type::TEXT | &Type::VARCHAR => {
-                let param = portal.parameter::<String>(i).unwrap();
+                let param = portal.parameter::<String>(i, param_type).unwrap();
                 results.push(Box::new(param) as Box<dyn ToSql>);
             }
             &Type::FLOAT4 => {
-                let param = portal.parameter::<f32>(i).unwrap();
+                let param = portal.parameter::<f32>(i, param_type).unwrap();
                 results.push(Box::new(param) as Box<dyn ToSql>);
             }
             &Type::FLOAT8 => {
-                let param = portal.parameter::<f64>(i).unwrap();
+                let param = portal.parameter::<f64>(i, param_type).unwrap();
                 results.push(Box::new(param) as Box<dyn ToSql>);
             }
             _ => {
