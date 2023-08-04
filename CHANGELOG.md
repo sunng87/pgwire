@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Changed
+
+- Changed `Portal::parameter` function to require a `&Type` argument for
+  deserialization. Previously we relies on client specified types but it doesn't
+  work when the client driver requires type inference on server-side. The new
+  function signature allows you to provide an type. [#106]
+
 ## [0.15.0] - 2023-06-23
 
 ### Added
