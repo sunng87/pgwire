@@ -14,6 +14,8 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   deserialization. Previously we relies on client specified types but it doesn't
   work when the client driver requires type inference on server-side. The new
   function signature allows you to provide an type. [#106]
+- Changed `DefaultServerParameterProvider` API to allow modification of built-in
+  parameters. [#97]
 
 ## [0.15.0] - 2023-06-23
 
