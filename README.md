@@ -121,6 +121,10 @@ scenarios. Please rise an issue if there is a scenario.
   [libSQL](https://github.com/libsql/libsql)
 * [risinglight](https://github.com/risinglightdb/risinglight): OLAP database
   system for educational purpose
+* [PeerDB](https://github.com/PeerDB-io/peerdb) Postgres first ETL/ELT, enabling
+  10x faster data movement in and out of Postgres
+* [CeresDB](https://github.com/CeresDB/ceresdb) CeresDB is a high-performance,
+  distributed, cloud native time-series database from AntGroup.
 
 ## License
 
