@@ -4,6 +4,7 @@
 [![](https://img.shields.io/crates/v/pgwire)](https://crates.io/crates/pgwire)
 [![Docs](https://docs.rs/pgwire/badge.svg)](https://docs.rs/pgwire/latest/pgwire/)
 
+Build Postgres compatible access layer for your data service.
 
 This library implements PostgreSQL Wire Protocol, and provide essential APIs to
 write PostgreSQL comptible servers and clients.
