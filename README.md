@@ -64,8 +64,8 @@ Postgres Wire Protocol is a relatively general-purpose Layer-7 protocol. There
 are 3 parts of the protocol:
 
 - Startup: client-server handshake and authentication.
-- Simple Query: The legacy query protocol of postgresql. Query are provided as
-  string, and server is allowed to stream data in response.
+- Simple Query: The text-based query protocol of postgresql. Query are provided
+  as string, and server is allowed to stream data in response.
 - Extended Query: A new sub-protocol for query which has ability to cache the
   query on server-side and reuse it with new parameters. The response part is
   identical to Simple Query.
