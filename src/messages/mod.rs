@@ -147,6 +147,9 @@ impl PgWireFrontendMessage {
                 extendedquery::MESSAGE_TYPE_BYTE_EXECUTE => {
                     extendedquery::Execute::decode(buf).map(|v| v.map(Self::Execute))
                 }
+                extendedquery::MESSAGE_TYPE_BYTE_FLUSH => {
+                    extendedquery::Flush::decode(buf).map(|v| v.map(Self::Flush))
+                }
                 extendedquery::MESSAGE_TYPE_BYTE_SYNC => {
                     extendedquery::Sync::decode(buf).map(|v| v.map(Self::Sync))
                 }
