@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Fixed
+
+- Fixed message decode for `flush` [#113]
+- Add a fix for potential panic on `startup`. [#112]
+
 ## [0.16.0] - 2023-08-04
 
 ### Changed
