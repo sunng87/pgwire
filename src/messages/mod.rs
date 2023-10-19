@@ -74,6 +74,7 @@ pub mod terminate;
 #[derive(Debug)]
 pub enum PgWireFrontendMessage {
     Startup(startup::Startup),
+    SslRequest(startup::SslRequest),
     PasswordMessageFamily(startup::PasswordMessageFamily),
 
     Query(simplequery::Query),
@@ -97,6 +98,7 @@ impl PgWireFrontendMessage {
     pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         match self {
             Self::Startup(msg) => msg.encode(buf),
+            Self::SslRequest(msg) => msg.encode(buf),
             Self::PasswordMessageFamily(msg) => msg.encode(buf),
 
             Self::Query(msg) => msg.encode(buf),
