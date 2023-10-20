@@ -197,6 +197,7 @@ pub enum PgWireBackendMessage {
     ReadyForQuery(response::ReadyForQuery),
     ErrorResponse(response::ErrorResponse),
     NoticeResponse(response::NoticeResponse),
+    SslResponse(response::SslResponse),
 
     // data
     ParameterDescription(data::ParameterDescription),
@@ -230,6 +231,7 @@ impl PgWireBackendMessage {
             Self::ReadyForQuery(msg) => msg.encode(buf),
             Self::ErrorResponse(msg) => msg.encode(buf),
             Self::NoticeResponse(msg) => msg.encode(buf),
+            Self::SslResponse(msg) => msg.encode(buf),
 
             Self::ParameterDescription(msg) => msg.encode(buf),
             Self::RowDescription(msg) => msg.encode(buf),
@@ -520,6 +522,14 @@ mod test {
     fn test_sslrequest() {
         let sslreq = SslRequest::new();
         roundtrip!(sslreq, SslRequest);
+    }
+
+    #[test]
+    fn test_sslresponse() {
+        let sslaccept = SslResponse::Accept;
+        roundtrip!(sslaccept, SslResponse);
+        let sslrefuse = SslResponse::Refuse;
+        roundtrip!(sslrefuse, SslResponse);
     }
 
     #[test]
