@@ -193,3 +193,60 @@ impl Message for NoticeResponse {
         }
     }
 }
+
+/// Response to SSLRequest.
+/// To initiate an SSL-encrypted connection, the frontend initially sends an SSLRequest
+/// message rather than a StartupMessage. The server then responds with a single byte
+/// containing 'S' or 'N', indicating that it is willing or unwilling to perform SSL, respectively.
+#[derive(Debug, PartialEq)]
+pub enum SslResponse {
+    Accept,
+    Refuse,
+}
+
+impl SslResponse {
+    pub const BYTE_ACCEPT: u8 = b'S';
+    pub const BYTE_REFUSE: u8 = b'N';
+    // The whole message takes only one byte and has no size field.
+    pub const MESSAGE_LENGTH: usize = 1;
+}
+
+impl Message for SslResponse {
+    fn message_length(&self) -> usize {
+        Self::MESSAGE_LENGTH
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        match self {
+            Self::Accept => buf.put_u8(Self::BYTE_ACCEPT),
+            Self::Refuse => buf.put_u8(Self::BYTE_REFUSE),
+        }
+        Ok(())
+    }
+
+    fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        self.encode_body(buf)
+    }
+
+    fn decode_body(_: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+        unreachable!()
+    }
+
+    fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
+        if buf.remaining() >= Self::MESSAGE_LENGTH {
+            match buf[0] {
+                Self::BYTE_ACCEPT => {
+                    buf.advance(Self::MESSAGE_LENGTH);
+                    Ok(Some(SslResponse::Accept))
+                }
+                Self::BYTE_REFUSE => {
+                    buf.advance(Self::MESSAGE_LENGTH);
+                    Ok(Some(SslResponse::Refuse))
+                }
+                _ => Ok(None),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+}
