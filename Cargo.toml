@@ -16,7 +16,7 @@ rust-version = "1.67"
 [dependencies]
 log = "0.4"
 getset = "0.1.2"
-derive-new = "0.5"
+derive-new = "0.6"
 bytes = "1.1.0"
 time = "0.3"
 futures = "0.3"
