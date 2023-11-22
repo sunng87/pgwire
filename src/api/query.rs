@@ -328,7 +328,7 @@ where
     while let Some(row) = data_rows.next().await {
         let row = row?;
         rows += 1;
-        client.send(PgWireBackendMessage::DataRow(row)).await?;
+        client.feed(PgWireBackendMessage::DataRow(row)).await?;
     }
 
     let tag = Tag::new_for_query(rows);
