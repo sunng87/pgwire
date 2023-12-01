@@ -23,7 +23,7 @@ futures = "0.3"
 async-trait = "0.1"
 rand = "0.8"
 thiserror = "1"
-postgres-types = { version = "0.2", features = ["with-chrono-0_4"]}
+postgres-types = { version = "0.2", features = ["with-chrono-0_4", "array-impls"]}
 md5 = "0.7"
 hex = "0.4"
 ## scram libraries
