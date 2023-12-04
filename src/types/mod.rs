@@ -46,8 +46,6 @@ impl<T: ToSqlText> ToSqlText for Option<T> {
     }
 }
 
-// TODO: array support
-
 impl ToSqlText for String {
     fn to_sql_text(
         &self,
@@ -88,42 +86,40 @@ impl_to_sql_text!(i8);
 impl_to_sql_text!(i16);
 impl_to_sql_text!(i32);
 impl_to_sql_text!(i64);
-impl_to_sql_text!(i128);
-impl_to_sql_text!(u8);
-impl_to_sql_text!(u16);
 impl_to_sql_text!(u32);
-impl_to_sql_text!(u64);
-impl_to_sql_text!(u128);
 impl_to_sql_text!(f32);
 impl_to_sql_text!(f64);
 impl_to_sql_text!(bool);
 impl_to_sql_text!(char);
-
-impl ToSqlText for Vec<u8> {
-    fn to_sql_text(
-        &self,
-        _ty: &Type,
-        out: &mut BytesMut,
-    ) -> Result<IsNull, Box<dyn Error + Sync + Send>>
-    where
-        Self: Sized,
-    {
-        out.put_slice(hex::encode(self).as_bytes());
-        Ok(IsNull::No)
-    }
-}
 
 impl ToSqlText for &[u8] {
     fn to_sql_text(
         &self,
         _ty: &Type,
         out: &mut BytesMut,
-    ) -> Result<IsNull, Box<dyn Error + Sync + Send>>
-    where
-        Self: Sized,
-    {
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         out.put_slice(hex::encode(self).as_bytes());
         Ok(IsNull::No)
+    }
+}
+
+impl ToSqlText for Vec<u8> {
+    fn to_sql_text(
+        &self,
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        <&[u8] as ToSqlText>::to_sql_text(&&**self, ty, out)
+    }
+}
+
+impl<const N: usize> ToSqlText for [u8; N] {
+    fn to_sql_text(
+        &self,
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        <&[u8] as ToSqlText>::to_sql_text(&&self[..], ty, out)
     }
 }
 
@@ -132,10 +128,7 @@ impl ToSqlText for SystemTime {
         &self,
         _ty: &Type,
         out: &mut BytesMut,
-    ) -> Result<IsNull, Box<dyn Error + Sync + Send>>
-    where
-        Self: Sized,
-    {
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let datetime: DateTime<Utc> = DateTime::<Utc>::from(*self);
         let fmt = datetime.format("%Y-%m-%d %H:%M:%S%.6f").to_string();
         out.put_slice(fmt.as_bytes());
@@ -151,10 +144,7 @@ where
         &self,
         ty: &Type,
         out: &mut BytesMut,
-    ) -> Result<IsNull, Box<dyn Error + Sync + Send>>
-    where
-        Self: Sized,
-    {
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let fmt = match *ty {
             Type::TIMESTAMP => "%Y-%m-%d %H:%M:%S%.6f",
             Type::TIMESTAMPTZ => "%Y-%m-%d %H:%M:%S%.6f%:::z",
@@ -173,10 +163,7 @@ impl ToSqlText for NaiveDateTime {
         &self,
         ty: &Type,
         out: &mut BytesMut,
-    ) -> Result<IsNull, Box<dyn Error + Sync + Send>>
-    where
-        Self: Sized,
-    {
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let fmt = match *ty {
             Type::TIMESTAMP => "%Y-%m-%d %H:%M:%S%.6f",
             Type::DATE => "%Y-%m-%d",
@@ -193,10 +180,7 @@ impl ToSqlText for NaiveDate {
         &self,
         ty: &Type,
         out: &mut BytesMut,
-    ) -> Result<IsNull, Box<dyn Error + Sync + Send>>
-    where
-        Self: Sized,
-    {
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let fmt = match *ty {
             Type::DATE => self.format("%Y-%m-%d").to_string(),
             _ => Err(Box::new(WrongType::new::<NaiveDate>(ty.clone())))?,
@@ -212,16 +196,51 @@ impl ToSqlText for NaiveTime {
         &self,
         ty: &Type,
         out: &mut BytesMut,
-    ) -> Result<IsNull, Box<dyn Error + Sync + Send>>
-    where
-        Self: Sized,
-    {
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let fmt = match *ty {
             Type::TIME => self.format("%H:%M:%S%.6f").to_string(),
             _ => Err(Box::new(WrongType::new::<NaiveTime>(ty.clone())))?,
         };
         out.put_slice(fmt.as_bytes());
         Ok(IsNull::No)
+    }
+}
+
+impl<T: ToSqlText> ToSqlText for &[T] {
+    fn to_sql_text(
+        &self,
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        out.put_slice(b"[");
+        for (i, val) in self.iter().enumerate() {
+            if i > 0 {
+                out.put_slice(b",");
+            }
+            val.to_sql_text(ty, out)?;
+        }
+        out.put_slice(b"]");
+        Ok(IsNull::No)
+    }
+}
+
+impl<T: ToSqlText> ToSqlText for Vec<T> {
+    fn to_sql_text(
+        &self,
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        <&[T] as ToSqlText>::to_sql_text(&&**self, ty, out)
+    }
+}
+
+impl<T: ToSqlText, const N: usize> ToSqlText for [T; N] {
+    fn to_sql_text(
+        &self,
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        <&[T] as ToSqlText>::to_sql_text(&&self[..], ty, out)
     }
 }
 
