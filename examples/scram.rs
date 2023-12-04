@@ -58,12 +58,14 @@ impl AuthSource for DummyAuthDB {
 
 /// configure TlsAcceptor and get server cert for SCRAM channel binding
 fn setup_tls() -> Result<TlsAcceptor, IOError> {
-    let cert: Vec<Certificate> = certs(&mut BufReader::new(File::open("examples/ssl/server.crt")?))
-        .map_err(|_| IOError::new(ErrorKind::InvalidInput, "invalid cert"))
-        .map(|mut certs| certs.drain(..).map(Certificate).collect())?;
+    let cert = certs(&mut BufReader::new(File::open("examples/ssl/server.crt")?))
+        .map(|cert_der| cert_der.map(|cert_der| Certificate(cert_der.as_ref().into())))
+        .collect::<Result<Vec<Certificate>, IOError>>()?;
+
     let key = pkcs8_private_keys(&mut BufReader::new(File::open("examples/ssl/server.key")?))
-        .map_err(|_| IOError::new(ErrorKind::InvalidInput, "invalid key"))
-        .map(|mut keys| keys.drain(..).map(PrivateKey).next().unwrap())?;
+        .map(|key_der| key_der.map(|key_der| PrivateKey(key_der.secret_pkcs8_der().into())))
+        .collect::<Result<Vec<PrivateKey>, IOError>>()?
+        .remove(0);
 
     let config = ServerConfig::builder()
         .with_safe_defaults()
