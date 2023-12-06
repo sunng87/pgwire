@@ -40,6 +40,7 @@ with its usage.
   - [x] Cancel
   - [x] Error and Notice
   - [x] Copy
+  - [x] Notification
 - [ ] Logical replication over TCP
 - [ ] APIs
   - [x] Startup APIs
