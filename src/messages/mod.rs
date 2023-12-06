@@ -198,6 +198,7 @@ pub enum PgWireBackendMessage {
     ErrorResponse(response::ErrorResponse),
     NoticeResponse(response::NoticeResponse),
     SslResponse(response::SslResponse),
+    NotificationResponse(response::NotificationResponse),
 
     // data
     ParameterDescription(data::ParameterDescription),
@@ -232,6 +233,7 @@ impl PgWireBackendMessage {
             Self::ErrorResponse(msg) => msg.encode(buf),
             Self::NoticeResponse(msg) => msg.encode(buf),
             Self::SslResponse(msg) => msg.encode(buf),
+            Self::NotificationResponse(msg) => msg.encode(buf),
 
             Self::ParameterDescription(msg) => msg.encode(buf),
             Self::RowDescription(msg) => msg.encode(buf),
@@ -290,6 +292,10 @@ impl PgWireBackendMessage {
                 }
                 response::MESSAGE_TYPE_BYTE_NOTICE_RESPONSE => {
                     response::NoticeResponse::decode(buf).map(|v| v.map(Self::NoticeResponse))
+                }
+                response::MESSAGE_TYPE_BYTE_NOTIFICATION_RESPONSE => {
+                    response::NotificationResponse::decode(buf)
+                        .map(|v| v.map(Self::NotificationResponse))
                 }
 
                 data::MESSAGE_TYPE_BYTE_PARAMETER_DESCRITION => {
@@ -605,5 +611,12 @@ mod test {
 
         let copyresponse = CopyBothResponse::new(0, 3, vec![0, 0, 0]);
         roundtrip!(copyresponse, CopyBothResponse);
+    }
+
+    #[test]
+    fn test_notification_response() {
+        let notification_response =
+            NotificationResponse::new(10087, "channel".to_owned(), "payload".to_owned());
+        roundtrip!(notification_response, NotificationResponse);
     }
 }
