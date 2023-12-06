@@ -250,3 +250,45 @@ impl Message for SslResponse {
         }
     }
 }
+
+/// NotificationResponse
+#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
+#[getset(get = "pub", set = "pub", get_mut = "pub")]
+pub struct NotificationResponse {
+    pid: i32,
+    channel: String,
+    payload: String,
+}
+
+pub const MESSAGE_TYPE_BYTE_NOTIFICATION_RESPONSE: u8 = b'A';
+
+impl Message for NotificationResponse {
+    #[inline]
+    fn message_type() -> Option<u8> {
+        Some(MESSAGE_TYPE_BYTE_NOTIFICATION_RESPONSE)
+    }
+
+    fn message_length(&self) -> usize {
+        8 + self.channel.as_bytes().len() + 1 + self.payload.as_bytes().len() + 1
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        buf.put_i32(self.pid);
+        codec::put_cstring(buf, &self.channel);
+        codec::put_cstring(buf, &self.payload);
+
+        Ok(())
+    }
+
+    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+        let pid = buf.get_i32();
+        let channel = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
+        let payload = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
+
+        Ok(NotificationResponse {
+            pid,
+            channel,
+            payload,
+        })
+    }
+}
