@@ -84,11 +84,13 @@ pub trait SimpleQueryHandler: Send + Sync {
     /// Provide your query implementation using the incoming query string.
     async fn do_query<'a, 'b: 'a, C>(
         &'b self,
-        client: &C,
+        client: &mut C,
         query: &'a str,
     ) -> PgWireResult<Vec<Response<'a>>>
     where
-        C: ClientInfo + Unpin + Send + Sync;
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 }
 
 #[async_trait]
@@ -279,7 +281,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
         target: StatementOrPortal<'_, Self::Statement>,
     ) -> PgWireResult<DescribeResponse>
     where
-        C: ClientInfo + Unpin + Send + Sync;
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
     /// This is the main implementation for query execution. Context has
     /// been provided:
@@ -294,7 +298,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
         max_rows: usize,
     ) -> PgWireResult<Response<'a>>
     where
-        C: ClientInfo + Unpin + Send + Sync;
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 }
 
 /// Helper function to send `QueryResponse` and optional `RowDescription` to client
