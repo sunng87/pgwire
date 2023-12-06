@@ -5,8 +5,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use rustls_pemfile::{certs, pkcs8_private_keys};
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::net::TcpListener;
-use tokio_rustls::rustls::{Certificate, PrivateKey, ServerConfig};
+use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 
 use pgwire::api::auth::scram::{gen_salted_password, MakeSASLScramAuthStartupHandler};
@@ -63,16 +64,14 @@ impl AuthSource for DummyAuthDB {
 /// configure TlsAcceptor and get server cert for SCRAM channel binding
 fn setup_tls() -> Result<TlsAcceptor, IOError> {
     let cert = certs(&mut BufReader::new(File::open("examples/ssl/server.crt")?))
-        .map(|cert_der| cert_der.map(|cert_der| Certificate(cert_der.as_ref().into())))
-        .collect::<Result<Vec<Certificate>, IOError>>()?;
+        .collect::<Result<Vec<CertificateDer>, IOError>>()?;
 
     let key = pkcs8_private_keys(&mut BufReader::new(File::open("examples/ssl/server.key")?))
-        .map(|key_der| key_der.map(|key_der| PrivateKey(key_der.secret_pkcs8_der().into())))
-        .collect::<Result<Vec<PrivateKey>, IOError>>()?
+        .map(|key| key.map(PrivateKeyDer::from))
+        .collect::<Result<Vec<PrivateKeyDer>, IOError>>()?
         .remove(0);
 
     let config = ServerConfig::builder()
-        .with_safe_defaults()
         .with_no_client_auth()
         .with_single_cert(cert, key)
         .map_err(|err| IOError::new(ErrorKind::InvalidInput, err))?;
