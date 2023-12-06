@@ -22,7 +22,11 @@ pub struct DummyProcessor;
 
 #[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
-    async fn do_query<'a, C>(&self, _client: &C, _query: &'a str) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<'a, C>(
+        &self,
+        _client: &mut C,
+        _query: &'a str,
+    ) -> PgWireResult<Vec<Response<'a>>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {

@@ -32,7 +32,11 @@ impl DfSessionService {
 
 #[async_trait]
 impl SimpleQueryHandler for DfSessionService {
-    async fn do_query<'a, C>(&self, _client: &C, query: &'a str) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<'a, C>(
+        &self,
+        _client: &mut C,
+        query: &'a str,
+    ) -> PgWireResult<Vec<Response<'a>>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {

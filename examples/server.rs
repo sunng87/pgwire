@@ -1,25 +1,44 @@
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{stream, StreamExt};
+use futures::{stream, Sink, SinkExt, StreamExt};
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
 use pgwire::api::{ClientInfo, MakeHandler, StatelessMakeHandler, Type};
-use pgwire::error::PgWireResult;
+use pgwire::error::ErrorInfo;
+use pgwire::error::{PgWireError, PgWireResult};
+use pgwire::messages::response::NoticeResponse;
+use pgwire::messages::PgWireBackendMessage;
 use pgwire::tokio::process_socket;
 
 pub struct DummyProcessor;
 
 #[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
-    async fn do_query<'a, C>(&self, _client: &C, query: &'a str) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<'a, C>(
+        &self,
+        client: &mut C,
+        query: &'a str,
+    ) -> PgWireResult<Vec<Response<'a>>>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        println!("{:?}", query);
+        client
+            .send(PgWireBackendMessage::NoticeResponse(NoticeResponse::from(
+                ErrorInfo::new(
+                    "NOTICE".to_owned(),
+                    "01000".to_owned(),
+                    format!("Query received {}", query),
+                ),
+            )))
+            .await?;
+
         if query.starts_with("SELECT") {
             let f1 = FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Text);
             let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text);
