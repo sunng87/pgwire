@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Added
+
+- Added `SslRequest` and `SslResponse` message [#116] [#117]
+- Added `NotificationResponse` message for Postgres `LISTEN/NOTIFY` feature
+  [#136]
+- Added encoding support for array data type [#130]
+
+### Changed
+
+- Allow sending custom message from `SimpleQueryHandler` by changing `Client`
+  reference to mutable [#133]
+- Updated tokio-rustls to 0.25 [#135]
+- Using `feed` for sending response [#128]
+
 ## [0.16.1] - 2023-09-28
 
 ### Fixed
