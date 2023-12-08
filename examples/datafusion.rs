@@ -3,7 +3,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use datafusion::arrow::array::{Array, BooleanArray, ListArray, PrimitiveArray, StringArray};
 use datafusion::arrow::datatypes::{
-    DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt32Type,
+    DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, UInt16Type,
+    UInt32Type, UInt64Type, UInt8Type,
 };
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::prelude::*;
@@ -205,7 +206,10 @@ get_primitive_value!(get_i8_value, Int8Type, i8);
 get_primitive_value!(get_i16_value, Int16Type, i16);
 get_primitive_value!(get_i32_value, Int32Type, i32);
 get_primitive_value!(get_i64_value, Int64Type, i64);
+get_primitive_value!(get_u8_value, UInt8Type, u8);
+get_primitive_value!(get_u16_value, UInt16Type, u16);
 get_primitive_value!(get_u32_value, UInt32Type, u32);
+get_primitive_value!(get_u64_value, UInt64Type, u64);
 get_primitive_value!(get_f32_value, Float32Type, f32);
 get_primitive_value!(get_f64_value, Float64Type, f64);
 
@@ -221,13 +225,33 @@ macro_rules! get_primitive_list_value {
                 .collect()
         }
     };
+
+    ($name:ident, $t:ty, $pt:ty, $f:expr) => {
+        fn $name(arr: &Arc<dyn Array>, idx: usize) -> Vec<Option<$pt>> {
+            let list_arr = arr.as_any().downcast_ref::<ListArray>().unwrap().value(idx);
+            list_arr
+                .as_any()
+                .downcast_ref::<PrimitiveArray<$t>>()
+                .unwrap()
+                .iter()
+                .map(|val| val.map($f))
+                .collect()
+        }
+    };
 }
 
 get_primitive_list_value!(get_i8_list_value, Int8Type, i8);
 get_primitive_list_value!(get_i16_list_value, Int16Type, i16);
 get_primitive_list_value!(get_i32_list_value, Int32Type, i32);
 get_primitive_list_value!(get_i64_list_value, Int64Type, i64);
+get_primitive_list_value!(get_u8_list_value, UInt8Type, i8, |val: u8| { val as i8 });
+get_primitive_list_value!(get_u16_list_value, UInt16Type, i16, |val: u16| {
+    val as i16
+});
 get_primitive_list_value!(get_u32_list_value, UInt32Type, u32);
+get_primitive_list_value!(get_u64_list_value, UInt64Type, i64, |val: u64| {
+    val as i64
+});
 get_primitive_list_value!(get_f32_list_value, Float32Type, f32);
 get_primitive_list_value!(get_f64_list_value, Float64Type, f64);
 
@@ -256,27 +280,27 @@ fn encode_value(
 ) -> PgWireResult<()> {
     match arr.data_type() {
         DataType::Boolean => encoder.encode_field(&get_bool_value(arr, idx))?,
-        DataType::Int8 | DataType::UInt8 => encoder.encode_field(&get_i8_value(arr, idx))?,
-        DataType::Int16 | DataType::UInt16 => encoder.encode_field(&get_i16_value(arr, idx))?,
+        DataType::Int8 => encoder.encode_field(&get_i8_value(arr, idx))?,
+        DataType::Int16 => encoder.encode_field(&get_i16_value(arr, idx))?,
         DataType::Int32 => encoder.encode_field(&get_i32_value(arr, idx))?,
-        DataType::Int64 | DataType::UInt64 => encoder.encode_field(&get_i64_value(arr, idx))?,
+        DataType::Int64 => encoder.encode_field(&get_i64_value(arr, idx))?,
+        DataType::UInt8 => encoder.encode_field(&(get_u8_value(arr, idx) as i8))?,
+        DataType::UInt16 => encoder.encode_field(&(get_u16_value(arr, idx) as i16))?,
         DataType::UInt32 => encoder.encode_field(&get_u32_value(arr, idx))?,
+        DataType::UInt64 => encoder.encode_field(&(get_u64_value(arr, idx) as i64))?,
         DataType::Float32 => encoder.encode_field(&get_f32_value(arr, idx))?,
         DataType::Float64 => encoder.encode_field(&get_f64_value(arr, idx))?,
         DataType::Utf8 => encoder.encode_field(&get_utf8_value(arr, idx))?,
         DataType::List(field) => match field.data_type() {
             DataType::Boolean => encoder.encode_field(&get_bool_list_value(arr, idx))?,
-            DataType::Int8 | DataType::UInt8 => {
-                encoder.encode_field(&get_i8_list_value(arr, idx))?
-            }
-            DataType::Int16 | DataType::UInt16 => {
-                encoder.encode_field(&get_i16_list_value(arr, idx))?
-            }
+            DataType::Int8 => encoder.encode_field(&get_i8_list_value(arr, idx))?,
+            DataType::Int16 => encoder.encode_field(&get_i16_list_value(arr, idx))?,
             DataType::Int32 => encoder.encode_field(&get_i32_list_value(arr, idx))?,
-            DataType::Int64 | DataType::UInt64 => {
-                encoder.encode_field(&get_i64_list_value(arr, idx))?
-            }
+            DataType::Int64 => encoder.encode_field(&get_i64_list_value(arr, idx))?,
+            DataType::UInt8 => encoder.encode_field(&get_u8_list_value(arr, idx))?,
+            DataType::UInt16 => encoder.encode_field(&get_u16_list_value(arr, idx))?,
             DataType::UInt32 => encoder.encode_field(&get_u32_list_value(arr, idx))?,
+            DataType::UInt64 => encoder.encode_field(&get_u64_list_value(arr, idx))?,
             DataType::Float32 => encoder.encode_field(&get_f32_list_value(arr, idx))?,
             DataType::Float64 => encoder.encode_field(&get_f64_list_value(arr, idx))?,
             DataType::Utf8 => encoder.encode_field(&get_utf8_list_value(arr, idx))?,
