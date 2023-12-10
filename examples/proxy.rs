@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{stream, StreamExt};
 use tokio::net::TcpListener;
 use tokio_postgres::{Client, NoTls, SimpleQueryMessage};
 
@@ -37,13 +36,18 @@ impl SimpleQueryHandler for ProxyProcessor {
                                     Tag::new_for_execution("", Some(count as usize)),
                                 ));
                             } else {
-                                downstream_response.push(Response::Query(row_buf));
+                                // FIXME: convert SimpleQueryRows to
+                                // QueryResponse: including schema and data
+                                let query_response = row_buf.into();
+                                downstream_response.push(Response::Query(query_response));
                             }
                         }
                         SimpleQueryMessage::Row(row) => {
-                            // TODO: convert simple query row to Response::Query
+                            // TODO: convert simple query row to pgwire data row
+                            // and process the response when needed
                             row_buf.push(row);
                         }
+                        _ => {}
                     }
                 }
 
