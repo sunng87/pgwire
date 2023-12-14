@@ -193,7 +193,10 @@ impl ExtendedQueryHandler for SqliteBackend {
     type PortalStore = MemPortalStore<Self::Statement>;
     type QueryParser = NoopQueryParser;
 
-    fn portal_store(&self) -> Arc<Self::PortalStore> {
+    fn portal_store<C>(&self, _client: &C) -> Arc<Self::PortalStore>
+    where
+        C: ClientInfo,
+    {
         self.portal_store.clone()
     }
 

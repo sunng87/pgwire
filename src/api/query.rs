@@ -100,7 +100,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
     type PortalStore: PortalStore<Statement = Self::Statement>;
 
     /// Get a reference to associated `PortalStore` implementation
-    fn portal_store(&self) -> Arc<Self::PortalStore>;
+    fn portal_store<C>(&self, client: &C) -> Arc<Self::PortalStore>
+    where
+        C: ClientInfo;
 
     /// Get a reference to associated `QueryParser` implementation
     fn query_parser(&self) -> Arc<Self::QueryParser>;
@@ -117,7 +119,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
     {
         let parser = self.query_parser();
         let stmt = StoredStatement::parse(&message, parser).await?;
-        self.portal_store().put_statement(Arc::new(stmt));
+        self.portal_store(client).put_statement(Arc::new(stmt));
         client
             .send(PgWireBackendMessage::ParseComplete(ParseComplete::new()))
             .await?;
@@ -137,9 +139,10 @@ pub trait ExtendedQueryHandler: Send + Sync {
     {
         let statement_name = message.statement_name().as_deref().unwrap_or(DEFAULT_NAME);
 
-        if let Some(statement) = self.portal_store().get_statement(statement_name) {
+        let portal_store = self.portal_store(client);
+        if let Some(statement) = portal_store.get_statement(statement_name) {
             let portal = Portal::try_new(&message, statement)?;
-            self.portal_store().put_portal(Arc::new(portal));
+            portal_store.put_portal(Arc::new(portal));
             client
                 .send(PgWireBackendMessage::BindComplete(BindComplete::new()))
                 .await?;
@@ -164,7 +167,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let portal_name = message.name().as_deref().unwrap_or(DEFAULT_NAME);
-        if let Some(portal) = self.portal_store().get_portal(portal_name) {
+        if let Some(portal) = self.portal_store(client).get_portal(portal_name) {
             match self
                 .do_query(client, portal.as_ref(), *message.max_rows() as usize)
                 .await?
@@ -205,7 +208,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let name = message.name().as_deref().unwrap_or(DEFAULT_NAME);
         match message.target_type() {
             TARGET_TYPE_BYTE_STATEMENT => {
-                if let Some(stmt) = self.portal_store().get_statement(name) {
+                if let Some(stmt) = self.portal_store(client).get_statement(name) {
                     let describe_response = self
                         .do_describe(client, StatementOrPortal::Statement(&stmt))
                         .await?;
@@ -215,7 +218,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 }
             }
             TARGET_TYPE_BYTE_PORTAL => {
-                if let Some(portal) = self.portal_store().get_portal(name) {
+                if let Some(portal) = self.portal_store(client).get_portal(name) {
                     let describe_response = self
                         .do_describe(client, StatementOrPortal::Portal(&portal))
                         .await?;
@@ -261,10 +264,10 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let name = message.name().as_deref().unwrap_or(DEFAULT_NAME);
         match message.target_type() {
             TARGET_TYPE_BYTE_STATEMENT => {
-                self.portal_store().rm_statement(name);
+                self.portal_store(client).rm_statement(name);
             }
             TARGET_TYPE_BYTE_PORTAL => {
-                self.portal_store().rm_portal(name);
+                self.portal_store(client).rm_portal(name);
             }
             _ => {}
         }
@@ -414,7 +417,7 @@ impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
     type PortalStore = MemPortalStore<Self::Statement>;
     type QueryParser = NoopQueryParser;
 
-    fn portal_store(&self) -> Arc<Self::PortalStore> {
+    fn portal_store<C>(&self, _client: &C) -> Arc<Self::PortalStore> {
         unimplemented!("Extended Query is not implemented on this server.")
     }
 
