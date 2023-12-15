@@ -15,12 +15,13 @@ use super::{results::FieldFormat, stmt::StoredStatement, DEFAULT_NAME};
 /// request.
 #[derive(Debug, CopyGetters, Default, Getters, Setters, Clone)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
-pub struct Portal<S> {
+pub struct Portal<Statement, PortalState> {
     name: String,
-    statement: Arc<StoredStatement<S>>,
+    statement: Arc<StoredStatement<Statement>>,
     parameter_format: Format,
     parameters: Vec<Option<Bytes>>,
     result_column_format: Format,
+    state: Option<PortalState>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -72,9 +73,13 @@ impl Format {
     }
 }
 
-impl<S: Clone> Portal<S> {
+impl<Statement: Clone, PortalState: Clone + Default + Send> Portal<Statement, PortalState> {
     /// Try to create portal from bind command and current client state
-    pub fn try_new(bind: &Bind, statement: Arc<StoredStatement<S>>) -> PgWireResult<Self> {
+    pub fn try_new(
+        bind: &Bind,
+        statement: Arc<StoredStatement<Statement>>,
+        state: Option<PortalState>,
+    ) -> PgWireResult<Self> {
         let portal_name = bind
             .portal_name()
             .clone()
@@ -92,6 +97,7 @@ impl<S: Clone> Portal<S> {
             parameter_format: param_format,
             parameters: bind.parameters().clone(),
             result_column_format: result_format,
+            state,
         })
     }
 

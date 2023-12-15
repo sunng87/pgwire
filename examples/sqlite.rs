@@ -11,6 +11,7 @@ use pgwire::api::results::{
     DataRowEncoder, DescribeResponse, FieldInfo, QueryResponse, Response, Tag,
 };
 use pgwire::api::stmt::NoopQueryParser;
+use pgwire::api::store::EmptyState;
 use pgwire::api::store::MemPortalStore;
 use pgwire::api::{ClientInfo, MakeHandler, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
@@ -144,7 +145,7 @@ fn encode_row_data(
     stream::iter(results.into_iter())
 }
 
-fn get_params(portal: &Portal<String>) -> Vec<Box<dyn ToSql>> {
+fn get_params(portal: &Portal<String, EmptyState>) -> Vec<Box<dyn ToSql>> {
     let mut results = Vec::with_capacity(portal.parameter_len());
     for i in 0..portal.parameter_len() {
         let param_type = portal.statement().parameter_types().get(i).unwrap();
@@ -190,6 +191,7 @@ fn get_params(portal: &Portal<String>) -> Vec<Box<dyn ToSql>> {
 #[async_trait]
 impl ExtendedQueryHandler for SqliteBackend {
     type Statement = String;
+    type PortalState = EmptyState;
     type PortalStore = MemPortalStore<Self::Statement>;
     type QueryParser = NoopQueryParser;
 
@@ -207,7 +209,7 @@ impl ExtendedQueryHandler for SqliteBackend {
     async fn do_query<'a, C>(
         &self,
         _client: &mut C,
-        portal: &'a Portal<Self::Statement>,
+        portal: &'a Portal<Self::Statement, Self::PortalState>,
         _max_rows: usize,
     ) -> PgWireResult<Response<'a>>
     where
@@ -244,7 +246,7 @@ impl ExtendedQueryHandler for SqliteBackend {
     async fn do_describe<C>(
         &self,
         _client: &mut C,
-        target: StatementOrPortal<'_, Self::Statement>,
+        target: StatementOrPortal<'_, Self::Statement, Self::PortalState>,
     ) -> PgWireResult<DescribeResponse>
     where
         C: ClientInfo + Unpin + Send + Sync,
