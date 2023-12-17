@@ -12,7 +12,6 @@ use pgwire::api::results::{
     DataRowEncoder, DescribeResponse, FieldInfo, QueryResponse, Response, Tag,
 };
 use pgwire::api::stmt::NoopQueryParser;
-use pgwire::api::store::MemPortalStore;
 use pgwire::api::{ClientInfo, MakeHandler, Type};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
@@ -36,7 +35,6 @@ impl AuthSource for DummyAuthSource {
 
 #[derive(Default)]
 struct DummyDatabase {
-    portal_store: Arc<MemPortalStore<String>>,
     query_parser: Arc<NoopQueryParser>,
 }
 
@@ -105,12 +103,7 @@ impl SimpleQueryHandler for DummyDatabase {
 #[async_trait]
 impl ExtendedQueryHandler for DummyDatabase {
     type Statement = String;
-    type PortalStore = MemPortalStore<Self::Statement>;
     type QueryParser = NoopQueryParser;
-
-    fn portal_store(&self) -> Arc<Self::PortalStore> {
-        self.portal_store.clone()
-    }
 
     fn query_parser(&self) -> Arc<Self::QueryParser> {
         self.query_parser.clone()
