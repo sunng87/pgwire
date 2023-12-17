@@ -8,8 +8,8 @@ use futures::stream::StreamExt;
 use super::portal::Portal;
 use super::results::{into_row_description, Tag};
 use super::stmt::{NoopQueryParser, QueryParser, StoredStatement};
-use super::store::{MemPortalStore, PortalStore};
-use super::{ClientInfo, DEFAULT_NAME};
+use super::store::PortalStore;
+use super::{ClientInfo, ClientPortalStore, DEFAULT_NAME};
 use crate::api::results::{DescribeResponse, QueryResponse, Response};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::data::{NoData, ParameterDescription};
@@ -97,10 +97,6 @@ pub trait SimpleQueryHandler: Send + Sync {
 pub trait ExtendedQueryHandler: Send + Sync {
     type Statement: Clone + Send + Sync;
     type QueryParser: QueryParser<Statement = Self::Statement> + Send + Sync;
-    type PortalStore: PortalStore<Statement = Self::Statement>;
-
-    /// Get a reference to associated `PortalStore` implementation
-    fn portal_store(&self) -> Arc<Self::PortalStore>;
 
     /// Get a reference to associated `QueryParser` implementation
     fn query_parser(&self) -> Arc<Self::QueryParser>;
@@ -111,13 +107,14 @@ pub trait ExtendedQueryHandler: Send + Sync {
     /// stores it in `Self::PortalStore`.
     async fn on_parse<C>(&self, client: &mut C, message: Parse) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let parser = self.query_parser();
         let stmt = StoredStatement::parse(&message, parser).await?;
-        self.portal_store().put_statement(Arc::new(stmt));
+        client.portal_store().put_statement(Arc::new(stmt));
         client
             .send(PgWireBackendMessage::ParseComplete(ParseComplete::new()))
             .await?;
@@ -131,15 +128,16 @@ pub trait ExtendedQueryHandler: Send + Sync {
     /// statement and stores in `Self::PortalStore` as well.
     async fn on_bind<C>(&self, client: &mut C, message: Bind) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let statement_name = message.statement_name().as_deref().unwrap_or(DEFAULT_NAME);
 
-        if let Some(statement) = self.portal_store().get_statement(statement_name) {
+        if let Some(statement) = client.portal_store().get_statement(statement_name) {
             let portal = Portal::try_new(&message, statement)?;
-            self.portal_store().put_portal(Arc::new(portal));
+            client.portal_store().put_portal(Arc::new(portal));
             client
                 .send(PgWireBackendMessage::BindComplete(BindComplete::new()))
                 .await?;
@@ -159,12 +157,13 @@ pub trait ExtendedQueryHandler: Send + Sync {
     /// `Self::Statement`.
     async fn on_execute<C>(&self, client: &mut C, message: Execute) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let portal_name = message.name().as_deref().unwrap_or(DEFAULT_NAME);
-        if let Some(portal) = self.portal_store().get_portal(portal_name) {
+        if let Some(portal) = client.portal_store().get_portal(portal_name) {
             match self
                 .do_query(client, portal.as_ref(), *message.max_rows() as usize)
                 .await?
@@ -198,14 +197,15 @@ pub trait ExtendedQueryHandler: Send + Sync {
     /// The default implementation delegates the call to `self::do_describe`.
     async fn on_describe<C>(&self, client: &mut C, message: Describe) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let name = message.name().as_deref().unwrap_or(DEFAULT_NAME);
         match message.target_type() {
             TARGET_TYPE_BYTE_STATEMENT => {
-                if let Some(stmt) = self.portal_store().get_statement(name) {
+                if let Some(stmt) = client.portal_store().get_statement(name) {
                     let describe_response = self
                         .do_describe(client, StatementOrPortal::Statement(&stmt))
                         .await?;
@@ -215,7 +215,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 }
             }
             TARGET_TYPE_BYTE_PORTAL => {
-                if let Some(portal) = self.portal_store().get_portal(name) {
+                if let Some(portal) = client.portal_store().get_portal(name) {
                     let describe_response = self
                         .do_describe(client, StatementOrPortal::Portal(&portal))
                         .await?;
@@ -254,17 +254,18 @@ pub trait ExtendedQueryHandler: Send + Sync {
     /// The default implementation closes certain statement or portal.
     async fn on_close<C>(&self, client: &mut C, message: Close) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let name = message.name().as_deref().unwrap_or(DEFAULT_NAME);
         match message.target_type() {
             TARGET_TYPE_BYTE_STATEMENT => {
-                self.portal_store().rm_statement(name);
+                client.portal_store().rm_statement(name);
             }
             TARGET_TYPE_BYTE_PORTAL => {
-                self.portal_store().rm_portal(name);
+                client.portal_store().rm_portal(name);
             }
             _ => {}
         }
@@ -281,7 +282,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
         target: StatementOrPortal<'_, Self::Statement>,
     ) -> PgWireResult<DescribeResponse>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
@@ -298,7 +300,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
         max_rows: usize,
     ) -> PgWireResult<Response<'a>>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 }
@@ -411,12 +414,7 @@ pub struct PlaceholderExtendedQueryHandler;
 #[async_trait]
 impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
     type Statement = String;
-    type PortalStore = MemPortalStore<Self::Statement>;
     type QueryParser = NoopQueryParser;
-
-    fn portal_store(&self) -> Arc<Self::PortalStore> {
-        unimplemented!("Extended Query is not implemented on this server.")
-    }
 
     fn query_parser(&self) -> Arc<Self::QueryParser> {
         unimplemented!("Extended Query is not implemented on this server.")
