@@ -46,7 +46,7 @@ rustls-pemfile = "2.0"
 rustls-pki-types = "1.0"
 ## webpki-roots has mozilla's set of roots
 ## rustls-native-certs loads roots from current system
-gluesql = "0.13"
+gluesql = "0.15"
 ## for datafusion example
 datafusion = "34"
 sqlparser = "0.40"
