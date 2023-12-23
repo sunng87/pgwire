@@ -12,7 +12,7 @@ use tokio_util::codec::{Decoder, Encoder, Framed};
 use crate::api::auth::StartupHandler;
 use crate::api::query::ExtendedQueryHandler;
 use crate::api::query::SimpleQueryHandler;
-use crate::api::{ClientInfo, ClientInfoHolder, PgWireConnectionState};
+use crate::api::{ClientInfo, ClientPortalStore, DefaultClient, PgWireConnectionState};
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::response::ReadyForQuery;
 use crate::messages::response::{SslResponse, READY_STATUS_IDLE};
@@ -21,11 +21,11 @@ use crate::messages::{Message, PgWireBackendMessage, PgWireFrontendMessage};
 
 #[derive(Debug, new, Getters, Setters, MutGetters)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
-pub struct PgWireMessageServerCodec {
-    client_info: ClientInfoHolder,
+pub struct PgWireMessageServerCodec<S> {
+    client_info: DefaultClient<S>,
 }
 
-impl Decoder for PgWireMessageServerCodec {
+impl<S> Decoder for PgWireMessageServerCodec<S> {
     type Item = PgWireFrontendMessage;
     type Error = PgWireError;
 
@@ -47,7 +47,7 @@ impl Decoder for PgWireMessageServerCodec {
     }
 }
 
-impl Encoder<PgWireBackendMessage> for PgWireMessageServerCodec {
+impl<S> Encoder<PgWireBackendMessage> for PgWireMessageServerCodec<S> {
     type Error = IOError;
 
     fn encode(
@@ -59,7 +59,7 @@ impl Encoder<PgWireBackendMessage> for PgWireMessageServerCodec {
     }
 }
 
-impl<T> ClientInfo for Framed<T, PgWireMessageServerCodec> {
+impl<T, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
     fn socket_addr(&self) -> &std::net::SocketAddr {
         self.codec().client_info().socket_addr()
     }
@@ -85,9 +85,17 @@ impl<T> ClientInfo for Framed<T, PgWireMessageServerCodec> {
     }
 }
 
+impl<T, S> ClientPortalStore for Framed<T, PgWireMessageServerCodec<S>> {
+    type PortalStore = <DefaultClient<S> as ClientPortalStore>::PortalStore;
+
+    fn portal_store(&self) -> &Self::PortalStore {
+        self.codec().client_info().portal_store()
+    }
+}
+
 async fn process_message<S, A, Q, EQ>(
     message: PgWireFrontendMessage,
-    socket: &mut Framed<S, PgWireMessageServerCodec>,
+    socket: &mut Framed<S, PgWireMessageServerCodec<EQ::Statement>>,
     authenticator: Arc<A>,
     query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
@@ -134,8 +142,8 @@ where
     Ok(())
 }
 
-async fn process_error<S>(
-    socket: &mut Framed<S, PgWireMessageServerCodec>,
+async fn process_error<S, ST>(
+    socket: &mut Framed<S, PgWireMessageServerCodec<ST>>,
     error: PgWireError,
 ) -> Result<(), IOError>
 where
@@ -197,8 +205,8 @@ async fn is_sslrequest_pending(tcp_socket: &TcpStream) -> Result<bool, IOError> 
     Ok(false)
 }
 
-async fn peek_for_sslrequest(
-    socket: &mut Framed<TcpStream, PgWireMessageServerCodec>,
+async fn peek_for_sslrequest<ST>(
+    socket: &mut Framed<TcpStream, PgWireMessageServerCodec<ST>>,
     ssl_supported: bool,
 ) -> Result<bool, IOError> {
     let mut ssl = false;
@@ -232,7 +240,7 @@ where
     let addr = tcp_socket.peer_addr()?;
     tcp_socket.set_nodelay(true)?;
 
-    let client_info = ClientInfoHolder::new(addr, false);
+    let client_info = DefaultClient::new(addr, false);
     let mut tcp_socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
     let ssl = peek_for_sslrequest(&mut tcp_socket, tls_acceptor.is_some()).await?;
 
@@ -255,7 +263,7 @@ where
         }
     } else {
         // mention the use of ssl
-        let client_info = ClientInfoHolder::new(addr, true);
+        let client_info = DefaultClient::new(addr, true);
         // safe to unwrap tls_acceptor here
         let ssl_socket = tls_acceptor
             .unwrap()

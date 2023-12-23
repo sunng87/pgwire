@@ -11,7 +11,6 @@ use pgwire::api::results::{
     DataRowEncoder, DescribeResponse, FieldInfo, QueryResponse, Response, Tag,
 };
 use pgwire::api::stmt::NoopQueryParser;
-use pgwire::api::store::MemPortalStore;
 use pgwire::api::{ClientInfo, MakeHandler, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::data::DataRow;
@@ -22,7 +21,6 @@ use tokio::net::TcpListener;
 
 pub struct SqliteBackend {
     conn: Arc<Mutex<Connection>>,
-    portal_store: Arc<MemPortalStore<String>>,
     query_parser: Arc<NoopQueryParser>,
 }
 
@@ -190,12 +188,7 @@ fn get_params(portal: &Portal<String>) -> Vec<Box<dyn ToSql>> {
 #[async_trait]
 impl ExtendedQueryHandler for SqliteBackend {
     type Statement = String;
-    type PortalStore = MemPortalStore<Self::Statement>;
     type QueryParser = NoopQueryParser;
-
-    fn portal_store(&self) -> Arc<Self::PortalStore> {
-        self.portal_store.clone()
-    }
 
     fn query_parser(&self) -> Arc<Self::QueryParser> {
         self.query_parser.clone()
@@ -289,7 +282,6 @@ impl MakeHandler for MakeSqliteBackend {
     fn make(&self) -> Self::Handler {
         Arc::new(SqliteBackend {
             conn: self.conn.clone(),
-            portal_store: Arc::new(MemPortalStore::new()),
             query_parser: self.query_parser.clone(),
         })
     }

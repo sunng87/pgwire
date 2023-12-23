@@ -24,7 +24,7 @@ pub enum PgWireConnectionState {
     QueryInProgress,
 }
 
-/// Describe a client infomation holder
+/// Describe a client information holder
 pub trait ClientInfo {
     fn socket_addr(&self) -> &SocketAddr;
 
@@ -39,18 +39,44 @@ pub trait ClientInfo {
     fn metadata_mut(&mut self) -> &mut HashMap<String, String>;
 }
 
+/// Client Portal Store
+pub trait ClientPortalStore {
+    type PortalStore;
+
+    fn portal_store(&self) -> &Self::PortalStore;
+}
+
 pub const METADATA_USER: &str = "user";
 pub const METADATA_DATABASE: &str = "database";
 
-#[derive(Debug, new, Getters, Setters, MutGetters)]
+#[derive(Debug, Getters, Setters, MutGetters)]
 #[getset(get = "pub", set = "pub", get_mut = "pub")]
-pub struct ClientInfoHolder {
+pub struct DefaultClient<S> {
     socket_addr: SocketAddr,
     is_secure: bool,
-    #[new(default)]
     state: PgWireConnectionState,
-    #[new(default)]
     metadata: HashMap<String, String>,
+    portal_store: store::MemPortalStore<S>,
+}
+
+impl<S> DefaultClient<S> {
+    pub fn new(socket_addr: SocketAddr, is_secure: bool) -> DefaultClient<S> {
+        DefaultClient {
+            socket_addr,
+            is_secure,
+            state: PgWireConnectionState::default(),
+            metadata: HashMap::new(),
+            portal_store: store::MemPortalStore::new(),
+        }
+    }
+}
+
+impl<S> ClientPortalStore for DefaultClient<S> {
+    type PortalStore = store::MemPortalStore<S>;
+
+    fn portal_store(&self) -> &Self::PortalStore {
+        &self.portal_store
+    }
 }
 
 pub trait MakeHandler {
