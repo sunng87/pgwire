@@ -50,6 +50,8 @@ gluesql = "0.13"
 ## for datafusion example
 datafusion = "34"
 sqlparser = "0.40"
+## for proxy example
+tokio-postgres = "0.7"
 
 [features]
 default = ["tokio", "time-format"]
