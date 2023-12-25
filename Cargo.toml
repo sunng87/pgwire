@@ -49,7 +49,7 @@ rustls-pki-types = "1.0"
 gluesql = "0.13"
 ## for datafusion example
 datafusion = "34"
-sqlparser = "0.40"
+sqlparser = "0.41"
 
 [features]
 default = ["tokio", "time-format"]
