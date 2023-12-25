@@ -28,7 +28,7 @@ impl SimpleQueryHandler for GluesqlProcessor {
     {
         println!("{:?}", query);
         let mut glue = self.glue.lock().unwrap();
-        glue.execute(query)
+        futures::executor::block_on(glue.execute(query))
             .map_err(|err| PgWireError::ApiError(Box::new(err)))
             .and_then(|payloads| {
                 payloads
