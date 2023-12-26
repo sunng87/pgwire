@@ -118,7 +118,7 @@ impl ExtendedQueryHandler for DummyDatabase {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        let query = portal.statement().statement();
+        let query = &portal.statement.statement;
         println!("extended query: {:?}", query);
         if query.starts_with("SELECT") {
             let data = vec![
@@ -130,7 +130,7 @@ impl ExtendedQueryHandler for DummyDatabase {
                 ),
                 (Some(2), None, None),
             ];
-            let schema = Arc::new(self.schema(portal.result_column_format()));
+            let schema = Arc::new(self.schema(&portal.result_column_format));
             let schema_ref = schema.clone();
             let data_row_stream = stream::iter(data.into_iter()).map(move |r| {
                 let mut encoder = DataRowEncoder::new(schema_ref.clone());
@@ -164,7 +164,7 @@ impl ExtendedQueryHandler for DummyDatabase {
                 Ok(DescribeResponse::new(param_types, schema))
             }
             StatementOrPortal::Portal(portal) => {
-                let schema = self.schema(portal.result_column_format());
+                let schema = self.schema(&portal.result_column_format);
                 Ok(DescribeResponse::new(None, schema))
             }
         }
