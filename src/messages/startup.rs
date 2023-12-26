@@ -85,19 +85,22 @@ impl Message for Startup {
             return Err(PgWireError::InvalidStartupMessage);
         }
 
-        let mut msg = Startup::default();
-
         // parse
-        msg.protocol_number_major = buf.get_u16();
-        msg.protocol_number_minor = buf.get_u16();
+        let protocol_number_major = buf.get_u16();
+        let protocol_number_minor = buf.get_u16();
 
         // end by reading the last \0
+        let mut parameters = BTreeMap::new();
         while let Some(key) = codec::get_cstring(buf) {
             let value = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
-            msg.parameters.insert(key, value);
+            parameters.insert(key, value);
         }
 
-        Ok(msg)
+        Ok(Startup {
+            protocol_number_major,
+            protocol_number_minor,
+            parameters,
+        })
     }
 }
 

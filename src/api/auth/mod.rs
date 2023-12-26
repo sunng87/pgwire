@@ -93,32 +93,32 @@ pub struct Password {
 
 impl Password {
     pub fn salt(&self) -> Option<&[u8]> {
-        return self.salt.as_deref();
+        self.salt.as_deref()
     }
 
     pub fn password(&self) -> &[u8] {
-        return &self.password;
+        &self.password
     }
 }
 
 #[derive(Debug, new)]
 pub struct LoginInfo<'a> {
-    user: Option<&'a String>,
-    database: Option<&'a String>,
+    user: Option<&'a str>,
+    database: Option<&'a str>,
     host: String,
 }
 
 impl<'a> LoginInfo<'a> {
     pub fn user(&self) -> Option<&str> {
-        return self.user.map(|u| u.as_str());
+        self.user
     }
 
     pub fn database(&self) -> Option<&str> {
-        return self.database.map(|db| db.as_str());
+        self.database
     }
 
     pub fn host(&self) -> &str {
-        return &self.host;
+        &self.host
     }
 
     pub fn from_client_info<C>(client: &'a C) -> LoginInfo
@@ -126,8 +126,8 @@ impl<'a> LoginInfo<'a> {
         C: ClientInfo,
     {
         LoginInfo {
-            user: client.metadata().get(METADATA_USER),
-            database: client.metadata().get(METADATA_DATABASE),
+            user: client.metadata().get(METADATA_USER).map(|s| s.as_str()),
+            database: client.metadata().get(METADATA_DATABASE).map(|s| s.as_str()),
             host: client.socket_addr().ip().to_string(),
         }
     }

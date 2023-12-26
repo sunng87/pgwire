@@ -89,23 +89,23 @@ pub struct FieldInfo {
 
 impl FieldInfo {
     pub fn name(&self) -> &str {
-        return &self.name;
+        &self.name
     }
 
     pub fn table_id(&self) -> Option<i32> {
-        return self.table_id;
+        self.table_id
     }
 
     pub fn column_id(&self) -> Option<i16> {
-        return self.column_id;
+        self.column_id
     }
 
     pub fn datatype(&self) -> &Type {
-        return &self.datatype;
+        &self.datatype
     }
 
     pub fn format(&self) -> FieldFormat {
-        return self.format;
+        self.format
     }
 }
 
@@ -255,11 +255,11 @@ pub struct DescribeResponse {
 
 impl DescribeResponse {
     pub fn parameters(&self) -> Option<&[Type]> {
-        return self.parameters.as_deref();
+        self.parameters.as_deref()
     }
 
     pub fn fields(&self) -> &[FieldInfo] {
-        return &self.fields;
+        &self.fields
     }
 
     /// Create an no_data instance of `DescribeResponse`. This is typically used

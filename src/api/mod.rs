@@ -61,15 +61,15 @@ pub struct DefaultClient<S> {
 
 impl<S> ClientInfo for DefaultClient<S> {
     fn socket_addr(&self) -> SocketAddr {
-        return self.socket_addr;
+        self.socket_addr
     }
 
     fn is_secure(&self) -> bool {
-        return self.is_secure;
+        self.is_secure
     }
 
     fn state(&self) -> PgWireConnectionState {
-        return self.state;
+        self.state
     }
 
     fn set_state(&mut self, new_state: PgWireConnectionState) {
@@ -77,11 +77,11 @@ impl<S> ClientInfo for DefaultClient<S> {
     }
 
     fn metadata(&self) -> &HashMap<String, String> {
-        return &self.metadata;
+        &self.metadata
     }
 
     fn metadata_mut(&mut self) -> &mut HashMap<String, String> {
-        return &mut self.metadata;
+        &mut self.metadata
     }
 }
 
