@@ -83,7 +83,10 @@ impl Message for RowDescription {
             fields.push(field);
         }
 
-        Ok(RowDescription { fields, _hidden: () })
+        Ok(RowDescription {
+            fields,
+            _hidden: (),
+        })
     }
 }
 
@@ -186,7 +189,10 @@ impl Message for DataRow {
             }
         }
 
-        Ok(DataRow { fields, _hidden: () })
+        Ok(DataRow {
+            fields,
+            _hidden: (),
+        })
     }
 }
 

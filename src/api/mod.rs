@@ -83,7 +83,6 @@ impl<S> ClientInfo for DefaultClient<S> {
     fn metadata_mut(&mut self) -> &mut HashMap<String, String> {
         return &mut self.metadata;
     }
-
 }
 
 impl<S> DefaultClient<S> {

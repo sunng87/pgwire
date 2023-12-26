@@ -89,7 +89,7 @@ pub struct FieldInfo {
 
 impl FieldInfo {
     pub fn name(&self) -> &str {
-        return &self.name
+        return &self.name;
     }
 
     pub fn table_id(&self) -> Option<i32> {
@@ -256,8 +256,7 @@ pub struct DescribeResponse {
 
 impl DescribeResponse {
     pub fn parameters(&self) -> Option<&[Type]> {
-        return self.parameters.as_deref()
-
+        return self.parameters.as_deref();
     }
 
     pub fn fields(&self) -> &[FieldInfo] {

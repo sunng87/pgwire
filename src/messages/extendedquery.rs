@@ -121,7 +121,11 @@ impl Message for Close {
         let target_type = buf.get_u8();
         let name = codec::get_cstring(buf);
 
-        Ok(Close { target_type, name, _hidden: () })
+        Ok(Close {
+            target_type,
+            name,
+            _hidden: (),
+        })
     }
 }
 
@@ -317,7 +321,11 @@ impl Message for Describe {
         let target_type = buf.get_u8();
         let name = codec::get_cstring(buf);
 
-        Ok(Describe { target_type, name, _hidden: () })
+        Ok(Describe {
+            target_type,
+            name,
+            _hidden: (),
+        })
     }
 }
 
@@ -352,7 +360,11 @@ impl Message for Execute {
         let name = codec::get_cstring(buf);
         let max_rows = buf.get_i32();
 
-        Ok(Execute { name, max_rows, _hidden: () })
+        Ok(Execute {
+            name,
+            max_rows,
+            _hidden: (),
+        })
     }
 }
 

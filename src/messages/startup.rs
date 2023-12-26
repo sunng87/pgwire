@@ -428,7 +428,7 @@ impl Message for BackendKeyData {
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct SslRequest {
     #[new(default)]
-    _hidden: ()
+    _hidden: (),
 }
 
 impl SslRequest {
@@ -509,7 +509,11 @@ impl Message for SASLInitialResponse {
             Some(buf.split_to(data_len as usize).freeze())
         };
 
-        Ok(SASLInitialResponse { auth_method, data, _hidden: () })
+        Ok(SASLInitialResponse {
+            auth_method,
+            data,
+            _hidden: (),
+        })
     }
 }
 

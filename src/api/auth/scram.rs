@@ -179,9 +179,8 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                         ) => {
                             // second response, client_final
                             let resp = msg.into_sasl_response()?;
-                            let client_final = ClientFinal::try_new(
-                                String::from_utf8_lossy(&resp.data).as_ref(),
-                            )?;
+                            let client_final =
+                                ClientFinal::try_new(String::from_utf8_lossy(&resp.data).as_ref())?;
                             // dbg!(&client_final);
 
                             let channel_binding =
