@@ -49,6 +49,7 @@ pub trait ClientPortalStore {
 pub const METADATA_USER: &str = "user";
 pub const METADATA_DATABASE: &str = "database";
 
+#[non_exhaustive]
 #[derive(Debug)]
 pub struct DefaultClient<S> {
     pub socket_addr: SocketAddr,
@@ -56,7 +57,6 @@ pub struct DefaultClient<S> {
     pub state: PgWireConnectionState,
     pub metadata: HashMap<String, String>,
     pub portal_store: store::MemPortalStore<S>,
-    _hidden: (),
 }
 
 impl<S> ClientInfo for DefaultClient<S> {
@@ -93,7 +93,6 @@ impl<S> DefaultClient<S> {
             state: PgWireConnectionState::default(),
             metadata: HashMap::new(),
             portal_store: store::MemPortalStore::new(),
-            _hidden: (),
         }
     }
 }

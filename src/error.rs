@@ -54,6 +54,7 @@ pub type PgWireResult<T> = Result<T, PgWireError>;
 // Postgres error and notice message fields
 // This part of protocol is defined in
 // https://www.postgresql.org/docs/8.2/protocol-error-fields.html
+#[non_exhaustive]
 #[derive(new, Debug)]
 pub struct ErrorInfo {
     // severity can be one of `ERROR`, `FATAL`, or `PANIC` (in an error
@@ -97,8 +98,6 @@ pub struct ErrorInfo {
     // Routine: the name of the source-code routine reporting the error.
     #[new(default)]
     pub routine: Option<String>,
-    #[new(default)]
-    _hidden: (),
 }
 
 impl ErrorInfo {

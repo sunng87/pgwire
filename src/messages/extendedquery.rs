@@ -5,13 +5,12 @@ use super::{codec, Message};
 use crate::error::PgWireResult;
 
 /// Request from frontend to parse a prepared query string
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct Parse {
     pub name: Option<String>,
     pub query: String,
     pub type_oids: Vec<Oid>,
-    #[new(default)]
-    _hidden: (),
 }
 
 pub const MESSAGE_TYPE_BYTE_PARSE: u8 = b'P';
@@ -54,7 +53,6 @@ impl Message for Parse {
             name,
             query,
             type_oids,
-            _hidden: (),
         })
     }
 }
@@ -88,12 +86,11 @@ impl Message for ParseComplete {
 }
 
 /// Closing the prepared statement or portal
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct Close {
     pub target_type: u8,
     pub name: Option<String>,
-    #[new(default)]
-    _hidden: (),
 }
 
 pub const TARGET_TYPE_BYTE_STATEMENT: u8 = b'S';
@@ -121,11 +118,7 @@ impl Message for Close {
         let target_type = buf.get_u8();
         let name = codec::get_cstring(buf);
 
-        Ok(Close {
-            target_type,
-            name,
-            _hidden: (),
-        })
+        Ok(Close { target_type, name })
     }
 }
 
@@ -158,6 +151,7 @@ impl Message for CloseComplete {
 }
 
 /// Bind command, for executing prepared statement
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct Bind {
     pub portal_name: Option<String>,
@@ -168,8 +162,6 @@ pub struct Bind {
     pub parameters: Vec<Option<Bytes>>,
 
     pub result_column_format_codes: Vec<i16>,
-    #[new(default)]
-    _hidden: (),
 }
 
 pub const MESSAGE_TYPE_BYTE_BIND: u8 = b'B';
@@ -255,8 +247,6 @@ impl Message for Bind {
             parameters,
 
             result_column_format_codes,
-
-            _hidden: (),
         })
     }
 }
@@ -291,12 +281,11 @@ impl Message for BindComplete {
 
 /// Describe command fron frontend to backend. For getting information of
 /// particular portal or statement
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct Describe {
     pub target_type: u8,
     pub name: Option<String>,
-    #[new(default)]
-    _hidden: (),
 }
 
 pub const MESSAGE_TYPE_BYTE_DESCRIBE: u8 = b'D';
@@ -321,21 +310,16 @@ impl Message for Describe {
         let target_type = buf.get_u8();
         let name = codec::get_cstring(buf);
 
-        Ok(Describe {
-            target_type,
-            name,
-            _hidden: (),
-        })
+        Ok(Describe { target_type, name })
     }
 }
 
 /// Execute portal by its name
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct Execute {
     pub name: Option<String>,
     pub max_rows: i32,
-    #[new(default)]
-    _hidden: (),
 }
 
 pub const MESSAGE_TYPE_BYTE_EXECUTE: u8 = b'E';
@@ -360,11 +344,7 @@ impl Message for Execute {
         let name = codec::get_cstring(buf);
         let max_rows = buf.get_i32();
 
-        Ok(Execute {
-            name,
-            max_rows,
-            _hidden: (),
-        })
+        Ok(Execute { name, max_rows })
     }
 }
 

@@ -8,6 +8,7 @@ use crate::messages::extendedquery::Parse;
 
 use super::DEFAULT_NAME;
 
+#[non_exhaustive]
 #[derive(Debug, Default, new)]
 pub struct StoredStatement<S> {
     /// name of the statement
@@ -17,8 +18,6 @@ pub struct StoredStatement<S> {
     /// type ids of query parameters, can be empty if frontend asks backend for
     /// type inference
     pub parameter_types: Vec<Type>,
-    #[new(default)]
-    _hidden: (),
 }
 
 impl<S> StoredStatement<S> {
@@ -39,7 +38,6 @@ impl<S> StoredStatement<S> {
                 .unwrap_or_else(|| DEFAULT_NAME.to_owned()),
             statement,
             parameter_types: types,
-            _hidden: (),
         })
     }
 }

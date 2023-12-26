@@ -44,6 +44,7 @@ pub trait ServerParameterProvider: Send + Sync {
 /// - `client_encoding: UTF8`
 /// - `integer_datetimes: on`:
 ///
+#[non_exhaustive]
 #[derive(Debug)]
 pub struct DefaultServerParameterProvider {
     pub server_version: String,
@@ -51,7 +52,6 @@ pub struct DefaultServerParameterProvider {
     pub client_encoding: String,
     pub date_style: String,
     pub integer_datetimes: String,
-    _hidden: (),
 }
 
 impl Default for DefaultServerParameterProvider {
@@ -62,7 +62,6 @@ impl Default for DefaultServerParameterProvider {
             client_encoding: "UTF8".to_owned(),
             date_style: "ISO YMD".to_owned(),
             integer_datetimes: "on".to_owned(),
-            _hidden: (),
         }
     }
 }

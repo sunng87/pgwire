@@ -26,11 +26,10 @@ pub struct FieldDescription {
     pub format_code: i16,
 }
 
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct RowDescription {
     pub fields: Vec<FieldDescription>,
-    #[new(default)]
-    _hidden: (),
 }
 
 pub const MESSAGE_TYPE_BYTE_ROW_DESCRITION: u8 = b'T';
@@ -83,20 +82,16 @@ impl Message for RowDescription {
             fields.push(field);
         }
 
-        Ok(RowDescription {
-            fields,
-            _hidden: (),
-        })
+        Ok(RowDescription { fields })
     }
 }
 
 /// Data structure returned when frontend describes a statement
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new, Clone)]
 pub struct ParameterDescription {
     /// parameter types
     pub types: Vec<Oid>,
-    #[new(default)]
-    _hidden: (),
 }
 
 pub const MESSAGE_TYPE_BYTE_PARAMETER_DESCRITION: u8 = b't';
@@ -128,7 +123,7 @@ impl Message for ParameterDescription {
             types.push(buf.get_i32() as Oid);
         }
 
-        Ok(ParameterDescription { types, _hidden: () })
+        Ok(ParameterDescription { types })
     }
 }
 
@@ -136,11 +131,10 @@ impl Message for ParameterDescription {
 ///
 /// Data can be represented as text or binary format as specified by format
 /// codes from previous `RowDescription` message.
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new, Clone)]
 pub struct DataRow {
     pub fields: Vec<Option<Bytes>>,
-    #[new(default)]
-    _hidden: (),
 }
 
 impl DataRow {}
@@ -189,10 +183,7 @@ impl Message for DataRow {
             }
         }
 
-        Ok(DataRow {
-            fields,
-            _hidden: (),
-        })
+        Ok(DataRow { fields })
     }
 }
 

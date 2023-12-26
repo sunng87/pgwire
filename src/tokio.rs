@@ -19,11 +19,10 @@ use crate::messages::response::{SslResponse, READY_STATUS_IDLE};
 use crate::messages::startup::{SslRequest, Startup};
 use crate::messages::{Message, PgWireBackendMessage, PgWireFrontendMessage};
 
+#[non_exhaustive]
 #[derive(Debug, new)]
 pub struct PgWireMessageServerCodec<S> {
     pub client_info: DefaultClient<S>,
-    #[new(default)]
-    _hidden: (),
 }
 
 impl<S> Decoder for PgWireMessageServerCodec<S> {

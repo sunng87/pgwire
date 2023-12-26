@@ -11,6 +11,7 @@ use crate::error::{PgWireError, PgWireResult};
 /// terminated by a zero byte.
 /// the key-value parameter pairs are terminated by a zero byte, too.
 ///
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct Startup {
     #[new(value = "3")]
@@ -19,8 +20,6 @@ pub struct Startup {
     pub protocol_number_minor: u16,
     #[new(default)]
     pub parameters: BTreeMap<String, String>,
-    #[new(default)]
-    _hidden: (),
 }
 
 impl Default for Startup {
@@ -425,11 +424,9 @@ impl Message for BackendKeyData {
 /// The backend sents a single byte 'S' or 'N' to indicate its support. Upon 'S'
 /// the frontend should close the connection and reinitialize a new TLS
 /// connection.
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
-pub struct SslRequest {
-    #[new(default)]
-    _hidden: (),
-}
+pub struct SslRequest;
 
 impl SslRequest {
     pub const BODY_MAGIC_NUMBER: i32 = 80877103;
@@ -460,19 +457,18 @@ impl Message for SslRequest {
     fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
         if buf.remaining() >= 8 && (&buf[4..8]).get_i32() == Self::BODY_MAGIC_NUMBER {
             buf.advance(8);
-            Ok(Some(SslRequest { _hidden: () }))
+            Ok(Some(SslRequest))
         } else {
             Ok(None)
         }
     }
 }
 
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct SASLInitialResponse {
     pub auth_method: String,
     pub data: Option<Bytes>,
-    #[new(default)]
-    _hidden: (),
 }
 
 impl Message for SASLInitialResponse {
@@ -509,19 +505,14 @@ impl Message for SASLInitialResponse {
             Some(buf.split_to(data_len as usize).freeze())
         };
 
-        Ok(SASLInitialResponse {
-            auth_method,
-            data,
-            _hidden: (),
-        })
+        Ok(SASLInitialResponse { auth_method, data })
     }
 }
 
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct SASLResponse {
     pub data: Bytes,
-    #[new(default)]
-    _hidden: (),
 }
 
 impl Message for SASLResponse {
@@ -542,6 +533,6 @@ impl Message for SASLResponse {
 
     fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self> {
         let data = buf.split_to(full_len - 4).freeze();
-        Ok(SASLResponse { data, _hidden: () })
+        Ok(SASLResponse { data })
     }
 }

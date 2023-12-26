@@ -246,12 +246,11 @@ impl DataRowEncoder {
 /// statement, frontend expects parameter types inferenced by server. And both
 /// describe messages will require column definitions for resultset being
 /// returned.
+#[non_exhaustive]
 #[derive(Debug, new)]
 pub struct DescribeResponse {
     pub parameters: Option<Vec<Type>>,
     pub fields: Vec<FieldInfo>,
-    #[new(default)]
-    _hidden: (),
 }
 
 impl DescribeResponse {
@@ -269,7 +268,6 @@ impl DescribeResponse {
         DescribeResponse {
             parameters: None,
             fields: vec![],
-            _hidden: (),
         }
     }
 
