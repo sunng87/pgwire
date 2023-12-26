@@ -8,16 +8,17 @@ use crate::messages::extendedquery::Parse;
 
 use super::DEFAULT_NAME;
 
-#[derive(Debug, Default, new, Getters, Setters)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(Debug, Default, new)]
 pub struct StoredStatement<S> {
     /// name of the statement
-    id: String,
+    pub id: String,
     /// parsed query statement
-    statement: S,
+    pub statement: S,
     /// type ids of query parameters, can be empty if frontend asks backend for
     /// type inference
-    parameter_types: Vec<Type>,
+    pub parameter_types: Vec<Type>,
+    #[new(default)]
+    _hidden: (),
 }
 
 impl<S> StoredStatement<S> {
@@ -26,18 +27,19 @@ impl<S> StoredStatement<S> {
         Q: QueryParser<Statement = S>,
     {
         let types = parse
-            .type_oids()
+            .type_oids
             .iter()
             .map(|oid| Type::from_oid(*oid).ok_or_else(|| PgWireError::UnknownTypeId(*oid)))
             .collect::<PgWireResult<Vec<Type>>>()?;
-        let statement = parser.parse_sql(parse.query(), &types).await?;
+        let statement = parser.parse_sql(&parse.query, &types).await?;
         Ok(StoredStatement {
             id: parse
-                .name()
+                .name
                 .clone()
                 .unwrap_or_else(|| DEFAULT_NAME.to_owned()),
             statement,
             parameter_types: types,
+            _hidden: (),
         })
     }
 }

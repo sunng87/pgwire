@@ -54,50 +54,51 @@ pub type PgWireResult<T> = Result<T, PgWireError>;
 // Postgres error and notice message fields
 // This part of protocol is defined in
 // https://www.postgresql.org/docs/8.2/protocol-error-fields.html
-#[derive(new, Setters, Getters, Debug)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(new, Debug)]
 pub struct ErrorInfo {
     // severity can be one of `ERROR`, `FATAL`, or `PANIC` (in an error
     // message), or `WARNING`, `NOTICE`, `DEBUG`, `INFO`, or `LOG` (in a notice
     // message), or a localized translation of one of these.
-    severity: String,
+    pub severity: String,
     // error code defined in
     // https://www.postgresql.org/docs/current/errcodes-appendix.html
-    code: String,
+    pub code: String,
     // readable message
-    message: String,
+    pub message: String,
     // optional secondary message
     #[new(default)]
-    detail: Option<String>,
+    pub detail: Option<String>,
     // optional suggestion for fixing the issue
     #[new(default)]
-    hint: Option<String>,
+    pub hint: Option<String>,
     // Position: the field value is a decimal ASCII integer, indicating an error
     // cursor position as an index into the original query string.
     #[new(default)]
-    position: Option<String>,
+    pub position: Option<String>,
     // Internal position: this is defined the same as the P field, but it is
     // used when the cursor position refers to an internally generated command
     // rather than the one submitted by the client
     #[new(default)]
-    internal_position: Option<String>,
+    pub internal_position: Option<String>,
     // Internal query: the text of a failed internally-generated command.
     #[new(default)]
-    internal_query: Option<String>,
+    pub internal_query: Option<String>,
     // Where: an indication of the context in which the error occurred.
     #[new(default)]
-    where_context: Option<String>,
+    pub where_context: Option<String>,
     // File: the file name of the source-code location where the error was
     // reported.
     #[new(default)]
-    file_name: Option<String>,
+    pub file_name: Option<String>,
     // Line: the line number of the source-code location where the error was
     // reported.
     #[new(default)]
-    line: Option<usize>,
+    pub line: Option<usize>,
     // Routine: the name of the source-code routine reporting the error.
     #[new(default)]
-    routine: Option<String>,
+    pub routine: Option<String>,
+    #[new(default)]
+    _hidden: (),
 }
 
 impl ErrorInfo {
@@ -162,9 +163,9 @@ mod test {
             "28P01".to_owned(),
             "Password authentication failed".to_owned(),
         );
-        assert_eq!("FATAL", error_info.severity());
-        assert_eq!("28P01", error_info.code());
-        assert_eq!("Password authentication failed", error_info.message());
-        assert!(error_info.file_name().is_none());
+        assert_eq!("FATAL", error_info.severity);
+        assert_eq!("28P01", error_info.code);
+        assert_eq!("Password authentication failed", error_info.message);
+        assert!(error_info.file_name.is_none());
     }
 }

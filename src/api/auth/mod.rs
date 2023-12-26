@@ -44,14 +44,14 @@ pub trait ServerParameterProvider: Send + Sync {
 /// - `client_encoding: UTF8`
 /// - `integer_datetimes: on`:
 ///
-#[derive(Debug, Getters, Setters)]
-#[getset(get = "pub", set = "pub")]
+#[derive(Debug)]
 pub struct DefaultServerParameterProvider {
-    server_version: String,
-    server_encoding: String,
-    client_encoding: String,
-    date_style: String,
-    integer_datetimes: String,
+    pub server_version: String,
+    pub server_encoding: String,
+    pub client_encoding: String,
+    pub date_style: String,
+    pub integer_datetimes: String,
+    _hidden: (),
 }
 
 impl Default for DefaultServerParameterProvider {
@@ -62,6 +62,7 @@ impl Default for DefaultServerParameterProvider {
             client_encoding: "UTF8".to_owned(),
             date_style: "ISO YMD".to_owned(),
             integer_datetimes: "on".to_owned(),
+            _hidden: (),
         }
     }
 }
@@ -85,15 +86,23 @@ impl ServerParameterProvider for DefaultServerParameterProvider {
     }
 }
 
-#[derive(Debug, new, Getters, Clone)]
-#[getset(get = "pub")]
+#[derive(Debug, new, Clone)]
 pub struct Password {
     salt: Option<Vec<u8>>,
     password: Vec<u8>,
 }
 
-#[derive(Debug, new, Getters)]
-#[getset(get = "pub")]
+impl Password {
+    pub fn salt(&self) -> Option<&[u8]> {
+        return self.salt.as_deref();
+    }
+
+    pub fn password(&self) -> &[u8] {
+        return &self.password;
+    }
+}
+
+#[derive(Debug, new)]
 pub struct LoginInfo<'a> {
     user: Option<&'a String>,
     database: Option<&'a String>,
@@ -101,6 +110,18 @@ pub struct LoginInfo<'a> {
 }
 
 impl<'a> LoginInfo<'a> {
+    pub fn user(&self) -> Option<&str> {
+        return self.user.map(|u| u.as_str());
+    }
+
+    pub fn database(&self) -> Option<&str> {
+        return self.database.map(|db| db.as_str());
+    }
+
+    pub fn host(&self) -> &str {
+        return &self.host;
+    }
+
     pub fn from_client_info<C>(client: &'a C) -> LoginInfo
     where
         C: ClientInfo,
@@ -135,7 +156,7 @@ where
 {
     client.metadata_mut().extend(
         startup_message
-            .parameters()
+            .parameters
             .iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned())),
     );

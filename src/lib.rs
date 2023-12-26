@@ -54,8 +54,6 @@
 //!
 
 #[macro_use]
-extern crate getset;
-#[macro_use]
 extern crate derive_new;
 
 /// handler layer and high-level API layer.

@@ -11,15 +11,16 @@ use crate::error::{PgWireError, PgWireResult};
 /// terminated by a zero byte.
 /// the key-value parameter pairs are terminated by a zero byte, too.
 ///
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct Startup {
     #[new(value = "3")]
-    protocol_number_major: u16,
+    pub protocol_number_major: u16,
     #[new(value = "0")]
-    protocol_number_minor: u16,
+    pub protocol_number_minor: u16,
     #[new(default)]
-    parameters: BTreeMap<String, String>,
+    pub parameters: BTreeMap<String, String>,
+    #[new(default)]
+    _hidden: (),
 }
 
 impl Default for Startup {
@@ -88,13 +89,13 @@ impl Message for Startup {
         let mut msg = Startup::default();
 
         // parse
-        msg.set_protocol_number_major(buf.get_u16());
-        msg.set_protocol_number_minor(buf.get_u16());
+        msg.protocol_number_major = buf.get_u16();
+        msg.protocol_number_minor = buf.get_u16();
 
         // end by reading the last \0
         while let Some(key) = codec::get_cstring(buf) {
             let value = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
-            msg.parameters_mut().insert(key, value);
+            msg.parameters.insert(key, value);
         }
 
         Ok(msg)
@@ -319,10 +320,9 @@ impl PasswordMessageFamily {
 }
 
 /// password packet sent from frontend
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct Password {
-    password: String,
+    pub password: String,
 }
 
 impl Message for Password {
@@ -349,8 +349,7 @@ impl Message for Password {
 }
 
 /// parameter ack sent from backend after authentication success
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct ParameterStatus {
     name: String,
     value: String,
@@ -385,8 +384,7 @@ impl Message for ParameterStatus {
 
 /// `BackendKeyData` message, sent from backend to frontend for issuing
 /// `CancelRequestMessage`
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct BackendKeyData {
     pid: i32,
     secret_key: i32,
@@ -427,9 +425,11 @@ impl Message for BackendKeyData {
 /// The backend sents a single byte 'S' or 'N' to indicate its support. Upon 'S'
 /// the frontend should close the connection and reinitialize a new TLS
 /// connection.
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
-pub struct SslRequest {}
+#[derive(PartialEq, Eq, Debug, new)]
+pub struct SslRequest {
+    #[new(default)]
+    _hidden: ()
+}
 
 impl SslRequest {
     pub const BODY_MAGIC_NUMBER: i32 = 80877103;
@@ -460,18 +460,19 @@ impl Message for SslRequest {
     fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
         if buf.remaining() >= 8 && (&buf[4..8]).get_i32() == Self::BODY_MAGIC_NUMBER {
             buf.advance(8);
-            Ok(Some(SslRequest {}))
+            Ok(Some(SslRequest { _hidden: () }))
         } else {
             Ok(None)
         }
     }
 }
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct SASLInitialResponse {
-    auth_method: String,
-    data: Option<Bytes>,
+    pub auth_method: String,
+    pub data: Option<Bytes>,
+    #[new(default)]
+    _hidden: (),
 }
 
 impl Message for SASLInitialResponse {
@@ -508,14 +509,15 @@ impl Message for SASLInitialResponse {
             Some(buf.split_to(data_len as usize).freeze())
         };
 
-        Ok(SASLInitialResponse { auth_method, data })
+        Ok(SASLInitialResponse { auth_method, data, _hidden: () })
     }
 }
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct SASLResponse {
-    data: Bytes,
+    pub data: Bytes,
+    #[new(default)]
+    _hidden: (),
 }
 
 impl Message for SASLResponse {
@@ -536,6 +538,6 @@ impl Message for SASLResponse {
 
     fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self> {
         let data = buf.split_to(full_len - 4).freeze();
-        Ok(SASLResponse { data })
+        Ok(SASLResponse { data, _hidden: () })
     }
 }

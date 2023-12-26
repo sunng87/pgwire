@@ -369,8 +369,7 @@ mod test {
     #[test]
     fn test_startup() {
         let mut s = Startup::default();
-        s.parameters_mut()
-            .insert("user".to_owned(), "tomcat".to_owned());
+        s.parameters.insert("user".to_owned(), "tomcat".to_owned());
 
         roundtrip!(s, Startup);
     }
@@ -423,8 +422,8 @@ mod test {
     #[test]
     fn test_error_response() {
         let mut error = ErrorResponse::default();
-        error.fields_mut().push((b'R', "ERROR".to_owned()));
-        error.fields_mut().push((b'K', "cli".to_owned()));
+        error.fields.push((b'R', "ERROR".to_owned()));
+        error.fields.push((b'K', "cli".to_owned()));
 
         roundtrip!(error, ErrorResponse);
     }
@@ -432,8 +431,8 @@ mod test {
     #[test]
     fn test_notice_response() {
         let mut error = NoticeResponse::default();
-        error.fields_mut().push((b'R', "NOTICE".to_owned()));
-        error.fields_mut().push((b'K', "cli".to_owned()));
+        error.fields.push((b'R', "NOTICE".to_owned()));
+        error.fields.push((b'K', "cli".to_owned()));
 
         roundtrip!(error, NoticeResponse);
     }
@@ -443,24 +442,24 @@ mod test {
         let mut row_description = RowDescription::default();
 
         let mut f1 = FieldDescription::default();
-        f1.set_name("id".into());
-        f1.set_table_id(1001);
-        f1.set_column_id(10001);
-        f1.set_type_id(1083);
-        f1.set_type_size(4);
-        f1.set_type_modifier(-1);
-        f1.set_format_code(FORMAT_CODE_TEXT);
-        row_description.fields_mut().push(f1);
+        f1.name = "id".into();
+        f1.table_id = 1001;
+        f1.column_id = 10001;
+        f1.type_id = 1083;
+        f1.type_size = 4;
+        f1.type_modifier = -1;
+        f1.format_code = FORMAT_CODE_TEXT;
+        row_description.fields.push(f1);
 
         let mut f2 = FieldDescription::default();
-        f2.set_name("name".into());
-        f2.set_table_id(1001);
-        f2.set_column_id(10001);
-        f2.set_type_id(1099);
-        f2.set_type_size(-1);
-        f2.set_type_modifier(-1);
-        f2.set_format_code(FORMAT_CODE_TEXT);
-        row_description.fields_mut().push(f2);
+        f2.name = "name".into();
+        f2.table_id = 1001;
+        f2.column_id = 10001;
+        f2.type_id = 1099;
+        f2.type_size = -1;
+        f2.type_modifier = -1;
+        f2.format_code = FORMAT_CODE_TEXT;
+        row_description.fields.push(f2);
 
         roundtrip!(row_description, RowDescription);
     }
@@ -468,9 +467,9 @@ mod test {
     #[test]
     fn test_data_row() {
         let mut row0 = DataRow::default();
-        row0.fields_mut().push(Some(Bytes::from_static(b"1")));
-        row0.fields_mut().push(Some(Bytes::from_static(b"abc")));
-        row0.fields_mut().push(None);
+        row0.fields.push(Some(Bytes::from_static(b"1")));
+        row0.fields.push(Some(Bytes::from_static(b"abc")));
+        row0.fields.push(None);
 
         roundtrip!(row0, DataRow);
     }

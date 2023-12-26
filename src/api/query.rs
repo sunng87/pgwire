@@ -42,13 +42,13 @@ pub trait SimpleQueryHandler: Send + Sync {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         client.set_state(super::PgWireConnectionState::QueryInProgress);
-        let query_string = query.query();
-        if is_empty_query(query_string) {
+        let query_string = query.query;
+        if is_empty_query(&query_string) {
             client
                 .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
                 .await?;
         } else {
-            let resp = self.do_query(client, query.query()).await?;
+            let resp = self.do_query(client, &query_string).await?;
             for r in resp {
                 match r {
                     Response::EmptyQuery => {
@@ -133,7 +133,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let statement_name = message.statement_name().as_deref().unwrap_or(DEFAULT_NAME);
+        let statement_name = message.statement_name.as_deref().unwrap_or(DEFAULT_NAME);
 
         if let Some(statement) = client.portal_store().get_statement(statement_name) {
             let portal = Portal::try_new(&message, statement)?;
@@ -162,10 +162,10 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let portal_name = message.name().as_deref().unwrap_or(DEFAULT_NAME);
+        let portal_name = message.name.as_deref().unwrap_or(DEFAULT_NAME);
         if let Some(portal) = client.portal_store().get_portal(portal_name) {
             match self
-                .do_query(client, portal.as_ref(), *message.max_rows() as usize)
+                .do_query(client, portal.as_ref(), message.max_rows as usize)
                 .await?
             {
                 Response::EmptyQuery => {
@@ -202,8 +202,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let name = message.name().as_deref().unwrap_or(DEFAULT_NAME);
-        match message.target_type() {
+        let name = message.name.as_deref().unwrap_or(DEFAULT_NAME);
+        match message.target_type {
             TARGET_TYPE_BYTE_STATEMENT => {
                 if let Some(stmt) = client.portal_store().get_statement(name) {
                     let describe_response = self
@@ -224,7 +224,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                     return Err(PgWireError::PortalNotFound(name.to_owned()));
                 }
             }
-            _ => return Err(PgWireError::InvalidTargetType(message.target_type())),
+            _ => return Err(PgWireError::InvalidTargetType(message.target_type)),
         }
 
         Ok(())
@@ -259,8 +259,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let name = message.name().as_deref().unwrap_or(DEFAULT_NAME);
-        match message.target_type() {
+        let name = message.name.as_deref().unwrap_or(DEFAULT_NAME);
+        match message.target_type {
             TARGET_TYPE_BYTE_STATEMENT => {
                 client.portal_store().rm_statement(name);
             }
@@ -377,7 +377,7 @@ where
         client.send(PgWireBackendMessage::NoData(NoData)).await?;
     } else {
         if include_parameters {
-            if let Some(parameter_types) = describe_response.parameters() {
+            if let Some(parameter_types) = describe_response.parameters.as_deref() {
                 // parameter type inference
                 client
                     .send(PgWireBackendMessage::ParameterDescription(

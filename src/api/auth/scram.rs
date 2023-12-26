@@ -137,7 +137,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                             let resp = msg.into_sasl_initial_response()?;
                             // parse into client_first
                             let client_first = resp
-                                .data()
+                                .data
                                 .as_ref()
                                 .ok_or_else(|| {
                                     PgWireError::InvalidScramMessage(
@@ -157,7 +157,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                                 new_nonce,
                                 STANDARD.encode(
                                     salt_and_salted_pass
-                                        .salt()
+                                        .salt
                                         .as_ref()
                                         .expect("Salt required for SCRAM auth source"),
                                 ),
@@ -180,7 +180,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                             // second response, client_final
                             let resp = msg.into_sasl_response()?;
                             let client_final = ClientFinal::try_new(
-                                String::from_utf8_lossy(resp.data().as_ref()).as_ref(),
+                                String::from_utf8_lossy(&resp.data).as_ref(),
                             )?;
                             // dbg!(&client_final);
 
@@ -188,7 +188,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                                 self.compute_channel_binding(channel_binding_prefix);
                             client_final.validate_channel_binding(&channel_binding)?;
 
-                            let salted_password = salt_and_salted_pass.password();
+                            let salted_password = salt_and_salted_pass.password;
                             let client_key = hmac(salted_password.as_ref(), b"Client Key");
                             let stored_key = h(client_key.as_ref());
                             let auth_msg =

@@ -5,12 +5,13 @@ use super::{codec, Message};
 use crate::error::PgWireResult;
 
 /// Request from frontend to parse a prepared query string
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct Parse {
-    name: Option<String>,
-    query: String,
-    type_oids: Vec<Oid>,
+    pub name: Option<String>,
+    pub query: String,
+    pub type_oids: Vec<Oid>,
+    #[new(default)]
+    _hidden: (),
 }
 
 pub const MESSAGE_TYPE_BYTE_PARSE: u8 = b'P';
@@ -53,13 +54,13 @@ impl Message for Parse {
             name,
             query,
             type_oids,
+            _hidden: (),
         })
     }
 }
 
 /// Response for Parse command, sent from backend to frontend
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct ParseComplete;
 
 pub const MESSAGE_TYPE_BYTE_PARSE_COMPLETE: u8 = b'1';
@@ -87,13 +88,12 @@ impl Message for ParseComplete {
 }
 
 /// Closing the prepared statement or portal
-#[derive(Getters, CopyGetters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct Close {
-    #[getset(skip)]
-    #[getset(get_copy = "pub", set = "pub")]
-    target_type: u8,
-    name: Option<String>,
+    pub target_type: u8,
+    pub name: Option<String>,
+    #[new(default)]
+    _hidden: (),
 }
 
 pub const TARGET_TYPE_BYTE_STATEMENT: u8 = b'S';
@@ -121,13 +121,12 @@ impl Message for Close {
         let target_type = buf.get_u8();
         let name = codec::get_cstring(buf);
 
-        Ok(Close { target_type, name })
+        Ok(Close { target_type, name, _hidden: () })
     }
 }
 
 /// Response for Close command, sent from backend to frontend
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct CloseComplete;
 
 pub const MESSAGE_TYPE_BYTE_CLOSE_COMPLETE: u8 = b'3';
@@ -155,17 +154,18 @@ impl Message for CloseComplete {
 }
 
 /// Bind command, for executing prepared statement
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct Bind {
-    portal_name: Option<String>,
-    statement_name: Option<String>,
-    parameter_format_codes: Vec<i16>,
+    pub portal_name: Option<String>,
+    pub statement_name: Option<String>,
+    pub parameter_format_codes: Vec<i16>,
     // None for Null data, TODO: consider wrapping this together with DataRow in
     // data.rs
-    parameters: Vec<Option<Bytes>>,
+    pub parameters: Vec<Option<Bytes>>,
 
-    result_column_format_codes: Vec<i16>,
+    pub result_column_format_codes: Vec<i16>,
+    #[new(default)]
+    _hidden: (),
 }
 
 pub const MESSAGE_TYPE_BYTE_BIND: u8 = b'B';
@@ -251,13 +251,14 @@ impl Message for Bind {
             parameters,
 
             result_column_format_codes,
+
+            _hidden: (),
         })
     }
 }
 
 /// Success response for `Bind`
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct BindComplete;
 
 pub const MESSAGE_TYPE_BYTE_BIND_COMPLETE: u8 = b'2';
@@ -286,13 +287,12 @@ impl Message for BindComplete {
 
 /// Describe command fron frontend to backend. For getting information of
 /// particular portal or statement
-#[derive(Getters, Setters, CopyGetters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct Describe {
-    #[getset(skip)]
-    #[getset(get_copy = "pub", set = "pub")]
-    target_type: u8,
-    name: Option<String>,
+    pub target_type: u8,
+    pub name: Option<String>,
+    #[new(default)]
+    _hidden: (),
 }
 
 pub const MESSAGE_TYPE_BYTE_DESCRIBE: u8 = b'D';
@@ -317,16 +317,17 @@ impl Message for Describe {
         let target_type = buf.get_u8();
         let name = codec::get_cstring(buf);
 
-        Ok(Describe { target_type, name })
+        Ok(Describe { target_type, name, _hidden: () })
     }
 }
 
 /// Execute portal by its name
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct Execute {
-    name: Option<String>,
-    max_rows: i32,
+    pub name: Option<String>,
+    pub max_rows: i32,
+    #[new(default)]
+    _hidden: (),
 }
 
 pub const MESSAGE_TYPE_BYTE_EXECUTE: u8 = b'E';
@@ -351,12 +352,11 @@ impl Message for Execute {
         let name = codec::get_cstring(buf);
         let max_rows = buf.get_i32();
 
-        Ok(Execute { name, max_rows })
+        Ok(Execute { name, max_rows, _hidden: () })
     }
 }
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct Flush;
 
 pub const MESSAGE_TYPE_BYTE_FLUSH: u8 = b'H';
@@ -382,8 +382,7 @@ impl Message for Flush {
 }
 
 /// Execute portal by its name
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct Sync;
 
 pub const MESSAGE_TYPE_BYTE_SYNC: u8 = b'S';
@@ -408,8 +407,7 @@ impl Message for Sync {
     }
 }
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct PortalSuspended;
 
 pub const MESSAGE_TYPE_BYTE_PORTAL_SUSPENDED: u8 = b's';

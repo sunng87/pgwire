@@ -78,14 +78,35 @@ impl FieldFormat {
     }
 }
 
-#[derive(Debug, new, Eq, PartialEq, Clone, Getters)]
-#[getset(get = "pub")]
+#[derive(Debug, new, Eq, PartialEq, Clone)]
 pub struct FieldInfo {
     name: String,
     table_id: Option<i32>,
     column_id: Option<i16>,
     datatype: Type,
     format: FieldFormat,
+}
+
+impl FieldInfo {
+    pub fn name(&self) -> &str {
+        return &self.name
+    }
+
+    pub fn table_id(&self) -> Option<i32> {
+        return self.table_id;
+    }
+
+    pub fn column_id(&self) -> Option<i16> {
+        return self.column_id;
+    }
+
+    pub fn datatype(&self) -> &Type {
+        return &self.datatype;
+    }
+
+    pub fn format(&self) -> FieldFormat {
+        return self.format;
+    }
 }
 
 impl From<&FieldInfo> for FieldDescription {
@@ -175,9 +196,9 @@ impl DataRowEncoder {
 
         if let IsNull::No = is_null {
             let buf = self.field_buffer.split().freeze();
-            self.buffer.fields_mut().push(Some(buf));
+            self.buffer.fields.push(Some(buf));
         } else {
-            self.buffer.fields_mut().push(None);
+            self.buffer.fields.push(None);
         }
 
         self.col_index += 1;
@@ -195,7 +216,7 @@ impl DataRowEncoder {
         let data_type = self.schema[self.col_index].datatype();
         let format = self.schema[self.col_index].format();
 
-        let is_null = if *format == FieldFormat::Text {
+        let is_null = if format == FieldFormat::Text {
             value.to_sql_text(data_type, &mut self.field_buffer)?
         } else {
             value.to_sql(data_type, &mut self.field_buffer)?
@@ -203,9 +224,9 @@ impl DataRowEncoder {
 
         if let IsNull::No = is_null {
             let buf = self.field_buffer.split().freeze();
-            self.buffer.fields_mut().push(Some(buf));
+            self.buffer.fields.push(Some(buf));
         } else {
-            self.buffer.fields_mut().push(None);
+            self.buffer.fields.push(None);
         }
 
         self.col_index += 1;
@@ -225,20 +246,31 @@ impl DataRowEncoder {
 /// statement, frontend expects parameter types inferenced by server. And both
 /// describe messages will require column definitions for resultset being
 /// returned.
-#[derive(Debug, Getters, new)]
-#[getset(get = "pub")]
+#[derive(Debug, new)]
 pub struct DescribeResponse {
-    parameters: Option<Vec<Type>>,
-    fields: Vec<FieldInfo>,
+    pub parameters: Option<Vec<Type>>,
+    pub fields: Vec<FieldInfo>,
+    #[new(default)]
+    _hidden: (),
 }
 
 impl DescribeResponse {
+    pub fn parameters(&self) -> Option<&[Type]> {
+        return self.parameters.as_deref()
+
+    }
+
+    pub fn fields(&self) -> &[FieldInfo] {
+        return &self.fields;
+    }
+
     /// Create an no_data instance of `DescribeResponse`. This is typically used
     /// when client tries to describe an empty query.
     pub fn no_data() -> Self {
         DescribeResponse {
             parameters: None,
             fields: vec![],
+            _hidden: (),
         }
     }
 
@@ -271,7 +303,7 @@ mod test {
         let tag = Tag::new_for_execution("INSERT", Some(100));
         let cc = CommandComplete::from(tag);
 
-        assert_eq!(cc.tag(), "INSERT 100");
+        assert_eq!(cc.tag, "INSERT 100");
     }
 
     #[test]
@@ -288,9 +320,9 @@ mod test {
 
         let row = encoder.finish().unwrap();
 
-        assert_eq!(row.fields().len(), 3);
-        assert_eq!(row.fields()[0].as_ref().unwrap().len(), 4);
-        assert_eq!(row.fields()[1].as_ref().unwrap().len(), 4);
-        assert_eq!(row.fields()[2].as_ref().unwrap().len(), 26);
+        assert_eq!(row.fields.len(), 3);
+        assert_eq!(row.fields[0].as_ref().unwrap().len(), 4);
+        assert_eq!(row.fields[1].as_ref().unwrap().len(), 4);
+        assert_eq!(row.fields[2].as_ref().unwrap().len(), 26);
     }
 }

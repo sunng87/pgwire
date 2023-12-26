@@ -6,10 +6,9 @@ use crate::error::PgWireResult;
 
 pub const MESSAGE_TYPE_BYTE_COPY_DATA: u8 = b'd';
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyData {
-    data: Bytes,
+    pub data: Bytes,
 }
 
 impl Message for CopyData {
@@ -35,8 +34,7 @@ impl Message for CopyData {
 
 pub const MESSAGE_TYPE_BYTE_COPY_DONE: u8 = b'c';
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyDone;
 
 impl Message for CopyDone {
@@ -60,8 +58,7 @@ impl Message for CopyDone {
 
 pub const MESSAGE_TYPE_BYTE_COPY_FAIL: u8 = b'f';
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyFail {
     message: String,
 }
@@ -89,8 +86,7 @@ impl Message for CopyFail {
 
 pub const MESSAGE_TYPE_BYTE_COPY_IN_RESPONSE: u8 = b'G';
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyInResponse {
     format: i8,
     columns: i16,
@@ -130,8 +126,7 @@ impl Message for CopyInResponse {
 
 pub const MESSAGE_TYPE_BYTE_COPY_OUT_RESPONSE: u8 = b'H';
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyOutResponse {
     format: i8,
     columns: i16,
@@ -171,8 +166,7 @@ impl Message for CopyOutResponse {
 
 pub const MESSAGE_TYPE_BYTE_COPY_BOTH_RESPONSE: u8 = b'W';
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyBothResponse {
     format: i8,
     columns: i16,
