@@ -209,7 +209,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                     let describe_response = self
                         .do_describe(client, StatementOrPortal::Statement(&stmt))
                         .await?;
-                    send_describe_response(client, &describe_response, true).await?;
+                    send_describe_response(client, &describe_response).await?;
                 } else {
                     return Err(PgWireError::StatementNotFound(name.to_owned()));
                 }
@@ -219,7 +219,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                     let describe_response = self
                         .do_describe(client, StatementOrPortal::Portal(&portal))
                         .await?;
-                    send_describe_response(client, &describe_response, false).await?;
+                    send_describe_response(client, &describe_response).await?;
                 } else {
                     return Err(PgWireError::PortalNotFound(name.to_owned()));
                 }
@@ -366,29 +366,23 @@ where
 pub async fn send_describe_response<C>(
     client: &mut C,
     describe_response: &DescribeResponse,
-    include_parameters: bool,
 ) -> PgWireResult<()>
 where
     C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
+    if let Some(parameter_types) = describe_response.parameters() {
+        // parameter type inference
+        client
+            .send(PgWireBackendMessage::ParameterDescription(
+                ParameterDescription::new(parameter_types.iter().map(|t| t.oid()).collect()),
+            ))
+            .await?;
+    }
     if describe_response.is_no_data() {
         client.send(PgWireBackendMessage::NoData(NoData)).await?;
     } else {
-        if include_parameters {
-            if let Some(parameter_types) = describe_response.parameters.as_deref() {
-                // parameter type inference
-                client
-                    .send(PgWireBackendMessage::ParameterDescription(
-                        ParameterDescription::new(
-                            parameter_types.iter().map(|t| t.oid()).collect(),
-                        ),
-                    ))
-                    .await?;
-            }
-        }
-
         let row_desc = into_row_description(describe_response.fields());
         client
             .send(PgWireBackendMessage::RowDescription(row_desc))
