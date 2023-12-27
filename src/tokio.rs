@@ -115,13 +115,12 @@ where
         // message, the backend issues ErrorResponse, then reads and discards
         // messages until a Sync is reached, then issues ReadyForQuery and
         // returns to normal message processing.
-        PgWireConnectionState::AwaitingSync => match message {
-            PgWireFrontendMessage::Sync(sync) => {
+        PgWireConnectionState::AwaitingSync => {
+            if let PgWireFrontendMessage::Sync(sync) = message {
                 extended_query_handler.on_sync(socket, sync).await?;
                 socket.set_state(PgWireConnectionState::ReadyForQuery);
             }
-            _ => {}
-        },
+        }
         _ => {
             // query or query in progress
             match message {
