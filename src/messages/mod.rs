@@ -96,9 +96,10 @@ pub enum PgWireFrontendMessage {
 
 impl PgWireFrontendMessage {
     pub fn is_extended_query(&self) -> bool {
-        match self {
-            PgWireFrontendMessage::Query(_) => false,
-            _ => true,
+        if let PgWireFrontendMessage::Query(_) = self {
+            false
+        } else {
+            true
         }
     }
 
