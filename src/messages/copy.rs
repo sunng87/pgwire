@@ -60,7 +60,7 @@ pub const MESSAGE_TYPE_BYTE_COPY_FAIL: u8 = b'f';
 
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyFail {
-    message: String,
+    pub message: String,
 }
 
 impl Message for CopyFail {
@@ -88,9 +88,9 @@ pub const MESSAGE_TYPE_BYTE_COPY_IN_RESPONSE: u8 = b'G';
 
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyInResponse {
-    format: i8,
-    columns: i16,
-    column_formats: Vec<i16>,
+    pub format: i8,
+    pub columns: i16,
+    pub column_formats: Vec<i16>,
 }
 
 impl Message for CopyInResponse {

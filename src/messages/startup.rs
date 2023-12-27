@@ -353,8 +353,8 @@ impl Message for Password {
 /// parameter ack sent from backend after authentication success
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct ParameterStatus {
-    name: String,
-    value: String,
+    pub name: String,
+    pub value: String,
 }
 
 pub const MESSAGE_TYPE_BYTE_PARAMETER_STATUS: u8 = b'S';
@@ -388,8 +388,8 @@ impl Message for ParameterStatus {
 /// `CancelRequestMessage`
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct BackendKeyData {
-    pid: i32,
-    secret_key: i32,
+    pub pid: i32,
+    pub secret_key: i32,
 }
 
 pub const MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA: u8 = b'K';
@@ -424,7 +424,7 @@ impl Message for BackendKeyData {
 /// backend supports secure connection. The packet has no message type and
 /// contains only a length(4) and an i32 value.
 ///
-/// The backend sents a single byte 'S' or 'N' to indicate its support. Upon 'S'
+/// The backend sends a single byte 'S' or 'N' to indicate its support. Upon 'S'
 /// the frontend should close the connection and reinitialize a new TLS
 /// connection.
 #[non_exhaustive]
