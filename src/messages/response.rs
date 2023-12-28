@@ -4,10 +4,9 @@ use super::codec;
 use super::Message;
 use crate::error::PgWireResult;
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct CommandComplete {
-    tag: String,
+    pub tag: String,
 }
 
 pub const MESSAGE_TYPE_BYTE_COMMAND_COMPLETE: u8 = b'C';
@@ -35,8 +34,7 @@ impl Message for CommandComplete {
     }
 }
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct EmptyQueryResponse;
 
 pub const MESSAGE_TYPE_BYTE_EMPTY_QUERY_RESPONSE: u8 = b'I';
@@ -59,10 +57,9 @@ impl Message for EmptyQueryResponse {
     }
 }
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct ReadyForQuery {
-    status: u8,
+    pub status: u8,
 }
 
 pub const READY_STATUS_IDLE: u8 = b'I';
@@ -95,10 +92,9 @@ impl Message for ReadyForQuery {
 }
 
 /// postgres error response, sent from backend to frontend
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct ErrorResponse {
-    fields: Vec<(u8, String)>,
+    pub fields: Vec<(u8, String)>,
 }
 
 pub const MESSAGE_TYPE_BYTE_ERROR_RESPONSE: u8 = b'E';
@@ -145,10 +141,9 @@ impl Message for ErrorResponse {
 }
 
 /// postgres error response, sent from backend to frontend
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct NoticeResponse {
-    fields: Vec<(u8, String)>,
+    pub fields: Vec<(u8, String)>,
 }
 
 pub const MESSAGE_TYPE_BYTE_NOTICE_RESPONSE: u8 = b'N';
@@ -252,12 +247,11 @@ impl Message for SslResponse {
 }
 
 /// NotificationResponse
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct NotificationResponse {
-    pid: i32,
-    channel: String,
-    payload: String,
+    pub pid: i32,
+    pub channel: String,
+    pub payload: String,
 }
 
 pub const MESSAGE_TYPE_BYTE_NOTIFICATION_RESPONSE: u8 = b'A';

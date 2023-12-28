@@ -33,7 +33,7 @@ impl<S: Clone + Send + Sync> PortalStore for MemPortalStore<S> {
 
     fn put_statement(&self, statement: Arc<StoredStatement<Self::Statement>>) {
         let mut guard = self.statements.write().unwrap();
-        guard.insert(statement.id().to_owned(), statement);
+        guard.insert(statement.id.to_owned(), statement);
     }
 
     fn rm_statement(&self, name: &str) {
@@ -48,7 +48,7 @@ impl<S: Clone + Send + Sync> PortalStore for MemPortalStore<S> {
 
     fn put_portal(&self, portal: Arc<Portal<Self::Statement>>) {
         let mut guard = self.portals.write().unwrap();
-        guard.insert(portal.name().to_owned(), portal);
+        guard.insert(portal.name.to_owned(), portal);
     }
 
     fn rm_portal(&self, name: &str) {

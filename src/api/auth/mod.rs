@@ -44,14 +44,14 @@ pub trait ServerParameterProvider: Send + Sync {
 /// - `client_encoding: UTF8`
 /// - `integer_datetimes: on`:
 ///
-#[derive(Debug, Getters, Setters)]
-#[getset(get = "pub", set = "pub")]
+#[non_exhaustive]
+#[derive(Debug)]
 pub struct DefaultServerParameterProvider {
-    server_version: String,
-    server_encoding: String,
-    client_encoding: String,
-    date_style: String,
-    integer_datetimes: String,
+    pub server_version: String,
+    pub server_encoding: String,
+    pub client_encoding: String,
+    pub date_style: String,
+    pub integer_datetimes: String,
 }
 
 impl Default for DefaultServerParameterProvider {
@@ -85,29 +85,49 @@ impl ServerParameterProvider for DefaultServerParameterProvider {
     }
 }
 
-#[derive(Debug, new, Getters, Clone)]
-#[getset(get = "pub")]
+#[derive(Debug, new, Clone)]
 pub struct Password {
     salt: Option<Vec<u8>>,
     password: Vec<u8>,
 }
 
-#[derive(Debug, new, Getters)]
-#[getset(get = "pub")]
+impl Password {
+    pub fn salt(&self) -> Option<&[u8]> {
+        self.salt.as_deref()
+    }
+
+    pub fn password(&self) -> &[u8] {
+        &self.password
+    }
+}
+
+#[derive(Debug, new)]
 pub struct LoginInfo<'a> {
-    user: Option<&'a String>,
-    database: Option<&'a String>,
+    user: Option<&'a str>,
+    database: Option<&'a str>,
     host: String,
 }
 
 impl<'a> LoginInfo<'a> {
+    pub fn user(&self) -> Option<&str> {
+        self.user
+    }
+
+    pub fn database(&self) -> Option<&str> {
+        self.database
+    }
+
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
     pub fn from_client_info<C>(client: &'a C) -> LoginInfo
     where
         C: ClientInfo,
     {
         LoginInfo {
-            user: client.metadata().get(METADATA_USER),
-            database: client.metadata().get(METADATA_DATABASE),
+            user: client.metadata().get(METADATA_USER).map(|s| s.as_str()),
+            database: client.metadata().get(METADATA_DATABASE).map(|s| s.as_str()),
             host: client.socket_addr().ip().to_string(),
         }
     }
@@ -135,7 +155,7 @@ where
 {
     client.metadata_mut().extend(
         startup_message
-            .parameters()
+            .parameters
             .iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned())),
     );

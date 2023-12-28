@@ -46,7 +46,7 @@ impl<V: AuthSource, P: ServerParameterProvider> StartupHandler
                 let pwd = pwd.into_password()?;
                 let login_info = LoginInfo::from_client_info(client);
                 let pass = self.auth_source.get_password(&login_info).await?;
-                if pass.password() == pwd.password().as_bytes() {
+                if pass.password == pwd.password.as_bytes() {
                     super::finish_authentication(client, &self.parameter_provider).await
                 } else {
                     let error_info = ErrorInfo::new(

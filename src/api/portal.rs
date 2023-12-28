@@ -13,14 +13,13 @@ use super::{results::FieldFormat, stmt::StoredStatement, DEFAULT_NAME};
 
 /// Represent a prepared sql statement and its parameters bound by a `Bind`
 /// request.
-#[derive(Debug, CopyGetters, Default, Getters, Setters, Clone)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(Debug, Default, Clone)]
 pub struct Portal<S> {
-    name: String,
-    statement: Arc<StoredStatement<S>>,
-    parameter_format: Format,
-    parameters: Vec<Option<Bytes>>,
-    result_column_format: Format,
+    pub name: String,
+    pub statement: Arc<StoredStatement<S>>,
+    pub parameter_format: Format,
+    pub parameters: Vec<Option<Bytes>>,
+    pub result_column_format: Format,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -76,21 +75,21 @@ impl<S: Clone> Portal<S> {
     /// Try to create portal from bind command and current client state
     pub fn try_new(bind: &Bind, statement: Arc<StoredStatement<S>>) -> PgWireResult<Self> {
         let portal_name = bind
-            .portal_name()
+            .portal_name
             .clone()
             .unwrap_or_else(|| DEFAULT_NAME.to_owned());
 
         // param format
-        let param_format = Format::from_codes(bind.parameter_format_codes());
+        let param_format = Format::from_codes(&bind.parameter_format_codes);
 
         // format
-        let result_format = Format::from_codes(bind.result_column_format_codes());
+        let result_format = Format::from_codes(&bind.result_column_format_codes);
 
         Ok(Portal {
             name: portal_name,
             statement,
             parameter_format: param_format,
-            parameters: bind.parameters().clone(),
+            parameters: bind.parameters.clone(),
             result_column_format: result_format,
         })
     }
@@ -113,11 +112,11 @@ impl<S: Clone> Portal<S> {
         }
 
         let param = self
-            .parameters()
+            .parameters
             .get(idx)
             .ok_or_else(|| PgWireError::ParameterIndexOutOfBound(idx))?;
 
-        let _format = self.parameter_format().format_for(idx);
+        let _format = self.parameter_format.format_for(idx);
 
         if let Some(ref param) = param {
             // TODO: from_sql only works with binary format

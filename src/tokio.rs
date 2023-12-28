@@ -19,10 +19,10 @@ use crate::messages::response::{SslResponse, READY_STATUS_IDLE};
 use crate::messages::startup::{SslRequest, Startup};
 use crate::messages::{Message, PgWireBackendMessage, PgWireFrontendMessage};
 
-#[derive(Debug, new, Getters, Setters, MutGetters)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[non_exhaustive]
+#[derive(Debug, new)]
 pub struct PgWireMessageServerCodec<S> {
-    client_info: DefaultClient<S>,
+    pub client_info: DefaultClient<S>,
 }
 
 impl<S> Decoder for PgWireMessageServerCodec<S> {
@@ -60,28 +60,28 @@ impl<S> Encoder<PgWireBackendMessage> for PgWireMessageServerCodec<S> {
 }
 
 impl<T, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
-    fn socket_addr(&self) -> &std::net::SocketAddr {
-        self.codec().client_info().socket_addr()
+    fn socket_addr(&self) -> std::net::SocketAddr {
+        self.codec().client_info.socket_addr
     }
 
     fn is_secure(&self) -> bool {
-        *self.codec().client_info().is_secure()
+        self.codec().client_info.is_secure
     }
 
-    fn state(&self) -> &PgWireConnectionState {
-        self.codec().client_info().state()
+    fn state(&self) -> PgWireConnectionState {
+        self.codec().client_info.state
     }
 
     fn set_state(&mut self, new_state: PgWireConnectionState) {
-        self.codec_mut().client_info_mut().set_state(new_state);
+        self.codec_mut().client_info.set_state(new_state);
     }
 
     fn metadata(&self) -> &std::collections::HashMap<String, String> {
-        self.codec().client_info().metadata()
+        self.codec().client_info.metadata()
     }
 
     fn metadata_mut(&mut self) -> &mut std::collections::HashMap<String, String> {
-        self.codec_mut().client_info_mut().metadata_mut()
+        self.codec_mut().client_info.metadata_mut()
     }
 }
 
@@ -89,7 +89,7 @@ impl<T, S> ClientPortalStore for Framed<T, PgWireMessageServerCodec<S>> {
     type PortalStore = <DefaultClient<S> as ClientPortalStore>::PortalStore;
 
     fn portal_store(&self) -> &Self::PortalStore {
-        self.codec().client_info().portal_store()
+        self.codec().client_info.portal_store()
     }
 }
 
@@ -106,7 +106,7 @@ where
     Q: SimpleQueryHandler + 'static,
     EQ: ExtendedQueryHandler + 'static,
 {
-    match socket.codec().client_info().state() {
+    match socket.codec().client_info.state() {
         PgWireConnectionState::AwaitingStartup
         | PgWireConnectionState::AuthenticationInProgress => {
             authenticator.on_startup(socket, message).await?;

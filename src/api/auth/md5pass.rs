@@ -44,11 +44,11 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                 let salt_and_pass = self.auth_source.get_password(&login_info).await?;
 
                 let salt = salt_and_pass
-                    .salt()
+                    .salt
                     .as_ref()
                     .expect("Salt is required for Md5Password authentication");
 
-                *self.cached_password.lock().await = salt_and_pass.password().clone();
+                *self.cached_password.lock().await = salt_and_pass.password.clone();
 
                 client
                     .send(PgWireBackendMessage::Authentication(
@@ -60,7 +60,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                 let pwd = pwd.into_password()?;
                 let cached_pass = self.cached_password.lock().await;
 
-                if pwd.password().as_bytes() == *cached_pass {
+                if pwd.password.as_bytes() == *cached_pass {
                     super::finish_authentication(client, self.parameter_provider.as_ref()).await
                 } else {
                     let error_info = ErrorInfo::new(

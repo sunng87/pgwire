@@ -145,7 +145,7 @@ fn encode_row_data(
 fn get_params(portal: &Portal<String>) -> Vec<Box<dyn ToSql>> {
     let mut results = Vec::with_capacity(portal.parameter_len());
     for i in 0..portal.parameter_len() {
-        let param_type = portal.statement().parameter_types().get(i).unwrap();
+        let param_type = portal.statement.parameter_types.get(i).unwrap();
         // we only support a small amount of types for demo
         match param_type {
             &Type::BOOL => {
@@ -204,7 +204,7 @@ impl ExtendedQueryHandler for SqliteBackend {
         C: ClientInfo + Unpin + Send + Sync,
     {
         let conn = self.conn.lock().unwrap();
-        let query = portal.statement().statement();
+        let query = &portal.statement.statement;
         let mut stmt = conn
             .prepare_cached(query)
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
@@ -215,7 +215,7 @@ impl ExtendedQueryHandler for SqliteBackend {
             .collect::<Vec<&dyn rusqlite::ToSql>>();
 
         if query.to_uppercase().starts_with("SELECT") {
-            let header = Arc::new(row_desc_from_stmt(&stmt, portal.result_column_format())?);
+            let header = Arc::new(row_desc_from_stmt(&stmt, &portal.result_column_format)?);
             stmt.query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
                 .map(|rows| {
                     let s = encode_row_data(rows, header.clone());
@@ -242,18 +242,18 @@ impl ExtendedQueryHandler for SqliteBackend {
         let conn = self.conn.lock().unwrap();
         match target {
             StatementOrPortal::Statement(stmt) => {
-                let param_types = Some(stmt.parameter_types().clone());
+                let param_types = Some(stmt.parameter_types.clone());
                 let stmt = conn
-                    .prepare_cached(stmt.statement())
+                    .prepare_cached(&stmt.statement)
                     .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
                 row_desc_from_stmt(&stmt, &Format::UnifiedBinary)
                     .map(|fields| DescribeResponse::new(param_types, fields))
             }
             StatementOrPortal::Portal(portal) => {
                 let stmt = conn
-                    .prepare_cached(portal.statement().statement())
+                    .prepare_cached(&portal.statement.statement)
                     .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-                row_desc_from_stmt(&stmt, portal.result_column_format())
+                row_desc_from_stmt(&stmt, &portal.result_column_format)
                     .map(|fields| DescribeResponse::new(None, fields))
             }
         }
@@ -290,7 +290,7 @@ impl MakeHandler for MakeSqliteBackend {
 #[tokio::main]
 pub async fn main() {
     let mut parameters = DefaultServerParameterProvider::default();
-    parameters.set_server_version(rusqlite::version().to_owned());
+    parameters.server_version = rusqlite::version().to_owned();
 
     let authenticator = Arc::new(MakeMd5PasswordAuthStartupHandler::new(
         Arc::new(DummyAuthSource),

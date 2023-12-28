@@ -5,10 +5,10 @@ use super::Message;
 use crate::error::PgWireResult;
 
 /// A sql query sent from frontend to backend.
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[non_exhaustive]
+#[derive(PartialEq, Eq, Debug, new)]
 pub struct Query {
-    query: String,
+    pub query: String,
 }
 
 pub const MESSAGE_TYPE_BYTE_QUERY: u8 = b'Q';

@@ -15,7 +15,7 @@ pub mod store;
 
 pub const DEFAULT_NAME: &str = "POSTGRESQL_DEFAULT_NAME";
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum PgWireConnectionState {
     #[default]
     AwaitingStartup,
@@ -26,11 +26,11 @@ pub enum PgWireConnectionState {
 
 /// Describe a client information holder
 pub trait ClientInfo {
-    fn socket_addr(&self) -> &SocketAddr;
+    fn socket_addr(&self) -> SocketAddr;
 
     fn is_secure(&self) -> bool;
 
-    fn state(&self) -> &PgWireConnectionState;
+    fn state(&self) -> PgWireConnectionState;
 
     fn set_state(&mut self, new_state: PgWireConnectionState);
 
@@ -49,14 +49,40 @@ pub trait ClientPortalStore {
 pub const METADATA_USER: &str = "user";
 pub const METADATA_DATABASE: &str = "database";
 
-#[derive(Debug, Getters, Setters, MutGetters)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[non_exhaustive]
+#[derive(Debug)]
 pub struct DefaultClient<S> {
-    socket_addr: SocketAddr,
-    is_secure: bool,
-    state: PgWireConnectionState,
-    metadata: HashMap<String, String>,
-    portal_store: store::MemPortalStore<S>,
+    pub socket_addr: SocketAddr,
+    pub is_secure: bool,
+    pub state: PgWireConnectionState,
+    pub metadata: HashMap<String, String>,
+    pub portal_store: store::MemPortalStore<S>,
+}
+
+impl<S> ClientInfo for DefaultClient<S> {
+    fn socket_addr(&self) -> SocketAddr {
+        self.socket_addr
+    }
+
+    fn is_secure(&self) -> bool {
+        self.is_secure
+    }
+
+    fn state(&self) -> PgWireConnectionState {
+        self.state
+    }
+
+    fn set_state(&mut self, new_state: PgWireConnectionState) {
+        self.state = new_state;
+    }
+
+    fn metadata(&self) -> &HashMap<String, String> {
+        &self.metadata
+    }
+
+    fn metadata_mut(&mut self) -> &mut HashMap<String, String> {
+        &mut self.metadata
+    }
 }
 
 impl<S> DefaultClient<S> {

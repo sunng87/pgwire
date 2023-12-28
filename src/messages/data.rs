@@ -8,29 +8,28 @@ use crate::error::PgWireResult;
 pub(crate) const FORMAT_CODE_TEXT: i16 = 0;
 pub(crate) const FORMAT_CODE_BINARY: i16 = 1;
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct FieldDescription {
     // the field name
-    name: String,
+    pub name: String,
     // the object ID of table, default to 0 if not a table
-    table_id: i32,
+    pub table_id: i32,
     // the attribute number of the column, default to 0 if not a column from table
-    column_id: i16,
+    pub column_id: i16,
     // the object ID of the data type
-    type_id: Oid,
+    pub type_id: Oid,
     // the size of data type, negative values denote variable-width types
-    type_size: i16,
+    pub type_size: i16,
     // the type modifier
-    type_modifier: i32,
+    pub type_modifier: i32,
     // the format code being used for the filed, will be 0 or 1 for now
-    format_code: i16,
+    pub format_code: i16,
 }
 
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[non_exhaustive]
+#[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct RowDescription {
-    fields: Vec<FieldDescription>,
+    pub fields: Vec<FieldDescription>,
 }
 
 pub const MESSAGE_TYPE_BYTE_ROW_DESCRITION: u8 = b'T';
@@ -88,11 +87,11 @@ impl Message for RowDescription {
 }
 
 /// Data structure returned when frontend describes a statement
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new, Clone)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[non_exhaustive]
+#[derive(PartialEq, Eq, Debug, Default, new, Clone)]
 pub struct ParameterDescription {
     /// parameter types
-    types: Vec<Oid>,
+    pub types: Vec<Oid>,
 }
 
 pub const MESSAGE_TYPE_BYTE_PARAMETER_DESCRITION: u8 = b't';
@@ -132,10 +131,10 @@ impl Message for ParameterDescription {
 ///
 /// Data can be represented as text or binary format as specified by format
 /// codes from previous `RowDescription` message.
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new, Clone)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[non_exhaustive]
+#[derive(PartialEq, Eq, Debug, Default, new, Clone)]
 pub struct DataRow {
-    fields: Vec<Option<Bytes>>,
+    pub fields: Vec<Option<Bytes>>,
 }
 
 impl DataRow {}
@@ -190,8 +189,7 @@ impl Message for DataRow {
 
 /// postgres response when query returns no data, sent from backend to frontend
 /// in extended query
-#[derive(Getters, Setters, MutGetters, PartialEq, Eq, Debug, Default, new)]
-#[getset(get = "pub", set = "pub", get_mut = "pub")]
+#[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct NoData;
 
 pub const MESSAGE_TYPE_BYTE_NO_DATA: u8 = b'n';
