@@ -5,7 +5,7 @@ use futures::{
     stream::{BoxStream, StreamExt},
     Stream,
 };
-use postgres_types::{IsNull, ToSql, Type};
+use postgres_types::{IsNull, Oid, ToSql, Type};
 
 use crate::{
     error::{ErrorInfo, PgWireResult},
@@ -19,21 +19,32 @@ use crate::{
 #[derive(Debug, Eq, PartialEq)]
 pub struct Tag {
     command: String,
+    oid: Option<Oid>,
     rows: Option<usize>,
 }
 
 impl Tag {
-    pub fn new_for_query(rows: usize) -> Tag {
+    pub fn with_command(command: &str) -> Tag {
         Tag {
-            command: "SELECT".to_owned(),
+            command: command.to_owned(),
+            oid: None,
+            rows: None,
+        }
+    }
+
+    pub fn with_command_rows(command: &str, rows: usize) -> Tag {
+        Tag {
+            command: command.to_owned(),
+            oid: None,
             rows: Some(rows),
         }
     }
 
-    pub fn new_for_execution(command: &str, rows: Option<usize>) -> Tag {
+    pub fn with_command_oid_rows(command: &str, oid: Oid, rows: usize) -> Tag {
         Tag {
             command: command.to_owned(),
-            rows,
+            oid: Some(oid),
+            rows: Some(rows),
         }
     }
 }
@@ -297,7 +308,7 @@ mod test {
 
     #[test]
     fn test_command_complete() {
-        let tag = Tag::new_for_execution("INSERT", Some(100));
+        let tag = Tag::with_command_oid_rows("INSERT", 0, 100);
         let cc = CommandComplete::from(tag);
 
         assert_eq!(cc.tag, "INSERT 100");
