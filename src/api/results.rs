@@ -302,7 +302,7 @@ mod test {
 
     #[test]
     fn test_command_complete() {
-        let tag = Tag::with_command_oid_rows("INSERT", 0, 100);
+        let tag = Tag::new("INSERT").with_oid(0).with_rows(100);
         let cc = CommandComplete::from(tag);
 
         assert_eq!(cc.tag, "INSERT 100");

@@ -52,10 +52,7 @@ impl SimpleQueryHandler for DfSessionService {
             ctx.register_json(table_name, json_path, NdJsonReadOptions::default())
                 .await
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-            Ok(vec![Response::Execution(Tag::new_for_execution(
-                "OK",
-                Some(1),
-            ))])
+            Ok(vec![Response::Execution(Tag::new("OK").with_rows(1))])
         } else if query.to_uppercase().starts_with("SELECT") {
             let ctx = self.session_context.lock().await;
             let df = ctx

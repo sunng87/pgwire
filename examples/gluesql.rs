@@ -135,37 +135,20 @@ impl SimpleQueryHandler for GluesqlProcessor {
                                 stream::iter(results.into_iter()),
                             )))
                         }
-                        Payload::Insert(rows) => Ok(Response::Execution(Tag::new_for_execution(
-                            "Insert",
-                            Some(*rows),
-                        ))),
-                        Payload::Delete(rows) => Ok(Response::Execution(Tag::new_for_execution(
-                            "Delete",
-                            Some(*rows),
-                        ))),
-                        Payload::Update(rows) => Ok(Response::Execution(Tag::new_for_execution(
-                            "Update",
-                            Some(*rows),
-                        ))),
-                        Payload::Create => {
-                            Ok(Response::Execution(Tag::new_for_execution("Create", None)))
+                        Payload::Insert(rows) => Ok(Response::Execution(
+                            Tag::new("INSERT").with_oid(0).with_rows(*rows),
+                        )),
+                        Payload::Delete(rows) => {
+                            Ok(Response::Execution(Tag::new("DELETE").with_rows(*rows)))
                         }
-                        Payload::AlterTable => Ok(Response::Execution(Tag::new_for_execution(
-                            "Alter Table",
-                            None,
-                        ))),
-                        Payload::DropTable => Ok(Response::Execution(Tag::new_for_execution(
-                            "Drop Table",
-                            None,
-                        ))),
-                        Payload::CreateIndex => Ok(Response::Execution(Tag::new_for_execution(
-                            "Create Index",
-                            None,
-                        ))),
-                        Payload::DropIndex => Ok(Response::Execution(Tag::new_for_execution(
-                            "Drop Index",
-                            None,
-                        ))),
+                        Payload::Update(rows) => {
+                            Ok(Response::Execution(Tag::new("UPDATE").with_rows(*rows)))
+                        }
+                        Payload::Create => Ok(Response::Execution(Tag::new("CREATE TABLE"))),
+                        Payload::AlterTable => Ok(Response::Execution(Tag::new("ALTER TABLE"))),
+                        Payload::DropTable => Ok(Response::Execution(Tag::new("DROP TABLE"))),
+                        Payload::CreateIndex => Ok(Response::Execution(Tag::new("CREATE INDEX"))),
+                        Payload::DropIndex => Ok(Response::Execution(Tag::new("DROP INDEX"))),
                         _ => {
                             unimplemented!()
                         }
