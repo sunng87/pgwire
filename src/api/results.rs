@@ -24,7 +24,7 @@ pub struct Tag {
 }
 
 impl Tag {
-    pub fn with_command(command: &str) -> Tag {
+    pub fn new(command: &str) -> Tag {
         Tag {
             command: command.to_owned(),
             oid: None,
@@ -32,20 +32,14 @@ impl Tag {
         }
     }
 
-    pub fn with_command_rows(command: &str, rows: usize) -> Tag {
-        Tag {
-            command: command.to_owned(),
-            oid: None,
-            rows: Some(rows),
-        }
+    pub fn with_rows(mut self, rows: usize) -> Tag {
+        self.rows = Some(rows);
+        self
     }
 
-    pub fn with_command_oid_rows(command: &str, oid: Oid, rows: usize) -> Tag {
-        Tag {
-            command: command.to_owned(),
-            oid: Some(oid),
-            rows: Some(rows),
-        }
+    pub fn with_oid(mut self, oid: Oid) -> Tag {
+        self.oid = Some(oid);
+        self
     }
 }
 
