@@ -54,10 +54,7 @@ impl SimpleQueryHandler for DummyProcessor {
                 data_row_stream,
             ))])
         } else {
-            Ok(vec![Response::Execution(Tag::new_for_execution(
-                "OK",
-                Some(1),
-            ))])
+            Ok(vec![Response::Execution(Tag::new("OK").with_rows(1))])
         }
     }
 }

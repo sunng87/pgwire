@@ -66,7 +66,7 @@ impl SimpleQueryHandler for SqliteBackend {
             conn.execute(query, ())
                 .map(|affected_rows| {
                     vec![Response::Execution(
-                        Tag::new_for_execution("OK", Some(affected_rows)).into(),
+                        Tag::new("OK").with_rows(affected_rows).into(),
                     )]
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
@@ -225,7 +225,7 @@ impl ExtendedQueryHandler for SqliteBackend {
         } else {
             stmt.execute::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
                 .map(|affected_rows| {
-                    Response::Execution(Tag::new_for_execution("OK", Some(affected_rows)).into())
+                    Response::Execution(Tag::new("OK").with_rows(affected_rows).into())
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         }

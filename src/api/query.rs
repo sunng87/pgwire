@@ -340,7 +340,7 @@ where
         client.feed(PgWireBackendMessage::DataRow(row)).await?;
     }
 
-    let tag = Tag::new_for_query(rows);
+    let tag = Tag::new("SELECT").with_rows(rows);
     client
         .send(PgWireBackendMessage::CommandComplete(tag.into()))
         .await?;
