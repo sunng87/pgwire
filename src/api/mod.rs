@@ -22,6 +22,7 @@ pub enum PgWireConnectionState {
     AuthenticationInProgress,
     ReadyForQuery,
     QueryInProgress,
+    AwaitingSync,
 }
 
 /// Describe a client information holder

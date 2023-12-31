@@ -14,8 +14,7 @@ use crate::api::query::ExtendedQueryHandler;
 use crate::api::query::SimpleQueryHandler;
 use crate::api::{ClientInfo, ClientPortalStore, DefaultClient, PgWireConnectionState};
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
-use crate::messages::response::ReadyForQuery;
-use crate::messages::response::{SslResponse, READY_STATUS_IDLE};
+use crate::messages::response::SslResponse;
 use crate::messages::startup::{SslRequest, Startup};
 use crate::messages::{Message, PgWireBackendMessage, PgWireFrontendMessage};
 
@@ -111,6 +110,17 @@ where
         | PgWireConnectionState::AuthenticationInProgress => {
             authenticator.on_startup(socket, message).await?;
         }
+        // From Postgres docs:
+        // When an error is detected while processing any extended-query
+        // message, the backend issues ErrorResponse, then reads and discards
+        // messages until a Sync is reached, then issues ReadyForQuery and
+        // returns to normal message processing.
+        PgWireConnectionState::AwaitingSync => {
+            if let PgWireFrontendMessage::Sync(sync) = message {
+                extended_query_handler.on_sync(socket, sync).await?;
+                socket.set_state(PgWireConnectionState::ReadyForQuery);
+            }
+        }
         _ => {
             // query or query in progress
             match message {
@@ -145,6 +155,7 @@ where
 async fn process_error<S, ST>(
     socket: &mut Framed<S, PgWireMessageServerCodec<ST>>,
     error: PgWireError,
+    wait_for_sync: bool,
 ) -> Result<(), IOError>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
@@ -154,23 +165,12 @@ where
             socket
                 .feed(PgWireBackendMessage::ErrorResponse((*error_info).into()))
                 .await?;
-
-            socket
-                .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                    READY_STATUS_IDLE,
-                )))
-                .await?;
             socket.flush().await?;
         }
         PgWireError::ApiError(e) => {
             let error_info = ErrorInfo::new("ERROR".to_owned(), "XX000".to_owned(), e.to_string());
             socket
                 .feed(PgWireBackendMessage::ErrorResponse(error_info.into()))
-                .await?;
-            socket
-                .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                    READY_STATUS_IDLE,
-                )))
                 .await?;
             socket.flush().await?;
         }
@@ -184,7 +184,9 @@ where
             socket.close().await?;
         }
     }
-
+    if wait_for_sync {
+        socket.set_state(PgWireConnectionState::AwaitingSync);
+    }
     Ok(())
 }
 
@@ -249,6 +251,7 @@ where
         let mut socket = tcp_socket;
 
         while let Some(Ok(msg)) = socket.next().await {
+            let is_extended_query = msg.is_extended_query();
             if let Err(e) = process_message(
                 msg,
                 &mut socket,
@@ -258,7 +261,7 @@ where
             )
             .await
             {
-                process_error(&mut socket, e).await?;
+                process_error(&mut socket, e, is_extended_query).await?;
             }
         }
     } else {
@@ -272,6 +275,7 @@ where
         let mut socket = Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
 
         while let Some(Ok(msg)) = socket.next().await {
+            let is_extended_query = msg.is_extended_query();
             if let Err(e) = process_message(
                 msg,
                 &mut socket,
@@ -281,7 +285,7 @@ where
             )
             .await
             {
-                process_error(&mut socket, e).await?;
+                process_error(&mut socket, e, is_extended_query).await?;
             }
         }
     }
