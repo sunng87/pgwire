@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Changed
+
+- Updated `Tag` constructors for including ObjectID. [#147]
+- Removed some getters and setters, use direct field access. [#144]
+
+### Fixed
+
+- Message sequences fixes [#145] [#146]
+
 ## [0.18.0] - 2023-12-23
 
 ### Changed
