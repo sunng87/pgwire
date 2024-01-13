@@ -96,7 +96,16 @@ pub enum PgWireFrontendMessage {
 
 impl PgWireFrontendMessage {
     pub fn is_extended_query(&self) -> bool {
-        !matches!(self, PgWireFrontendMessage::Query(_))
+        matches!(
+            self,
+            Self::Parse(_)
+                | Self::Bind(_)
+                | Self::Close(_)
+                | Self::Describe(_)
+                | Self::Execute(_)
+                | Self::Flush(_)
+                | Self::Sync(_)
+        )
     }
 
     pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
