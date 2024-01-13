@@ -14,7 +14,8 @@ use crate::api::query::ExtendedQueryHandler;
 use crate::api::query::SimpleQueryHandler;
 use crate::api::{ClientInfo, ClientPortalStore, DefaultClient, PgWireConnectionState};
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
-use crate::messages::response::SslResponse;
+use crate::messages::response::ReadyForQuery;
+use crate::messages::response::{SslResponse, READY_STATUS_IDLE};
 use crate::messages::startup::{SslRequest, Startup};
 use crate::messages::{Message, PgWireBackendMessage, PgWireFrontendMessage};
 
@@ -165,14 +166,12 @@ where
             socket
                 .feed(PgWireBackendMessage::ErrorResponse((*error_info).into()))
                 .await?;
-            socket.flush().await?;
         }
         PgWireError::ApiError(e) => {
             let error_info = ErrorInfo::new("ERROR".to_owned(), "XX000".to_owned(), e.to_string());
             socket
                 .feed(PgWireBackendMessage::ErrorResponse(error_info.into()))
                 .await?;
-            socket.flush().await?;
         }
         _ => {
             // Internal error
@@ -181,12 +180,21 @@ where
             socket
                 .send(PgWireBackendMessage::ErrorResponse(error_info.into()))
                 .await?;
-            socket.close().await?;
+            return socket.close().await;
         }
     }
+
     if wait_for_sync {
         socket.set_state(PgWireConnectionState::AwaitingSync);
+    } else {
+        socket
+            .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+                READY_STATUS_IDLE,
+            )))
+            .await?;
     }
+    socket.flush().await?;
+
     Ok(())
 }
 
