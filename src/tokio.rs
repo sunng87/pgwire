@@ -166,15 +166,12 @@ where
             socket
                 .feed(PgWireBackendMessage::ErrorResponse((*error_info).into()))
                 .await?;
-            socket.flush().await?;
         }
         PgWireError::ApiError(e) => {
             let error_info = ErrorInfo::new("ERROR".to_owned(), "XX000".to_owned(), e.to_string());
             socket
                 .feed(PgWireBackendMessage::ErrorResponse(error_info.into()))
                 .await?;
-
-            socket.flush().await?;
         }
         _ => {
             // Internal error
@@ -196,6 +193,8 @@ where
             )))
             .await?;
     }
+    socket.flush().await?;
+
     Ok(())
 }
 
