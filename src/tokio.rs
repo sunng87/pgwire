@@ -102,9 +102,9 @@ async fn process_message<S, A, Q, EQ>(
 ) -> PgWireResult<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
-    A: StartupHandler + 'static,
-    Q: SimpleQueryHandler + 'static,
-    EQ: ExtendedQueryHandler + 'static,
+    A: StartupHandler,
+    Q: SimpleQueryHandler,
+    EQ: ExtendedQueryHandler,
 {
     match socket.codec().client_info.state() {
         PgWireConnectionState::AwaitingStartup
@@ -243,9 +243,9 @@ pub async fn process_socket<A, Q, EQ>(
     extended_query_handler: Arc<EQ>,
 ) -> Result<(), IOError>
 where
-    A: StartupHandler + 'static,
-    Q: SimpleQueryHandler + 'static,
-    EQ: ExtendedQueryHandler + 'static,
+    A: StartupHandler,
+    Q: SimpleQueryHandler,
+    EQ: ExtendedQueryHandler,
 {
     let addr = tcp_socket.peer_addr()?;
     tcp_socket.set_nodelay(true)?;
