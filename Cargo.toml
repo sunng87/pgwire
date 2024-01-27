@@ -48,7 +48,7 @@ rustls-pki-types = "1.0"
 gluesql = { version = "0.15", default-features = false, features = ["memory-storage"] }
 ## for datafusion example
 datafusion = "35"
-sqlparser = "0.41"
+sqlparser = "0.43"
 
 [features]
 default = ["tokio", "time-format"]
