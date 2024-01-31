@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use postgres_types::Type;
 
-use crate::error::{PgWireError, PgWireResult};
+use crate::error::PgWireResult;
 use crate::messages::extendedquery::Parse;
 
 use super::DEFAULT_NAME;
@@ -28,8 +28,8 @@ impl<S> StoredStatement<S> {
         let types = parse
             .type_oids
             .iter()
-            .map(|oid| Type::from_oid(*oid).ok_or_else(|| PgWireError::UnknownTypeId(*oid)))
-            .collect::<PgWireResult<Vec<Type>>>()?;
+            .map(|oid| Type::from_oid(*oid).unwrap_or(Type::UNKNOWN))
+            .collect::<Vec<Type>>();
         let statement = parser.parse_sql(&parse.query, &types).await?;
         Ok(StoredStatement {
             id: parse
