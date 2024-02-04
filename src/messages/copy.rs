@@ -6,6 +6,7 @@ use crate::error::PgWireResult;
 
 pub const MESSAGE_TYPE_BYTE_COPY_DATA: u8 = b'd';
 
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyData {
     pub data: Bytes,
@@ -34,6 +35,7 @@ impl Message for CopyData {
 
 pub const MESSAGE_TYPE_BYTE_COPY_DONE: u8 = b'c';
 
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyDone;
 
@@ -58,6 +60,7 @@ impl Message for CopyDone {
 
 pub const MESSAGE_TYPE_BYTE_COPY_FAIL: u8 = b'f';
 
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyFail {
     pub message: String,
@@ -86,6 +89,7 @@ impl Message for CopyFail {
 
 pub const MESSAGE_TYPE_BYTE_COPY_IN_RESPONSE: u8 = b'G';
 
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyInResponse {
     pub format: i8,
@@ -126,11 +130,12 @@ impl Message for CopyInResponse {
 
 pub const MESSAGE_TYPE_BYTE_COPY_OUT_RESPONSE: u8 = b'H';
 
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyOutResponse {
-    format: i8,
-    columns: i16,
-    column_formats: Vec<i16>,
+    pub format: i8,
+    pub columns: i16,
+    pub column_formats: Vec<i16>,
 }
 
 impl Message for CopyOutResponse {
@@ -166,11 +171,12 @@ impl Message for CopyOutResponse {
 
 pub const MESSAGE_TYPE_BYTE_COPY_BOTH_RESPONSE: u8 = b'W';
 
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyBothResponse {
-    format: i8,
-    columns: i16,
-    column_formats: Vec<i16>,
+    pub format: i8,
+    pub columns: i16,
+    pub column_formats: Vec<i16>,
 }
 
 impl Message for CopyBothResponse {

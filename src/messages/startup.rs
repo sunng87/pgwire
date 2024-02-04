@@ -105,6 +105,7 @@ impl Message for Startup {
 }
 
 /// authentication response family, sent by backend
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug)]
 pub enum Authentication {
     Ok,                   // code 0
@@ -224,6 +225,7 @@ pub const MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY: u8 = b'p';
 ///
 /// When using this message in startup handlers, call
 /// `into_password`/`into_sasl_initial_response`/... methods to them
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum PasswordMessageFamily {
     /// The type of message is unknown.
@@ -322,6 +324,7 @@ impl PasswordMessageFamily {
 }
 
 /// password packet sent from frontend
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct Password {
     pub password: String,
@@ -351,6 +354,7 @@ impl Message for Password {
 }
 
 /// parameter ack sent from backend after authentication success
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct ParameterStatus {
     pub name: String,
@@ -386,6 +390,7 @@ impl Message for ParameterStatus {
 
 /// `BackendKeyData` message, sent from backend to frontend for issuing
 /// `CancelRequestMessage`
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct BackendKeyData {
     pub pid: i32,

@@ -8,6 +8,7 @@ use crate::error::PgWireResult;
 pub(crate) const FORMAT_CODE_TEXT: i16 = 0;
 pub(crate) const FORMAT_CODE_BINARY: i16 = 1;
 
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct FieldDescription {
     // the field name
@@ -189,6 +190,7 @@ impl Message for DataRow {
 
 /// postgres response when query returns no data, sent from backend to frontend
 /// in extended query
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct NoData;
 

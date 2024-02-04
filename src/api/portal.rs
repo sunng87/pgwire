@@ -13,6 +13,7 @@ use super::{results::FieldFormat, stmt::StoredStatement, DEFAULT_NAME};
 
 /// Represent a prepared sql statement and its parameters bound by a `Bind`
 /// request.
+#[non_exhaustive]
 #[derive(Debug, Default, Clone)]
 pub struct Portal<S> {
     pub name: String,

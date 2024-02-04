@@ -1,6 +1,7 @@
 use super::Message;
 use crate::error::PgWireResult;
 
+#[non_exhaustive]
 #[derive(Default, PartialEq, Eq, Debug, new)]
 pub struct Terminate;
 
