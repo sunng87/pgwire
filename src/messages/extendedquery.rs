@@ -58,6 +58,7 @@ impl Message for Parse {
 }
 
 /// Response for Parse command, sent from backend to frontend
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct ParseComplete;
 
@@ -123,6 +124,7 @@ impl Message for Close {
 }
 
 /// Response for Close command, sent from backend to frontend
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct CloseComplete;
 
@@ -252,6 +254,7 @@ impl Message for Bind {
 }
 
 /// Success response for `Bind`
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct BindComplete;
 
@@ -348,6 +351,7 @@ impl Message for Execute {
     }
 }
 
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct Flush;
 
@@ -374,6 +378,7 @@ impl Message for Flush {
 }
 
 /// Execute portal by its name
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct Sync;
 
@@ -399,6 +404,7 @@ impl Message for Sync {
     }
 }
 
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct PortalSuspended;
 

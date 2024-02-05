@@ -4,6 +4,7 @@ use super::codec;
 use super::Message;
 use crate::error::PgWireResult;
 
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct CommandComplete {
     pub tag: String,
@@ -34,6 +35,7 @@ impl Message for CommandComplete {
     }
 }
 
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct EmptyQueryResponse;
 
@@ -57,6 +59,7 @@ impl Message for EmptyQueryResponse {
     }
 }
 
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct ReadyForQuery {
     pub status: u8,
@@ -92,6 +95,7 @@ impl Message for ReadyForQuery {
 }
 
 /// postgres error response, sent from backend to frontend
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct ErrorResponse {
     pub fields: Vec<(u8, String)>,
@@ -141,6 +145,7 @@ impl Message for ErrorResponse {
 }
 
 /// postgres error response, sent from backend to frontend
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct NoticeResponse {
     pub fields: Vec<(u8, String)>,
@@ -192,7 +197,9 @@ impl Message for NoticeResponse {
 /// Response to SSLRequest.
 /// To initiate an SSL-encrypted connection, the frontend initially sends an SSLRequest
 /// message rather than a StartupMessage. The server then responds with a single byte
-/// containing 'S' or 'N', indicating that it is willing or unwilling to perform SSL, respectively.
+/// containing 'S' or 'N', indicating that it is willing or unwilling to perform
+/// SSL, respectively.
+#[non_exhaustive]
 #[derive(Debug, PartialEq)]
 pub enum SslResponse {
     Accept,
@@ -247,6 +254,7 @@ impl Message for SslResponse {
 }
 
 /// NotificationResponse
+#[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct NotificationResponse {
     pub pid: i32,
