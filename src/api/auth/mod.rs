@@ -4,7 +4,6 @@ use std::fmt::Debug;
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 use futures::stream;
-use rand;
 
 use super::{ClientInfo, PgWireConnectionState, METADATA_DATABASE, METADATA_USER};
 use crate::error::{PgWireError, PgWireResult};
