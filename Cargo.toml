@@ -47,7 +47,7 @@ rustls-pki-types = "1.0"
 ## rustls-native-certs loads roots from current system
 gluesql = { version = "0.15", default-features = false, features = ["memory-storage"] }
 ## for datafusion example
-datafusion = "35"
+datafusion = "36"
 sqlparser = "0.43"
 
 [features]
