@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::stream;
@@ -18,6 +18,7 @@ use pgwire::tokio::process_socket;
 use rusqlite::Rows;
 use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
 use tokio::net::TcpListener;
+use tokio::sync::Mutex;
 
 pub struct SqliteBackend {
     conn: Arc<Mutex<Connection>>,
@@ -50,7 +51,7 @@ impl SimpleQueryHandler for SqliteBackend {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().await;
         if query.to_uppercase().starts_with("SELECT") {
             let mut stmt = conn
                 .prepare(query)
@@ -91,20 +92,26 @@ fn name_to_type(name: &str) -> PgWireResult<Type> {
 }
 
 fn row_desc_from_stmt(stmt: &Statement, format: &Format) -> PgWireResult<Vec<FieldInfo>> {
-    stmt.columns()
-        .iter()
-        .enumerate()
-        .map(|(idx, col)| {
-            let field_type = name_to_type(col.decl_type().unwrap())?;
-            Ok(FieldInfo::new(
-                col.name().to_owned(),
+    let columns = stmt.columns();
+    let mut fields = Vec::with_capacity(columns.len());
+
+    for (idx, column) in columns.iter().enumerate() {
+        if let Some(decl_type) = column.decl_type() {
+            let field_type = name_to_type(decl_type)?;
+
+            fields.push(FieldInfo::new(
+                column.name().to_owned(),
                 None,
                 None,
                 field_type,
                 format.format_for(idx),
             ))
-        })
-        .collect()
+        } else {
+            return Ok(vec![]);
+        }
+    }
+
+    Ok(fields)
 }
 
 fn encode_row_data(
@@ -203,7 +210,7 @@ impl ExtendedQueryHandler for SqliteBackend {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().await;
         let query = &portal.statement.statement;
         let mut stmt = conn
             .prepare_cached(query)
@@ -239,7 +246,7 @@ impl ExtendedQueryHandler for SqliteBackend {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().await;
         match target {
             StatementOrPortal::Statement(stmt) => {
                 let param_types = Some(stmt.parameter_types.clone());
