@@ -91,26 +91,20 @@ fn name_to_type(name: &str) -> PgWireResult<Type> {
 }
 
 fn row_desc_from_stmt(stmt: &Statement, format: &Format) -> PgWireResult<Vec<FieldInfo>> {
-    let columns = stmt.columns();
-    let mut fields = Vec::with_capacity(columns.len());
-
-    for (idx, column) in columns.iter().enumerate() {
-        if let Some(decl_type) = column.decl_type() {
-            let field_type = name_to_type(decl_type)?;
-
-            fields.push(FieldInfo::new(
-                column.name().to_owned(),
+    stmt.columns()
+        .iter()
+        .enumerate()
+        .map(|(idx, col)| {
+            let field_type = col.decl_type().map(name_to_type).unwrap_or(Ok(Type::UNKNOWN))?;
+            Ok(FieldInfo::new(
+                col.name().to_owned(),
                 None,
                 None,
                 field_type,
                 format.format_for(idx),
             ))
-        } else {
-            return Ok(vec![]);
-        }
-    }
-
-    Ok(fields)
+        })
+        .collect()
 }
 
 fn encode_row_data(
