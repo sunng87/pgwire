@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use futures::stream;
@@ -18,7 +18,6 @@ use pgwire::tokio::process_socket;
 use rusqlite::Rows;
 use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
 use tokio::net::TcpListener;
-use tokio::sync::Mutex;
 
 pub struct SqliteBackend {
     conn: Arc<Mutex<Connection>>,
@@ -51,7 +50,7 @@ impl SimpleQueryHandler for SqliteBackend {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        let conn = self.conn.lock().await;
+        let conn = self.conn.lock().unwrap();
         if query.to_uppercase().starts_with("SELECT") {
             let mut stmt = conn
                 .prepare(query)
@@ -210,7 +209,7 @@ impl ExtendedQueryHandler for SqliteBackend {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        let conn = self.conn.lock().await;
+        let conn = self.conn.lock().unwrap();
         let query = &portal.statement.statement;
         let mut stmt = conn
             .prepare_cached(query)
@@ -246,7 +245,7 @@ impl ExtendedQueryHandler for SqliteBackend {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        let conn = self.conn.lock().await;
+        let conn = self.conn.lock().unwrap();
         match target {
             StatementOrPortal::Statement(stmt) => {
                 let param_types = Some(stmt.parameter_types.clone());
