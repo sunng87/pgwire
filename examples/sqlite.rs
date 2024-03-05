@@ -95,7 +95,10 @@ fn row_desc_from_stmt(stmt: &Statement, format: &Format) -> PgWireResult<Vec<Fie
         .iter()
         .enumerate()
         .map(|(idx, col)| {
-            let field_type = name_to_type(col.decl_type().unwrap())?;
+            let field_type = col
+                .decl_type()
+                .map(name_to_type)
+                .unwrap_or(Ok(Type::UNKNOWN))?;
             Ok(FieldInfo::new(
                 col.name().to_owned(),
                 None,
