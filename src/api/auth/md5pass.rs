@@ -48,7 +48,10 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                     .as_ref()
                     .expect("Salt is required for Md5Password authentication");
 
-                *self.cached_password.lock().await = salt_and_pass.password.clone();
+                self.cached_password
+                    .lock()
+                    .await
+                    .clone_from(&salt_and_pass.password);
 
                 client
                     .send(PgWireBackendMessage::Authentication(
