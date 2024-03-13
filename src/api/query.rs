@@ -434,7 +434,7 @@ impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
         &self,
         _client: &mut C,
         _statement: &StoredStatement<Self::Statement>,
-    ) -> PgWireResult<DescribeResponse>
+    ) -> PgWireResult<DescribeStatementResponse>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -445,7 +445,7 @@ impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
         &self,
         _client: &mut C,
         _portal: &Portal<Self::Statement>,
-    ) -> PgWireResult<DescribeResponse>
+    ) -> PgWireResult<DescribePortalResponse>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {

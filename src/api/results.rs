@@ -269,7 +269,7 @@ pub struct DescribeStatementResponse {
 
 impl DescribeResponse for DescribeStatementResponse {
     fn parameters(&self) -> Option<&[Type]> {
-        Some(self.parameters.as_deref())
+        Some(self.parameters.as_ref())
     }
 
     fn fields(&self) -> &[FieldInfo] {
@@ -280,14 +280,14 @@ impl DescribeResponse for DescribeStatementResponse {
     /// when client tries to describe an empty query.
     fn no_data() -> Self {
         DescribeStatementResponse {
-            parameters: None,
+            parameters: vec![],
             fields: vec![],
         }
     }
 
     /// Return true if the `DescribeStatementResponse` is empty/nodata
     fn is_no_data(&self) -> bool {
-        self.parameters.is_none() && self.fields.is_empty()
+        self.parameters.is_empty() && self.fields.is_empty()
     }
 }
 
