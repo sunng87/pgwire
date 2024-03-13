@@ -246,40 +246,77 @@ impl DataRowEncoder {
     }
 }
 
-/// Response for frontend describe requests.
-///
-/// There are two types of describe: statement and portal. When describing
-/// statement, frontend expects parameter types inferenced by server. And both
-/// describe messages will require column definitions for resultset being
-/// returned.
-#[non_exhaustive]
-#[derive(Debug, new)]
-pub struct DescribeResponse {
-    pub parameters: Option<Vec<Type>>,
-    pub fields: Vec<FieldInfo>,
-}
+/// Get response data for a `Describe` command
+pub trait DescribeResponse {
+    fn parameters(&self) -> Option<&[Type]>;
 
-impl DescribeResponse {
-    pub fn parameters(&self) -> Option<&[Type]> {
-        self.parameters.as_deref()
-    }
-
-    pub fn fields(&self) -> &[FieldInfo] {
-        &self.fields
-    }
+    fn fields(&self) -> &[FieldInfo];
 
     /// Create an no_data instance of `DescribeResponse`. This is typically used
     /// when client tries to describe an empty query.
-    pub fn no_data() -> Self {
-        DescribeResponse {
+    fn no_data() -> Self;
+
+    /// Return true if the `DescribeResponse` is empty/nodata
+    fn is_no_data(&self) -> bool;
+}
+
+/// Response for frontend describe statement requests.
+#[non_exhaustive]
+#[derive(Debug, new)]
+pub struct DescribeStatementResponse {
+    pub parameters: Vec<Type>,
+    pub fields: Vec<FieldInfo>,
+}
+
+impl DescribeResponse for DescribeStatementResponse {
+    fn parameters(&self) -> Option<&[Type]> {
+        Some(self.parameters.as_deref())
+    }
+
+    fn fields(&self) -> &[FieldInfo] {
+        &self.fields
+    }
+
+    /// Create an no_data instance of `DescribeStatementResponse`. This is typically used
+    /// when client tries to describe an empty query.
+    fn no_data() -> Self {
+        DescribeStatementResponse {
             parameters: None,
             fields: vec![],
         }
     }
 
-    /// Return true if the `DescribeResponse` is empty/nodata
-    pub fn is_no_data(&self) -> bool {
+    /// Return true if the `DescribeStatementResponse` is empty/nodata
+    fn is_no_data(&self) -> bool {
         self.parameters.is_none() && self.fields.is_empty()
+    }
+}
+
+/// Response for frontend describe portal requests.
+#[non_exhaustive]
+#[derive(Debug, new)]
+pub struct DescribePortalResponse {
+    pub fields: Vec<FieldInfo>,
+}
+
+impl DescribeResponse for DescribePortalResponse {
+    fn parameters(&self) -> Option<&[Type]> {
+        None
+    }
+
+    fn fields(&self) -> &[FieldInfo] {
+        &self.fields
+    }
+
+    /// Create an no_data instance of `DescribePortalResponse`. This is typically used
+    /// when client tries to describe an empty query.
+    fn no_data() -> Self {
+        DescribePortalResponse { fields: vec![] }
+    }
+
+    /// Return true if the `DescribePortalResponse` is empty/nodata
+    fn is_no_data(&self) -> bool {
+        self.fields.is_empty()
     }
 }
 

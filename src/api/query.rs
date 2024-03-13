@@ -10,7 +10,9 @@ use super::results::{into_row_description, Tag};
 use super::stmt::{NoopQueryParser, QueryParser, StoredStatement};
 use super::store::PortalStore;
 use super::{ClientInfo, ClientPortalStore, DEFAULT_NAME};
-use crate::api::results::{DescribeResponse, QueryResponse, Response};
+use crate::api::results::{
+    DescribePortalResponse, DescribeResponse, DescribeStatementResponse, QueryResponse, Response,
+};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::data::{NoData, ParameterDescription};
 use crate::messages::extendedquery::{
@@ -206,9 +208,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         match message.target_type {
             TARGET_TYPE_BYTE_STATEMENT => {
                 if let Some(stmt) = client.portal_store().get_statement(name) {
-                    let describe_response = self
-                        .do_describe(client, StatementOrPortal::Statement(&stmt))
-                        .await?;
+                    let describe_response = self.do_describe_statement(client, &stmt).await?;
                     send_describe_response(client, &describe_response).await?;
                 } else {
                     return Err(PgWireError::StatementNotFound(name.to_owned()));
@@ -216,9 +216,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
             }
             TARGET_TYPE_BYTE_PORTAL => {
                 if let Some(portal) = client.portal_store().get_portal(name) {
-                    let describe_response = self
-                        .do_describe(client, StatementOrPortal::Portal(&portal))
-                        .await?;
+                    let describe_response = self.do_describe_portal(client, &portal).await?;
                     send_describe_response(client, &describe_response).await?;
                 } else {
                     return Err(PgWireError::PortalNotFound(name.to_owned()));
@@ -275,12 +273,24 @@ pub trait ExtendedQueryHandler: Send + Sync {
         Ok(())
     }
 
-    /// Return resultset metadata without actually executing statement or portal
-    async fn do_describe<C>(
+    /// Return resultset metadata without actually executing statement
+    async fn do_describe_statement<C>(
         &self,
         client: &mut C,
-        target: StatementOrPortal<'_, Self::Statement>,
-    ) -> PgWireResult<DescribeResponse>
+        target: &StoredStatement<Self::Statement>,
+    ) -> PgWireResult<DescribeStatementResponse>
+    where
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
+
+    /// Return resultset metadata without actually executing portal
+    async fn do_describe_portal<C>(
+        &self,
+        client: &mut C,
+        target: &Portal<Self::Statement>,
+    ) -> PgWireResult<DescribePortalResponse>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::PortalStore: PortalStore<Statement = Self::Statement>,
@@ -363,14 +373,15 @@ where
 }
 
 /// Helper function to send response for `Describe`.
-pub async fn send_describe_response<C>(
+pub async fn send_describe_response<C, DR>(
     client: &mut C,
-    describe_response: &DescribeResponse,
+    describe_response: &DR,
 ) -> PgWireResult<()>
 where
     C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    DR: DescribeResponse,
 {
     if let Some(parameter_types) = describe_response.parameters() {
         // parameter type inference
@@ -390,13 +401,6 @@ where
     }
 
     Ok(())
-}
-
-/// An enum holds borrowed statement or portal
-#[derive(Debug)]
-pub enum StatementOrPortal<'a, S> {
-    Statement(&'a StoredStatement<S>),
-    Portal(&'a Portal<S>),
 }
 
 /// A placeholder extended query handler. It panics when extended query messages
@@ -426,10 +430,21 @@ impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
         unimplemented!("Extended Query is not implemented on this server.")
     }
 
-    async fn do_describe<C>(
+    async fn do_describe_statement<C>(
         &self,
         _client: &mut C,
-        _statement: StatementOrPortal<'_, Self::Statement>,
+        _statement: &StoredStatement<Self::Statement>,
+    ) -> PgWireResult<DescribeResponse>
+    where
+        C: ClientInfo + Unpin + Send + Sync,
+    {
+        unimplemented!("Extended Query is not implemented on this server.")
+    }
+
+    async fn do_describe_portal<C>(
+        &self,
+        _client: &mut C,
+        _portal: &Portal<Self::Statement>,
     ) -> PgWireResult<DescribeResponse>
     where
         C: ClientInfo + Unpin + Send + Sync,
