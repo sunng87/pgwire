@@ -154,7 +154,7 @@ impl Message for DataRow {
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
-        buf.put_i16(self.field_count as i16);
+        buf.put_i16(self.field_count);
         buf.put_slice(&self.data);
 
         Ok(())
