@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::stream;
+use futures::StreamExt;
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::noop::NoopStartupHandler;
@@ -24,13 +25,27 @@ impl SimpleQueryHandler for DummyProcessor {
         C: ClientInfo + Unpin + Send + Sync,
     {
         let f1 = FieldInfo::new("?column?".into(), None, None, Type::INT4, FieldFormat::Text);
-        let schema = Arc::new(vec![f1]);
+        let f2 = FieldInfo::new("?column?".into(), None, None, Type::INT4, FieldFormat::Text);
+        let f3 = FieldInfo::new("?column?".into(), None, None, Type::INT4, FieldFormat::Text);
+        let f4 = FieldInfo::new("?column?".into(), None, None, Type::INT4, FieldFormat::Text);
+        let f5 = FieldInfo::new("?column?".into(), None, None, Type::INT4, FieldFormat::Text);
+        let f6 = FieldInfo::new("?column?".into(), None, None, Type::INT4, FieldFormat::Text);
+        let schema = Arc::new(vec![f1, f2, f3, f4, f5, f6]);
 
         let schema_ref = schema.clone();
-        let mut encoder = DataRowEncoder::new(schema_ref.clone());
-        encoder.encode_field(&1)?;
-        let row = encoder.finish();
-        let data_row_stream = stream::iter(vec![row]);
+        // this encoder can be reused
+
+        let data_row_stream = stream::iter(0..5000).map(move |n| {
+            let mut encoder = DataRowEncoder::new(schema_ref.clone());
+            encoder.encode_field(&n).unwrap();
+            encoder.encode_field(&n).unwrap();
+            encoder.encode_field(&n).unwrap();
+            encoder.encode_field(&n).unwrap();
+            encoder.encode_field(&n).unwrap();
+            encoder.encode_field(&n).unwrap();
+
+            encoder.finish()
+        });
 
         Ok(vec![Response::Query(QueryResponse::new(
             schema,
