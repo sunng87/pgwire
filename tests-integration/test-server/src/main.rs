@@ -7,11 +7,12 @@ use futures::StreamExt;
 use pgwire::api::auth::scram::{gen_salted_password, MakeSASLScramAuthStartupHandler};
 use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
 use pgwire::api::portal::{Format, Portal};
-use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal};
+use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
-    DataRowEncoder, DescribeResponse, FieldInfo, QueryResponse, Response, Tag,
+    DataRowEncoder, DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse,
+    Response, Tag,
 };
-use pgwire::api::stmt::NoopQueryParser;
+use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::{ClientInfo, MakeHandler, Type};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
@@ -145,26 +146,31 @@ impl ExtendedQueryHandler for DummyDatabase {
         }
     }
 
-    async fn do_describe<C>(
+    async fn do_describe_statement<C>(
         &self,
         _client: &mut C,
-        target: StatementOrPortal<'_, Self::Statement>,
-    ) -> PgWireResult<DescribeResponse>
+        stmt: &StoredStatement<Self::Statement>,
+    ) -> PgWireResult<DescribeStatementResponse>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        println!("describe: {:?}", target);
-        match target {
-            StatementOrPortal::Statement(_) => {
-                let param_types = Some(vec![Type::INT4]);
-                let schema = self.schema(&Format::UnifiedText);
-                Ok(DescribeResponse::new(param_types, schema))
-            }
-            StatementOrPortal::Portal(portal) => {
-                let schema = self.schema(&portal.result_column_format);
-                Ok(DescribeResponse::new(None, schema))
-            }
-        }
+        println!("describe: {:?}", stmt);
+        let param_types = vec![Type::INT4];
+        let schema = self.schema(&Format::UnifiedText);
+        Ok(DescribeStatementResponse::new(param_types, schema))
+    }
+
+    async fn do_describe_portal<C>(
+        &self,
+        _client: &mut C,
+        portal: &Portal<Self::Statement>,
+    ) -> PgWireResult<DescribePortalResponse>
+    where
+        C: ClientInfo + Unpin + Send + Sync,
+    {
+        println!("describe: {:?}", portal);
+        let schema = self.schema(&portal.result_column_format);
+        Ok(DescribePortalResponse::new(schema))
     }
 }
 
