@@ -9,11 +9,12 @@ use futures::Stream;
 use pgwire::api::auth::md5pass::{hash_md5_password, MakeMd5PasswordAuthStartupHandler};
 use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
 use pgwire::api::portal::{Format, Portal};
-use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal};
+use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
-    DataRowEncoder, DescribeResponse, FieldInfo, QueryResponse, Response, Tag,
+    DataRowEncoder, DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse,
+    Response, Tag,
 };
-use pgwire::api::stmt::NoopQueryParser;
+use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::{ClientInfo, MakeHandler, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::data::DataRow;
@@ -279,32 +280,37 @@ impl ExtendedQueryHandler for DuckDBBackend {
         }
     }
 
-    async fn do_describe<C>(
+    async fn do_describe_statement<C>(
         &self,
         _client: &mut C,
-        target: StatementOrPortal<'_, Self::Statement>,
-    ) -> PgWireResult<DescribeResponse>
+        stmt: &StoredStatement<Self::Statement>,
+    ) -> PgWireResult<DescribeStatementResponse>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
         let conn = self.conn.lock().unwrap();
-        match target {
-            StatementOrPortal::Statement(stmt) => {
-                let param_types = Some(stmt.parameter_types.clone());
-                let stmt = conn
-                    .prepare_cached(&stmt.statement)
-                    .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-                row_desc_from_stmt(&stmt, &Format::UnifiedBinary)
-                    .map(|fields| DescribeResponse::new(param_types, fields))
-            }
-            StatementOrPortal::Portal(portal) => {
-                let stmt = conn
-                    .prepare_cached(&portal.statement.statement)
-                    .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-                row_desc_from_stmt(&stmt, &portal.result_column_format)
-                    .map(|fields| DescribeResponse::new(None, fields))
-            }
-        }
+        let param_types = stmt.parameter_types.clone();
+        let stmt = conn
+            .prepare_cached(&stmt.statement)
+            .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+        row_desc_from_stmt(&stmt, &Format::UnifiedBinary)
+            .map(|fields| DescribeStatementResponse::new(param_types, fields))
+    }
+
+    async fn do_describe_portal<C>(
+        &self,
+        _client: &mut C,
+        portal: &Portal<Self::Statement>,
+    ) -> PgWireResult<DescribePortalResponse>
+    where
+        C: ClientInfo + Unpin + Send + Sync,
+    {
+        let conn = self.conn.lock().unwrap();
+        let stmt = conn
+            .prepare_cached(&portal.statement.statement)
+            .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+        row_desc_from_stmt(&stmt, &portal.result_column_format)
+            .map(|fields| DescribePortalResponse::new(fields))
     }
 }
 
