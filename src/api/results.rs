@@ -1,6 +1,7 @@
-use std::{fmt::Debug, sync::Arc};
+use std::fmt::Debug;
+use std::sync::Arc;
 
-use bytes::BytesMut;
+use bytes::{BufMut, BytesMut};
 use futures::{
     stream::{BoxStream, StreamExt},
     Stream,
@@ -162,21 +163,20 @@ impl<'a> QueryResponse<'a> {
 }
 
 pub struct DataRowEncoder {
-    buffer: DataRow,
     field_buffer: BytesMut,
     schema: Arc<Vec<FieldInfo>>,
-    col_index: usize,
+    row_buffer: BytesMut,
+    n_fields: usize,
 }
 
 impl DataRowEncoder {
     /// New DataRowEncoder from schemas of column
     pub fn new(fields: Arc<Vec<FieldInfo>>) -> DataRowEncoder {
-        let ncols = fields.len();
         Self {
-            buffer: DataRow::new(Vec::with_capacity(ncols)),
-            field_buffer: BytesMut::with_capacity(8),
+            field_buffer: BytesMut::with_capacity(32),
             schema: fields,
-            col_index: 0,
+            row_buffer: BytesMut::with_capacity(128),
+            n_fields: 0,
         }
     }
 
@@ -200,14 +200,15 @@ impl DataRowEncoder {
         };
 
         if let IsNull::No = is_null {
-            let buf = self.field_buffer.split().freeze();
-            self.buffer.fields.push(Some(buf));
+            self.row_buffer.put_i32(self.field_buffer.len() as i32);
+            self.row_buffer.put_slice(&self.field_buffer);
+            self.field_buffer.clear();
         } else {
-            self.buffer.fields.push(None);
+            self.row_buffer.put_i32(-1);
         }
 
-        self.col_index += 1;
-        self.field_buffer.clear();
+        self.n_fields += 1;
+
         Ok(())
     }
 
@@ -218,8 +219,8 @@ impl DataRowEncoder {
     where
         T: ToSql + ToSqlText + Sized,
     {
-        let data_type = self.schema[self.col_index].datatype();
-        let format = self.schema[self.col_index].format();
+        let data_type = self.schema[self.n_fields].datatype();
+        let format = self.schema[self.n_fields].format();
 
         let is_null = if format == FieldFormat::Text {
             value.to_sql_text(data_type, &mut self.field_buffer)?
@@ -228,20 +229,20 @@ impl DataRowEncoder {
         };
 
         if let IsNull::No = is_null {
-            let buf = self.field_buffer.split().freeze();
-            self.buffer.fields.push(Some(buf));
+            self.row_buffer.put_i32(self.field_buffer.len() as i32);
+            self.row_buffer.put_slice(&self.field_buffer);
+            self.field_buffer.clear();
         } else {
-            self.buffer.fields.push(None);
+            self.row_buffer.put_i32(-1);
         }
 
-        self.col_index += 1;
-        self.field_buffer.clear();
+        self.n_fields += 1;
+
         Ok(())
     }
 
-    pub fn finish(mut self) -> PgWireResult<DataRow> {
-        self.col_index = 0;
-        Ok(self.buffer)
+    pub fn finish(self) -> PgWireResult<DataRow> {
+        Ok(DataRow::new(self.row_buffer, self.n_fields as i16))
     }
 }
 
@@ -315,16 +316,23 @@ mod test {
             FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text),
             FieldInfo::new("ts".into(), None, None, Type::TIMESTAMP, FieldFormat::Text),
         ]);
+        let now = SystemTime::now();
         let mut encoder = DataRowEncoder::new(schema);
         encoder.encode_field(&2001).unwrap();
         encoder.encode_field(&"udev").unwrap();
-        encoder.encode_field(&SystemTime::now()).unwrap();
+        encoder.encode_field(&now).unwrap();
 
         let row = encoder.finish().unwrap();
 
-        assert_eq!(row.fields.len(), 3);
-        assert_eq!(row.fields[0].as_ref().unwrap().len(), 4);
-        assert_eq!(row.fields[1].as_ref().unwrap().len(), 4);
-        assert_eq!(row.fields[2].as_ref().unwrap().len(), 26);
+        assert_eq!(row.field_count, 3);
+
+        let mut expected = BytesMut::new();
+        expected.put_i32(4);
+        expected.put_slice("2001".as_bytes());
+        expected.put_i32(4);
+        expected.put_slice("udev".as_bytes());
+        expected.put_i32(26);
+        let _ = now.to_sql_text(&Type::TIMESTAMP, &mut expected);
+        assert_eq!(row.data, expected);
     }
 }

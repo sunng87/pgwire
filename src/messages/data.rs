@@ -1,4 +1,4 @@
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 use postgres_types::Oid;
 
 use super::codec;
@@ -135,7 +135,8 @@ impl Message for ParameterDescription {
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new, Clone)]
 pub struct DataRow {
-    pub fields: Vec<Option<Bytes>>,
+    pub data: BytesMut,
+    pub field_count: i16,
 }
 
 impl DataRow {}
@@ -149,42 +150,22 @@ impl Message for DataRow {
     }
 
     fn message_length(&self) -> usize {
-        4 + 2
-            + self
-                .fields
-                .iter()
-                .map(|b| b.as_ref().map(|b| b.len() + 4).unwrap_or(4))
-                .sum::<usize>()
+        4 + 2 + self.data.len()
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
-        buf.put_i16(self.fields.len() as i16);
-        for field in &self.fields {
-            if let Some(bytes) = field {
-                buf.put_i32(bytes.len() as i32);
-                buf.put_slice(bytes.as_ref());
-            } else {
-                buf.put_i32(-1);
-            }
-        }
+        buf.put_i16(self.field_count as i16);
+        buf.put_slice(&self.data);
 
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _msg_len: usize) -> PgWireResult<Self> {
-        let field_count = buf.get_i16() as usize;
+    fn decode_body(buf: &mut BytesMut, msg_len: usize) -> PgWireResult<Self> {
+        let field_count = buf.get_i16();
+        // get body size from packet
+        let data = buf.split_to(msg_len - 4 - 2);
 
-        let mut fields = Vec::with_capacity(field_count);
-        for _ in 0..field_count {
-            let field_len = buf.get_i32();
-            if field_len >= 0 {
-                fields.push(Some(buf.split_to(field_len as usize).freeze()));
-            } else {
-                fields.push(None);
-            }
-        }
-
-        Ok(DataRow { fields })
+        Ok(DataRow { data, field_count })
     }
 }
 

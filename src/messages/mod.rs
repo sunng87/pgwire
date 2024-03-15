@@ -361,7 +361,7 @@ mod test {
     use super::startup::*;
     use super::terminate::*;
     use super::Message;
-    use bytes::{Buf, Bytes, BytesMut};
+    use bytes::{Buf, BufMut, Bytes, BytesMut};
 
     macro_rules! roundtrip {
         ($ins:ident, $st:ty) => {
@@ -480,9 +480,11 @@ mod test {
     #[test]
     fn test_data_row() {
         let mut row0 = DataRow::default();
-        row0.fields.push(Some(Bytes::from_static(b"1")));
-        row0.fields.push(Some(Bytes::from_static(b"abc")));
-        row0.fields.push(None);
+        row0.data.put_i32(4);
+        row0.data.put_slice("data".as_bytes());
+        row0.data.put_i32(4);
+        row0.data.put_i32(1001);
+        row0.data.put_i32(-1);
 
         roundtrip!(row0, DataRow);
     }
