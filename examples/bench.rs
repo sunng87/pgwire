@@ -27,9 +27,21 @@ impl SimpleQueryHandler for DummyProcessor {
         let f1 = FieldInfo::new("?column?".into(), None, None, Type::INT4, FieldFormat::Text);
         let f2 = FieldInfo::new("?column?".into(), None, None, Type::INT4, FieldFormat::Text);
         let f3 = FieldInfo::new("?column?".into(), None, None, Type::INT4, FieldFormat::Text);
-        let f4 = FieldInfo::new("?column?".into(), None, None, Type::INT4, FieldFormat::Text);
-        let f5 = FieldInfo::new("?column?".into(), None, None, Type::INT4, FieldFormat::Text);
-        let f6 = FieldInfo::new("?column?".into(), None, None, Type::INT4, FieldFormat::Text);
+        let f4 = FieldInfo::new(
+            "?column?".into(),
+            None,
+            None,
+            Type::TIMESTAMP,
+            FieldFormat::Text,
+        );
+        let f5 = FieldInfo::new(
+            "?column?".into(),
+            None,
+            None,
+            Type::FLOAT8,
+            FieldFormat::Text,
+        );
+        let f6 = FieldInfo::new("?column?".into(), None, None, Type::TEXT, FieldFormat::Text);
         let schema = Arc::new(vec![f1, f2, f3, f4, f5, f6]);
 
         let schema_ref = schema.clone();
@@ -39,9 +51,9 @@ impl SimpleQueryHandler for DummyProcessor {
             encoder.encode_field(&n).unwrap();
             encoder.encode_field(&n).unwrap();
             encoder.encode_field(&n).unwrap();
-            encoder.encode_field(&n).unwrap();
-            encoder.encode_field(&n).unwrap();
-            encoder.encode_field(&n).unwrap();
+            encoder.encode_field(&"2004-10-19 10:23:54+02").unwrap();
+            encoder.encode_field(&42.0f64).unwrap();
+            encoder.encode_field(&"This method splits the slice into three distinct slices: prefix, correctly aligned middle slice of a new type, and the suffix slice. How exactly the slice is split up is not specified; the middle part may be smaller than necessary. However, if this fails to return a maximal middle part, that is because code is running in a context where performance does not matter, such as a sanitizer attempting to find alignment bugs. Regular code running in a default (debug or release) execution will return a maximal middle part.").unwrap();
 
             encoder.finish()
         });
