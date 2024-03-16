@@ -163,17 +163,15 @@ impl<'a> QueryResponse<'a> {
 }
 
 pub struct DataRowEncoder {
-    field_buffer: BytesMut,
     schema: Arc<Vec<FieldInfo>>,
     row_buffer: BytesMut,
     n_fields: usize,
 }
 
 impl DataRowEncoder {
-    /// New DataRowEncoder from schemas of column
+    /// New DataRowEncoder from schema of column
     pub fn new(fields: Arc<Vec<FieldInfo>>) -> DataRowEncoder {
         Self {
-            field_buffer: BytesMut::with_capacity(32),
             schema: fields,
             row_buffer: BytesMut::with_capacity(128),
             n_fields: 0,
@@ -193,16 +191,21 @@ impl DataRowEncoder {
     where
         T: ToSql + ToSqlText + Sized,
     {
+        let prev_index = self.row_buffer.len();
+
         let is_null = if format == FieldFormat::Text {
-            value.to_sql_text(data_type, &mut self.field_buffer)?
+            value.to_sql_text(data_type, &mut self.row_buffer)?
         } else {
-            value.to_sql(data_type, &mut self.field_buffer)?
+            value.to_sql(data_type, &mut self.row_buffer)?
         };
 
         if let IsNull::No = is_null {
-            self.row_buffer.put_i32(self.field_buffer.len() as i32);
-            self.row_buffer.put_slice(&self.field_buffer);
-            self.field_buffer.clear();
+            // split the buffer at the position of where value was written
+            let value_buf = self.row_buffer.split_off(prev_index);
+            // append value buffer length at the split position
+            self.row_buffer.put_i32(value_buf.len() as i32);
+            // append the value buffer itself
+            self.row_buffer.unsplit(value_buf);
         } else {
             self.row_buffer.put_i32(-1);
         }
@@ -222,18 +225,21 @@ impl DataRowEncoder {
         let data_type = self.schema[self.n_fields].datatype();
         let format = self.schema[self.n_fields].format();
 
+        // remember the position of the 4-byte length field
+        let prev_index = self.row_buffer.len();
+        // write value length as -1 ahead of time
+        self.row_buffer.put_i32(-1);
+
         let is_null = if format == FieldFormat::Text {
-            value.to_sql_text(data_type, &mut self.field_buffer)?
+            value.to_sql_text(data_type, &mut self.row_buffer)?
         } else {
-            value.to_sql(data_type, &mut self.field_buffer)?
+            value.to_sql(data_type, &mut self.row_buffer)?
         };
 
         if let IsNull::No = is_null {
-            self.row_buffer.put_i32(self.field_buffer.len() as i32);
-            self.row_buffer.put_slice(&self.field_buffer);
-            self.field_buffer.clear();
-        } else {
-            self.row_buffer.put_i32(-1);
+            let value_length = self.row_buffer.len() - prev_index - 4;
+            let mut length_bytes = &mut self.row_buffer[prev_index..(prev_index + 4)];
+            length_bytes.put_i32(value_length as i32);
         }
 
         self.n_fields += 1;
