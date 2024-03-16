@@ -33,7 +33,6 @@ impl SimpleQueryHandler for DummyProcessor {
         let schema = Arc::new(vec![f1, f2, f3, f4, f5, f6]);
 
         let schema_ref = schema.clone();
-        // this encoder can be reused
 
         let data_row_stream = stream::iter(0..5000).map(move |n| {
             let mut encoder = DataRowEncoder::new(schema_ref.clone());
