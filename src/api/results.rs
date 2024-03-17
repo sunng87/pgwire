@@ -191,40 +191,6 @@ impl DataRowEncoder {
     where
         T: ToSql + ToSqlText + Sized,
     {
-        let prev_index = self.row_buffer.len();
-
-        let is_null = if format == FieldFormat::Text {
-            value.to_sql_text(data_type, &mut self.row_buffer)?
-        } else {
-            value.to_sql(data_type, &mut self.row_buffer)?
-        };
-
-        if let IsNull::No = is_null {
-            // split the buffer at the position of where value was written
-            let value_buf = self.row_buffer.split_off(prev_index);
-            // append value buffer length at the split position
-            self.row_buffer.put_i32(value_buf.len() as i32);
-            // append the value buffer itself
-            self.row_buffer.unsplit(value_buf);
-        } else {
-            self.row_buffer.put_i32(-1);
-        }
-
-        self.n_fields += 1;
-
-        Ok(())
-    }
-
-    /// Encode value using type and format, defined by schema
-    ///
-    /// Panic when encoding more columns than provided as schema.
-    pub fn encode_field<T>(&mut self, value: &T) -> PgWireResult<()>
-    where
-        T: ToSql + ToSqlText + Sized,
-    {
-        let data_type = self.schema[self.n_fields].datatype();
-        let format = self.schema[self.n_fields].format();
-
         // remember the position of the 4-byte length field
         let prev_index = self.row_buffer.len();
         // write value length as -1 ahead of time
@@ -245,6 +211,19 @@ impl DataRowEncoder {
         self.n_fields += 1;
 
         Ok(())
+    }
+
+    /// Encode value using type and format, defined by schema
+    ///
+    /// Panic when encoding more columns than provided as schema.
+    pub fn encode_field<T>(&mut self, value: &T) -> PgWireResult<()>
+    where
+        T: ToSql + ToSqlText + Sized,
+    {
+        let data_type = self.schema[self.n_fields].datatype().clone();
+        let format = self.schema[self.n_fields].format();
+
+        self.encode_field_with_type_and_format(value, &data_type, format)
     }
 
     pub fn finish(self) -> PgWireResult<DataRow> {
