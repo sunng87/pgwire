@@ -165,7 +165,7 @@ impl<'a> QueryResponse<'a> {
 pub struct DataRowEncoder {
     schema: Arc<Vec<FieldInfo>>,
     row_buffer: BytesMut,
-    n_fields: usize,
+    col_index: usize,
 }
 
 impl DataRowEncoder {
@@ -174,7 +174,7 @@ impl DataRowEncoder {
         Self {
             schema: fields,
             row_buffer: BytesMut::with_capacity(128),
-            n_fields: 0,
+            col_index: 0,
         }
     }
 
@@ -208,7 +208,7 @@ impl DataRowEncoder {
             length_bytes.put_i32(value_length as i32);
         }
 
-        self.n_fields += 1;
+        self.col_index += 1;
 
         Ok(())
     }
@@ -220,14 +220,14 @@ impl DataRowEncoder {
     where
         T: ToSql + ToSqlText + Sized,
     {
-        let data_type = self.schema[self.n_fields].datatype().clone();
-        let format = self.schema[self.n_fields].format();
+        let data_type = self.schema[self.col_index].datatype().clone();
+        let format = self.schema[self.col_index].format();
 
         self.encode_field_with_type_and_format(value, &data_type, format)
     }
 
     pub fn finish(self) -> PgWireResult<DataRow> {
-        Ok(DataRow::new(self.row_buffer, self.n_fields as i16))
+        Ok(DataRow::new(self.row_buffer, self.col_index as i16))
     }
 }
 
