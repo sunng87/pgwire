@@ -106,9 +106,8 @@ Examples are provided to demo the very basic usage of `pgwire` on server side:
 - `examples/scram.rs`: demos how to configure more secure authentication
   mechanism:
   [SCRAM](https://en.wikipedia.org/wiki/Salted_Challenge_Response_Authentication_Mechanism)
-- `examples/datafusion.rs`: demos a postgres compatible server backed by
-  datafusion query engine. This example allows you to `LOAD` csv files as
-  datafusion table and run `SELECT` queries on them.
+- `examples/datafusion.rs`: Now moved to
+  [datafusion-postgres](https://github.com/sunng87/datafusion-postgres)
 
 ### Client/Frontend
 
