@@ -41,10 +41,7 @@ impl<T: ToSqlText> ToSqlText for Option<T> {
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         match *self {
             Some(ref val) => val.to_sql_text(ty, out),
-            None => {
-                out.put_slice("NULL".as_bytes());
-                Ok(IsNull::Yes)
-            }
+            None => Ok(IsNull::Yes),
         }
     }
 }
@@ -220,7 +217,10 @@ impl<T: ToSqlText> ToSqlText for &[T] {
             if i > 0 {
                 out.put_slice(b",");
             }
-            val.to_sql_text(ty, out)?;
+            // put NULL for null value in array
+            if let IsNull::Yes = val.to_sql_text(ty, out)? {
+                out.put_slice(b"NULL");
+            }
         }
         out.put_slice(b"}");
         Ok(IsNull::No)
