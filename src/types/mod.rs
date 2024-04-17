@@ -46,6 +46,21 @@ impl<T: ToSqlText> ToSqlText for Option<T> {
     }
 }
 
+impl ToSqlText for bool {
+    fn to_sql_text(
+        &self,
+        _ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        if *self {
+            out.put_slice(b"t");
+        } else {
+            out.put_slice(b"f");
+        }
+        Ok(IsNull::No)
+    }
+}
+
 impl ToSqlText for String {
     fn to_sql_text(
         &self,
@@ -89,7 +104,6 @@ impl_to_sql_text!(i64);
 impl_to_sql_text!(u32);
 impl_to_sql_text!(f32);
 impl_to_sql_text!(f64);
-impl_to_sql_text!(bool);
 impl_to_sql_text!(char);
 
 impl ToSqlText for &[u8] {
@@ -276,5 +290,19 @@ mod test {
         let mut buf = BytesMut::new();
         data.to_sql_text(&Type::INT2, &mut buf).unwrap();
         assert_eq!("{NULL,8}", String::from_utf8_lossy(buf.freeze().as_ref()));
+    }
+
+    #[test]
+    fn test_bool() {
+        let yes = true;
+        let no = false;
+
+        let mut buf = BytesMut::new();
+        yes.to_sql_text(&Type::BOOL, &mut buf).unwrap();
+        assert_eq!("t", String::from_utf8_lossy(buf.freeze().as_ref()));
+
+        let mut buf = BytesMut::new();
+        no.to_sql_text(&Type::BOOL, &mut buf).unwrap();
+        assert_eq!("f", String::from_utf8_lossy(buf.freeze().as_ref()));
     }
 }
