@@ -272,9 +272,9 @@ mod test {
 
     #[test]
     fn test_null() {
-        let data = None::<i8>;
+        let data = vec![None::<i8>, Some(8)];
         let mut buf = BytesMut::new();
         data.to_sql_text(&Type::INT2, &mut buf).unwrap();
-        assert_eq!("NULL", String::from_utf8_lossy(buf.freeze().as_ref()));
+        assert_eq!("{NULL,8}", String::from_utf8_lossy(buf.freeze().as_ref()));
     }
 }
