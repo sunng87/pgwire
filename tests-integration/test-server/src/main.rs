@@ -56,7 +56,14 @@ impl DummyDatabase {
             Type::TIMESTAMP,
             format.format_for(2),
         );
-        vec![f1, f2, f3]
+        let f4 = FieldInfo::new(
+            "signed".into(),
+            None,
+            None,
+            Type::BOOL,
+            format.format_for(3),
+        );
+        vec![f1, f2, f3, f4]
     }
 }
 
@@ -75,15 +82,27 @@ impl SimpleQueryHandler for DummyDatabase {
             let schema = Arc::new(self.schema(&Format::UnifiedText));
             let schema_ref = schema.clone();
             let data = vec![
-                (Some(0), Some("Tom"), Some("2023-02-01 22:27:25.042674")),
-                (Some(1), Some("Jerry"), Some("2023-02-01 22:27:42.165585")),
-                (Some(2), None, None),
+                (
+                    Some(0),
+                    Some("Tom"),
+                    Some("2023-02-01 22:27:25.042674"),
+                    Some(true),
+                ),
+                (
+                    Some(1),
+                    Some("Jerry"),
+                    Some("2023-02-01 22:27:42.165585"),
+                    Some(false),
+                ),
+                (Some(2), None, None, None),
             ];
             let data_row_stream = stream::iter(data.into_iter()).map(move |r| {
                 let mut encoder = DataRowEncoder::new(schema_ref.clone());
+
                 encoder.encode_field(&r.0)?;
                 encoder.encode_field(&r.1)?;
                 encoder.encode_field(&r.2)?;
+                encoder.encode_field(&r.3)?;
 
                 encoder.finish()
             });
@@ -120,13 +139,14 @@ impl ExtendedQueryHandler for DummyDatabase {
         println!("extended query: {:?}", query);
         if query.starts_with("SELECT") {
             let data = vec![
-                (Some(0), Some("Tom"), Some(SystemTime::now())),
+                (Some(0), Some("Tom"), Some(SystemTime::now()), Some(true)),
                 (
                     Some(1),
                     Some("Jerry"),
                     Some(SystemTime::UNIX_EPOCH + Duration::from_secs(86400 * 5000)),
+                    Some(false),
                 ),
-                (Some(2), None, None),
+                (Some(2), None, None, None),
             ];
             let schema = Arc::new(self.schema(&portal.result_column_format));
             let schema_ref = schema.clone();
@@ -136,6 +156,7 @@ impl ExtendedQueryHandler for DummyDatabase {
                 encoder.encode_field(&r.0)?;
                 encoder.encode_field(&r.1)?;
                 encoder.encode_field(&r.2)?;
+                encoder.encode_field(&r.3)?;
 
                 encoder.finish()
             });
