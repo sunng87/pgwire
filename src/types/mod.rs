@@ -41,7 +41,10 @@ impl<T: ToSqlText> ToSqlText for Option<T> {
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         match *self {
             Some(ref val) => val.to_sql_text(ty, out),
-            None => Ok(IsNull::Yes),
+            None => {
+                out.put_slice("NULL".as_bytes());
+                Ok(IsNull::Yes)
+            }
         }
     }
 }
@@ -265,5 +268,13 @@ mod test {
         date.to_sql_text(&Type::TIMESTAMPTZ, &mut buf).unwrap();
         // format: 2023-02-01 22:31:49.479895+08
         assert_eq!(29, String::from_utf8_lossy(buf.freeze().as_ref()).len());
+    }
+
+    #[test]
+    fn test_null() {
+        let data = None::<i8>;
+        let mut buf = BytesMut::new();
+        data.to_sql_text(&Type::INT2, &mut buf).unwrap();
+        assert_eq!("NULL", String::from_utf8_lossy(buf.freeze().as_ref()));
     }
 }
