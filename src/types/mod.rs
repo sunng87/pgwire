@@ -215,14 +215,14 @@ impl<T: ToSqlText> ToSqlText for &[T] {
         ty: &Type,
         out: &mut BytesMut,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
-        out.put_slice(b"[");
+        out.put_slice(b"{");
         for (i, val) in self.iter().enumerate() {
             if i > 0 {
                 out.put_slice(b",");
             }
             val.to_sql_text(ty, out)?;
         }
-        out.put_slice(b"]");
+        out.put_slice(b"}");
         Ok(IsNull::No)
     }
 }
