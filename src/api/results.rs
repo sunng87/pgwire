@@ -202,10 +202,7 @@ impl DataRowEncoder {
             value.to_sql(data_type, &mut self.row_buffer)?
         };
 
-        let write_non_empty_value =
-            (format == FieldFormat::Text) || (matches!(is_null, IsNull::No));
-
-        if write_non_empty_value {
+        if let IsNull::No = is_null {
             let value_length = self.row_buffer.len() - prev_index - 4;
             let mut length_bytes = &mut self.row_buffer[prev_index..(prev_index + 4)];
             length_bytes.put_i32(value_length as i32);
