@@ -331,6 +331,7 @@ where
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
+    let command_tag = results.command_tag().to_owned();
     let row_schema = results.row_schema();
     let mut data_rows = results.data_rows();
 
@@ -350,7 +351,7 @@ where
         client.feed(PgWireBackendMessage::DataRow(row)).await?;
     }
 
-    let tag = Tag::new("SELECT").with_rows(rows);
+    let tag = Tag::new(&command_tag).with_rows(rows);
     client
         .send(PgWireBackendMessage::CommandComplete(tag.into()))
         .await?;

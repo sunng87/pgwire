@@ -135,20 +135,33 @@ pub(crate) fn into_row_description(fields: &[FieldInfo]) -> RowDescription {
 }
 
 pub struct QueryResponse<'a> {
+    command_tag: String,
     row_schema: Arc<Vec<FieldInfo>>,
     data_rows: BoxStream<'a, PgWireResult<DataRow>>,
 }
 
 impl<'a> QueryResponse<'a> {
-    /// Create `QueryResponse` from column schemas and stream of data row
+    /// Create `QueryResponse` from column schemas and stream of data row.
+    /// Sets "SELECT" as the command tag.
     pub fn new<S>(field_defs: Arc<Vec<FieldInfo>>, row_stream: S) -> QueryResponse<'a>
     where
         S: Stream<Item = PgWireResult<DataRow>> + Send + Unpin + 'a,
     {
         QueryResponse {
+            command_tag: "SELECT".to_owned(),
             row_schema: field_defs,
             data_rows: row_stream.boxed(),
         }
+    }
+
+    /// Get the command tag
+    pub fn command_tag(&self) -> &str {
+        &self.command_tag
+    }
+
+    /// Set the command tag
+    pub fn set_command_tag(&mut self, command_tag: &str) {
+        self.command_tag = command_tag.to_owned()
     }
 
     /// Get schema of columns
