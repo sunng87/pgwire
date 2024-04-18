@@ -161,7 +161,7 @@ impl<'a> QueryResponse<'a> {
 
     /// Set the command tag
     pub fn set_command_tag(&mut self, command_tag: &str) {
-        self.command_tag = command_tag.to_owned()
+        command_tag.clone_into(&mut self.command_tag);
     }
 
     /// Get schema of columns
