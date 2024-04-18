@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Added
+
+- You can now customize command tag for `QueryResponse`. [#173]
+
+### Fixed
+
+- Text representation of NULL values in array, and bool values are now fixed to
+  align with postgres. [#174]
+
 ## [0.20.0] - 2024-03-17
 
 ### Changed
