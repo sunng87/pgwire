@@ -176,7 +176,7 @@ impl Message for Authentication {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, msg_len: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
         let code = buf.get_i32();
         let msg = match code {
             0 => Authentication::Ok,
@@ -194,14 +194,8 @@ impl Message for Authentication {
                 }
                 Authentication::SASL(methods)
             }
-            11 => {
-                let data = buf.split_to(msg_len - 4).freeze();
-                Authentication::SASLContinue(data)
-            }
-            12 => {
-                let data = buf.split_to(msg_len - 4).freeze();
-                Authentication::SASLFinal(data)
-            }
+            11 => Authentication::SASLContinue(buf.split().freeze()),
+            12 => Authentication::SASLFinal(buf.split().freeze()),
             _ => unreachable!(),
         };
 
