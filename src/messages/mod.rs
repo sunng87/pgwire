@@ -393,6 +393,8 @@ mod test {
             Authentication::Ok,
             Authentication::CleartextPassword,
             Authentication::KerberosV5,
+            Authentication::SASLContinue(Bytes::from("hello")),
+            Authentication::SASLFinal(Bytes::from("world")),
         ];
         for s in ss {
             roundtrip!(s, Authentication);
