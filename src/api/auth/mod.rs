@@ -7,7 +7,7 @@ use futures::stream;
 
 use super::{ClientInfo, PgWireConnectionState, METADATA_DATABASE, METADATA_USER};
 use crate::error::{PgWireError, PgWireResult};
-use crate::messages::response::{ReadyForQuery, READY_STATUS_IDLE};
+use crate::messages::response::{ReadyForQuery, TransactionStatus};
 use crate::messages::startup::{Authentication, BackendKeyData, ParameterStatus, Startup};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
@@ -182,7 +182,7 @@ where
         rand::random::<i32>(),
     )));
     messages.push(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-        READY_STATUS_IDLE,
+        TransactionStatus::Idle,
     )));
     let mut message_stream = stream::iter(messages.into_iter().map(Ok));
     client.send_all(&mut message_stream).await.unwrap();

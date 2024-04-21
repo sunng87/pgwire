@@ -13,6 +13,8 @@ pub enum PgWireError {
     InvalidMessageType(u8),
     #[error("Invalid target type, received {0}")]
     InvalidTargetType(u8),
+    #[error("Invalid transaction status, received {0}")]
+    InvalidTransactionStatus(u8),
     #[error("Invalid startup message")]
     InvalidStartupMessage,
     #[error(transparent)]

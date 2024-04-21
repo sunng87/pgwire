@@ -2,7 +2,7 @@ use bytes::{Buf, BufMut, BytesMut};
 
 use super::codec;
 use super::Message;
-use crate::error::PgWireResult;
+use crate::error::{PgWireError, PgWireResult};
 
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
@@ -62,7 +62,15 @@ impl Message for EmptyQueryResponse {
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct ReadyForQuery {
-    pub status: u8,
+    pub status: TransactionStatus,
+}
+
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
+#[repr(u8)]
+pub enum TransactionStatus {
+    Idle = READY_STATUS_IDLE,
+    Transaction = READY_STATUS_TRANSACTION_BLOCK,
+    Error = READY_STATUS_FAILED_TRANSACTION_BLOCK,
 }
 
 pub const READY_STATUS_IDLE: u8 = b'I';
@@ -83,14 +91,26 @@ impl Message for ReadyForQuery {
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
-        buf.put_u8(self.status);
+        buf.put_u8(self.status as u8);
 
         Ok(())
     }
 
     fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
-        let status = buf.get_u8();
+        let status = TransactionStatus::try_from(buf.get_u8())?;
         Ok(ReadyForQuery::new(status))
+    }
+}
+
+impl TryFrom<u8> for TransactionStatus {
+    type Error = PgWireError;
+    fn try_from(value: u8) -> Result<Self, PgWireError> {
+        match value {
+            READY_STATUS_IDLE => Ok(Self::Idle),
+            READY_STATUS_TRANSACTION_BLOCK => Ok(Self::Transaction),
+            READY_STATUS_FAILED_TRANSACTION_BLOCK => Ok(Self::Error),
+            _ => Err(PgWireError::InvalidTransactionStatus(value)),
+        }
     }
 }
 

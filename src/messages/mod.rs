@@ -430,7 +430,11 @@ mod test {
 
     #[test]
     fn test_ready_for_query() {
-        let r4q = ReadyForQuery::new(b'I');
+        let r4q = ReadyForQuery::new(TransactionStatus::Idle);
+        roundtrip!(r4q, ReadyForQuery);
+        let r4q = ReadyForQuery::new(TransactionStatus::Transaction);
+        roundtrip!(r4q, ReadyForQuery);
+        let r4q = ReadyForQuery::new(TransactionStatus::Error);
         roundtrip!(r4q, ReadyForQuery);
     }
 

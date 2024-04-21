@@ -15,7 +15,7 @@ use crate::api::query::SimpleQueryHandler;
 use crate::api::{ClientInfo, ClientPortalStore, DefaultClient, PgWireConnectionState};
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::response::ReadyForQuery;
-use crate::messages::response::{SslResponse, READY_STATUS_IDLE};
+use crate::messages::response::{SslResponse, TransactionStatus};
 use crate::messages::startup::{SslRequest, Startup};
 use crate::messages::{Message, PgWireBackendMessage, PgWireFrontendMessage};
 
@@ -189,7 +189,7 @@ where
     } else {
         socket
             .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                READY_STATUS_IDLE,
+                TransactionStatus::Idle,
             )))
             .await?;
     }
