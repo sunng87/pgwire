@@ -19,7 +19,7 @@ use crate::messages::extendedquery::{
     Bind, BindComplete, Close, CloseComplete, Describe, Execute, Parse, ParseComplete,
     Sync as PgSync, TARGET_TYPE_BYTE_PORTAL, TARGET_TYPE_BYTE_STATEMENT,
 };
-use crate::messages::response::{EmptyQueryResponse, ReadyForQuery, READY_STATUS_IDLE};
+use crate::messages::response::{EmptyQueryResponse, ReadyForQuery, TransactionStatus};
 use crate::messages::simplequery::Query;
 use crate::messages::PgWireBackendMessage;
 
@@ -75,7 +75,7 @@ pub trait SimpleQueryHandler: Send + Sync {
 
         client
             .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                READY_STATUS_IDLE,
+                TransactionStatus::Idle,
             )))
             .await?;
         client.flush().await?;
@@ -240,7 +240,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
     {
         client
             .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                READY_STATUS_IDLE,
+                TransactionStatus::Idle,
             )))
             .await?;
         client.flush().await?;
