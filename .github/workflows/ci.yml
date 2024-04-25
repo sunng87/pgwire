@@ -53,6 +53,8 @@ jobs:
         override: true
     - name: Build and run tests
       run: cargo test --all-features
+    - name: Run tests on minimal feature set
+      run: cargo test --no-default-features
 
   integration:
     name: Integration tests
