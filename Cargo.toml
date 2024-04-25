@@ -11,31 +11,55 @@ homepage = "https://github.com/sunng87/pgwire"
 repository = "https://github.com/sunng87/pgwire"
 documentation = "https://docs.rs/crate/pgwire/"
 readme = "README.md"
-rust-version = "1.67"
+rust-version = "1.72"
 
 [dependencies]
-log = "0.4"
 derive-new = "0.6"
 bytes = "1.1.0"
-time = "0.3"
-futures = "0.3"
-async-trait = "0.1"
-rand = "0.8"
 thiserror = "1"
-postgres-types = { version = "0.2", features = ["with-chrono-0_4", "array-impls"]}
-md5 = "0.7"
-hex = "0.4"
-## scram libraries
-base64 = "0.22"
-ring = "0.17"
-stringprep = "0.1.2"
-x509-certificate = "0.23"
-
-tokio = { version = "1.19", features = ["net", "rt", "io-util"], optional = true}
+## api
+tokio = { version = "1.19", features = [
+    "net",
+    "rt",
+    "io-util",
+], optional = true }
 tokio-util = { version = "0.7.3", features = ["codec", "io"], optional = true }
 tokio-rustls = { version = "0.26", optional = true }
+futures = { version = "0.3", optional = true }
+async-trait = { version = "0.1", optional = true }
+rand = { version = "0.8", optional = true }
+md5 = { version = "0.7", optional = true }
+hex = { version = "0.4", optional = true }
+## scram libraries
+base64 = { version = "0.22", optional = true }
+ring = { version = "0.17", optional = true }
+stringprep = { version = "0.1.2", optional = true }
+x509-certificate = { version = "0.23", optional = true }
+## types
+postgres-types = { version = "0.2", features = [
+    "with-chrono-0_4",
+    "array-impls",
+], optional = true }
+chrono = { version = "0.4", features = ["std"], optional = true }
 
-chrono = { version = "0.4", optional = true, features = ["std"] }
+[features]
+default = ["api"]
+api = [
+    "dep:tokio",
+    "dep:tokio-util",
+    "dep:tokio-rustls",
+    "dep:futures",
+    "dep:async-trait",
+    "dep:rand",
+    "dep:md5",
+    "dep:hex",
+    "dep:base64",
+    "dep:ring",
+    "dep:stringprep",
+    "dep:x509-certificate",
+    "dep:postgres-types",
+    "dep:chrono",
+]
 
 [dev-dependencies]
 tokio = { version = "1.19", features = ["rt-multi-thread", "net", "macros"]}
@@ -49,15 +73,6 @@ rustls-pki-types = "1.0"
 ## webpki-roots has mozilla's set of roots
 ## rustls-native-certs loads roots from current system
 gluesql = { version = "0.15", default-features = false, features = ["memory-storage"] }
-
-[features]
-default = ["tokio", "time-format"]
-tokio = ["dep:tokio", "dep:tokio-util", "dep:tokio-rustls"]
-time-format = ["dep:chrono"]
-
-[[example]]
-name = "server"
-required-features = ["tokio"]
 
 [workspace]
 members = [

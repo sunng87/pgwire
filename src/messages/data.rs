@@ -1,12 +1,11 @@
 use bytes::{Buf, BufMut, BytesMut};
-use postgres_types::Oid;
 
 use super::codec;
 use super::Message;
 use crate::error::PgWireResult;
 
-pub(crate) const FORMAT_CODE_TEXT: i16 = 0;
-pub(crate) const FORMAT_CODE_BINARY: i16 = 1;
+pub const FORMAT_CODE_TEXT: i16 = 0;
+pub const FORMAT_CODE_BINARY: i16 = 1;
 
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
@@ -18,7 +17,7 @@ pub struct FieldDescription {
     // the attribute number of the column, default to 0 if not a column from table
     pub column_id: i16,
     // the object ID of the data type
-    pub type_id: Oid,
+    pub type_id: u32,
     // the size of data type, negative values denote variable-width types
     pub type_size: i16,
     // the type modifier
@@ -92,7 +91,7 @@ impl Message for RowDescription {
 #[derive(PartialEq, Eq, Debug, Default, new, Clone)]
 pub struct ParameterDescription {
     /// parameter types
-    pub types: Vec<Oid>,
+    pub types: Vec<u32>,
 }
 
 pub const MESSAGE_TYPE_BYTE_PARAMETER_DESCRITION: u8 = b't';
@@ -121,7 +120,7 @@ impl Message for ParameterDescription {
         let mut types = Vec::with_capacity(types_len as usize);
 
         for _ in 0..types_len {
-            types.push(buf.get_i32() as Oid);
+            types.push(buf.get_i32() as u32);
         }
 
         Ok(ParameterDescription { types })
