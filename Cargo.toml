@@ -43,8 +43,8 @@ postgres-types = { version = "0.2", features = [
 chrono = { version = "0.4", features = ["std"], optional = true }
 
 [features]
-default = ["api"]
-api = [
+default = ["server-api"]
+server-api = [
     "dep:tokio",
     "dep:tokio-util",
     "dep:tokio-rustls",
@@ -80,3 +80,31 @@ members = [
     "tests-integration/rust-client",
     "tests-integration/test-server"
 ]
+
+[[example]]
+name = "server"
+required-features = ["server-api"]
+
+[[example]]
+name = "secure_server"
+required-features = ["server-api"]
+
+[[example]]
+name = "bench"
+required-features = ["server-api"]
+
+[[example]]
+name = "gluesql"
+required-features = ["server-api"]
+
+[[example]]
+name = "sqlite"
+required-features = ["server-api"]
+
+[[example]]
+name = "duckdb"
+required-features = ["server-api"]
+
+[[example]]
+name = "scram"
+required-features = ["server-api"]
