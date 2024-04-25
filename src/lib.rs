@@ -57,15 +57,15 @@
 extern crate derive_new;
 
 /// handler layer and high-level API layer.
-#[cfg(feature = "api")]
+#[cfg(feature = "server-api")]
 pub mod api;
 /// error types.
 pub mod error;
 /// the protocol layer.
 pub mod messages;
 /// server entry-point for tokio based application.
-#[cfg(feature = "api")]
+#[cfg(feature = "server-api")]
 pub mod tokio;
 /// types and encoding related helper
-#[cfg(feature = "api")]
+#[cfg(feature = "server-api")]
 pub mod types;

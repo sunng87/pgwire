@@ -43,8 +43,8 @@ postgres-types = { version = "0.2", features = [
 chrono = { version = "0.4", features = ["std"], optional = true }
 
 [features]
-default = ["api"]
-api = [
+default = ["server-api"]
+server-api = [
     "dep:tokio",
     "dep:tokio-util",
     "dep:tokio-rustls",
