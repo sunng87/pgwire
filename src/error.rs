@@ -1,9 +1,6 @@
-use std::io::{Error as IOError, ErrorKind};
-
-use postgres_types::Oid;
-use thiserror::Error;
-
 use crate::messages::response::{ErrorResponse, NoticeResponse};
+use std::io::{Error as IOError, ErrorKind};
+use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum PgWireError {
@@ -23,8 +20,9 @@ pub enum PgWireError {
     PortalNotFound(String),
     #[error("Statement not found for name: {0:?}")]
     StatementNotFound(String),
-    #[error("Unknown type: {0:?}")]
-    UnknownTypeId(Oid),
+    #[cfg(feature = "api")]
+    #[error("Unknown type: {0}")]
+    UnknownTypeId(u32),
     #[error("Parameter index out of bound: {0:?}")]
     ParameterIndexOutOfBound(usize),
     #[error("Cannot convert postgre type {0:?} to given rust type")]

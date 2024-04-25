@@ -1,5 +1,4 @@
 use bytes::{Buf, BufMut, Bytes};
-use postgres_types::Oid;
 
 use super::{codec, Message};
 use crate::error::PgWireResult;
@@ -10,7 +9,7 @@ use crate::error::PgWireResult;
 pub struct Parse {
     pub name: Option<String>,
     pub query: String,
-    pub type_oids: Vec<Oid>,
+    pub type_oids: Vec<u32>,
 }
 
 pub const MESSAGE_TYPE_BYTE_PARSE: u8 = b'P';
