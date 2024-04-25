@@ -82,4 +82,5 @@ jobs:
       with:
         toolchain: "1.72"
         override: true
+    - run: cargo build --no-default-features
     - run: cargo build --all-features
