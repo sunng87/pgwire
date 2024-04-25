@@ -20,9 +20,6 @@ pub enum PgWireError {
     PortalNotFound(String),
     #[error("Statement not found for name: {0:?}")]
     StatementNotFound(String),
-    #[cfg(feature = "api")]
-    #[error("Unknown type: {0}")]
-    UnknownTypeId(u32),
     #[error("Parameter index out of bound: {0:?}")]
     ParameterIndexOutOfBound(usize),
     #[error("Cannot convert postgre type {0:?} to given rust type")]
