@@ -19,7 +19,7 @@ fn main() {
     }
 
     for row in client
-        .query("SELECT * FROM testtable WHERE id = ?", &[&1_u32])
+        .query("SELECT * FROM testtable WHERE id = ?", &[&1])
         .unwrap()
     {
         println!("{:?}", row.get::<usize, Option<i32>>(0));
