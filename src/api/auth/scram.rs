@@ -9,12 +9,14 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use bytes::Bytes;
 use futures::{Sink, SinkExt};
-use ring::digest;
-use ring::hmac;
-use ring::pbkdf2;
 use tokio::sync::Mutex;
 use x509_certificate::certificate::CapturedX509Certificate;
 use x509_certificate::SignatureAlgorithm;
+
+#[cfg(not(feature = "ring"))]
+use aws_lc_rs::{digest, hmac, pbkdf2};
+#[cfg(feature = "ring")]
+use ring::{digest, hmac, pbkdf2};
 
 use crate::api::auth::{AuthSource, LoginInfo, Password};
 use crate::api::{ClientInfo, MakeHandler, PgWireConnectionState};
