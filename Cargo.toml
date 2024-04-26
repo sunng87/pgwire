@@ -24,7 +24,7 @@ tokio = { version = "1.19", features = [
     "io-util",
 ], optional = true }
 tokio-util = { version = "0.7.3", features = ["codec", "io"], optional = true }
-tokio-rustls = { version = "0.26", optional = true }
+tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["logging", "tls12"]}
 futures = { version = "0.3", optional = true }
 async-trait = { version = "0.1", optional = true }
 rand = { version = "0.8", optional = true }
@@ -33,6 +33,7 @@ hex = { version = "0.4", optional = true }
 ## scram libraries
 base64 = { version = "0.22", optional = true }
 ring = { version = "0.17", optional = true }
+aws-lc-rs = { version = "1.7", optional = true }
 stringprep = { version = "0.1.2", optional = true }
 x509-certificate = { version = "0.23", optional = true }
 ## types
@@ -43,7 +44,11 @@ postgres-types = { version = "0.2", features = [
 chrono = { version = "0.4", features = ["std"], optional = true }
 
 [features]
-default = ["server-api"]
+default = ["server-api-ring"]
+server-api-ring = ["server-api", "ring"]
+server-api-aws-lc-rs = ["server-api", "aws-lc-rs"]
+ring = ["dep:ring", "tokio-rustls/ring"]
+aws-lc-rs = ["dep:aws-lc-rs", "tokio-rustls/aws-lc-rs"]
 server-api = [
     "dep:tokio",
     "dep:tokio-util",
@@ -54,7 +59,6 @@ server-api = [
     "dep:md5",
     "dep:hex",
     "dep:base64",
-    "dep:ring",
     "dep:stringprep",
     "dep:x509-certificate",
     "dep:postgres-types",
