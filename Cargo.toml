@@ -44,9 +44,9 @@ postgres-types = { version = "0.2", features = [
 chrono = { version = "0.4", features = ["std"], optional = true }
 
 [features]
-default = ["server-api-ring"]
-server-api-ring = ["server-api", "ring"]
-server-api-aws-lc-rs = ["server-api", "aws-lc-rs"]
+default = ["server-api"]
+server-api-scram-ring = ["server-api", "ring", "dep:base64", "dep:stringprep", "dep:x509-certificate"]
+server-api-scram-aws-lc-rs = ["server-api", "aws-lc-rs", "dep:base64", "dep:stringprep", "dep:x509-certificate"]
 ring = ["dep:ring", "tokio-rustls/ring"]
 aws-lc-rs = ["dep:aws-lc-rs", "tokio-rustls/aws-lc-rs"]
 server-api = [
@@ -58,9 +58,6 @@ server-api = [
     "dep:rand",
     "dep:md5",
     "dep:hex",
-    "dep:base64",
-    "dep:stringprep",
-    "dep:x509-certificate",
     "dep:postgres-types",
     "dep:chrono",
 ]
@@ -111,4 +108,4 @@ required-features = ["server-api"]
 
 [[example]]
 name = "scram"
-required-features = ["server-api"]
+required-features = ["server-api-scram-aws-lc-rs"]

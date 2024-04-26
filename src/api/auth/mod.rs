@@ -192,4 +192,8 @@ where
 pub mod cleartext;
 pub mod md5pass;
 pub mod noop;
+#[cfg(any(
+    feature = "server-api-scram-ring",
+    feature = "server-api-scram-aws-lc-rs"
+))]
 pub mod scram;
