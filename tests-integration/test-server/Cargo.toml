@@ -7,7 +7,7 @@ publish = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-pgwire = { path = "../../" }
+pgwire = { path = "../../", features = ["server-api-scram-ring"] }
 async-trait = "0.1"
 futures = "0.3"
 tokio = { version = "1", features = ["full"] }
