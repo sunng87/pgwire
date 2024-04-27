@@ -58,7 +58,7 @@ jobs:
     - name: Run tests on additional scram+ring feature set
       run: cargo test --features server-api-scram-ring
     - name: Run tests on additional scram+aws-lc-rs feature set
-      run: cargo test --features server-api-scram-aws-lc-rs
+      run: cargo test --features scram
 
   integration:
     name: Integration tests
