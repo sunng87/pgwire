@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Changed
+
+- SCRAM authenticator is now an optional feature that is turned off by
+  default. To use SCRAM authenticator, add feature flag `scram`. [#180]
+- `aws-lc-rs` based crypto backend is the default when using TLS or SCRAM. Use
+  `default-features=false` and `server-api-ring` to use the ring backend. [#179]
+- Use `default-features=false` if you only uses message codecs from this
+  library. [#177]
+- BREAKING CHANGE: ready state code is now presented in enum
+  `TransactionStatus`. There is an update of `ReadyForQuery`'s `new`. [#176]
+
+### Fixed
+
+- panic when decoding SASL messages [#175]
+
 ## [0.21.0] - 2024-04-18
 
 ### Added
