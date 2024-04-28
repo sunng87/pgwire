@@ -192,4 +192,5 @@ where
 pub mod cleartext;
 pub mod md5pass;
 pub mod noop;
+#[cfg(feature = "scram")]
 pub mod scram;
