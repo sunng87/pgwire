@@ -47,6 +47,15 @@
 //!   - `do_` prefixed methods in handler traits
 //!   - `QueryParser`/`PortalStore` for extended query support
 //!
+//! ## Features
+//!
+//! - `server-api-aws-lc-rs` is enabled by default, it includes all three layers
+//! of our API and uses `aws-lc-rs` as crypto backend.
+//! - `server-api-ring` is almost same to `server-api-aws-lc-rs` except for it's
+//! using `ring` as crypto backend.
+//! - `scram` for the SASL/SCRAM authenticator.
+//! - Turn off default features if you just use our Protocol layer.
+//!
 //! ## Examples
 //!
 //! [Examples](https://github.com/sunng87/pgwire) are provided to demo API
