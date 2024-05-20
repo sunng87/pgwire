@@ -1,7 +1,12 @@
 use async_trait::async_trait;
+use futures::sink::{Sink, SinkExt};
 use futures::Stream;
+use std::fmt::Debug;
 
-use crate::{error::PgWireResult, messages::copy::CopyData};
+use crate::api::portal::Format;
+use crate::error::{PgWireError, PgWireResult};
+use crate::messages::copy::{CopyBothResponse, CopyData, CopyInResponse, CopyOutResponse};
+use crate::messages::PgWireBackendMessage;
 
 use super::ClientInfo;
 
@@ -39,4 +44,58 @@ pub trait CopyHandler {
         let stream: Vec<CopyData> = Vec::new();
         Ok(Box::new(futures::stream::iter(stream)))
     }
+}
+
+pub async fn send_copy_in_response<C>(
+    client: &mut C,
+    overall_format: i8,
+    columns: usize,
+    column_formats: Vec<i16>,
+) -> PgWireResult<()>
+where
+    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+{
+    let resp = CopyInResponse::new(overall_format, columns as i16, column_formats);
+    client
+        .send(PgWireBackendMessage::CopyInResponse(resp))
+        .await?;
+    Ok(())
+}
+
+pub async fn send_copy_out_response<C>(
+    client: &mut C,
+    overall_format: i8,
+    columns: usize,
+    column_formats: Vec<i16>,
+) -> PgWireResult<()>
+where
+    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+{
+    let resp = CopyOutResponse::new(overall_format, columns as i16, column_formats);
+    client
+        .send(PgWireBackendMessage::CopyOutResponse(resp))
+        .await?;
+    Ok(())
+}
+
+pub async fn send_copy_both_response<C>(
+    client: &mut C,
+    overall_format: i8,
+    columns: usize,
+    column_formats: Vec<i16>,
+) -> PgWireResult<()>
+where
+    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+{
+    let resp = CopyBothResponse::new(overall_format, columns as i16, column_formats);
+    client
+        .send(PgWireBackendMessage::CopyBothResponse(resp))
+        .await?;
+    Ok(())
 }
