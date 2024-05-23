@@ -459,7 +459,7 @@ fn xor(lhs: &[u8], rhs: &[u8]) -> Vec<u8> {
 /// 1. use sha-256 if the certificate's algorithm is md5 or sha-1
 /// 2. use the certificate's algorithm if it's neither md5 or sha-1
 /// 3. if the certificate has 0 or more than 1 signature algorithm, the
-/// behaviour is undefined at the time.
+///    behaviour is undefined at the time.
 fn compute_cert_signature(cert: &[u8]) -> PgWireResult<Vec<u8>> {
     let certs = CapturedX509Certificate::from_pem_multiple(cert)
         .map_err(|e| PgWireError::ApiError(Box::new(e)))?;

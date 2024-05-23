@@ -13,10 +13,10 @@
 //!
 //! - Startup: client-server handshake and authentication.
 //! - Simple Query: The legacy query protocol of postgresql. Query are provided
-//! as string, and server is allowed to stream data in response.
+//!   as string, and server is allowed to stream data in response.
 //! - Extended Query: A new sub-protocol for query which has ability to cache
-//! the query on server-side and reuse it with new parameters. The response part
-//! is identical to Simple Query.
+//!   the query on server-side and reuse it with new parameters. The response part
+//!   is identical to Simple Query.
 //!
 //! Also note that Postgres Wire Protocol has no semantics about SQL, so
 //! literally you can use any query language, data formats or even natural
@@ -37,7 +37,7 @@
 //! application from any level of abstraction. They are:
 //!
 //! - Protocol layer: Just use message definitions and codecs in `messages`
-//! module.
+//!   module.
 //! - Message handler layer: Implement `on_` prefixed methods in traits:
 //!   - `StartupHandler`
 //!   - `SimpleQueryHandler`
@@ -50,9 +50,9 @@
 //! ## Features
 //!
 //! - `server-api-aws-lc-rs` is enabled by default, it includes all three layers
-//! of our API and uses `aws-lc-rs` as crypto backend.
+//!   of our API and uses `aws-lc-rs` as crypto backend.
 //! - `server-api-ring` is almost same to `server-api-aws-lc-rs` except for it's
-//! using `ring` as crypto backend.
+//!   using `ring` as crypto backend.
 //! - `scram` for the SASL/SCRAM authenticator.
 //! - Turn off default features if you just use our Protocol layer.
 //!

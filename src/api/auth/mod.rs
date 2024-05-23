@@ -37,8 +37,8 @@ pub trait ServerParameterProvider: Send + Sync {
 /// This provider responds frontend with default parameters:
 ///
 /// - `DateStyle: ISO YMD`: the default text serialization in this library is
-/// using `YMD` style date. If you override this, or use your own serialization
-/// for date types, remember to update this as well.
+///   using `YMD` style date. If you override this, or use your own serialization
+///   for date types, remember to update this as well.
 /// - `server_encoding: UTF8`
 /// - `client_encoding: UTF8`
 /// - `integer_datetimes: on`:
