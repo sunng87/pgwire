@@ -63,12 +63,7 @@ pub fn gen_salted_password(password: &str, salt: &[u8], iters: usize) -> Vec<u8>
 }
 
 pub fn random_nonce() -> String {
-    let mut buf = [0u8; 18];
-    for v in buf.iter_mut() {
-        *v = rand::random::<u8>();
-    }
-
-    STANDARD.encode(buf)
+    STANDARD.encode(rand::random::<[u8; 18]>())
 }
 
 impl<A, P> SASLScramAuthStartupHandler<A, P> {

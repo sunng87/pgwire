@@ -36,11 +36,7 @@ impl SimpleQueryHandler for DummyProcessor {
 }
 
 pub fn random_salt() -> Vec<u8> {
-    let mut buf = vec![0u8; 10];
-    for v in buf.iter_mut() {
-        *v = rand::random::<u8>();
-    }
-    buf
+    Vec::from(rand::random::<[u8; 10]>())
 }
 
 const ITERATIONS: usize = 4096;
