@@ -94,3 +94,8 @@ where
         .await?;
     Ok(())
 }
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NoopCopyHandler;
+
+impl CopyHandler for NoopCopyHandler {}

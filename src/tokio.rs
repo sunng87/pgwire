@@ -247,17 +247,19 @@ async fn peek_for_sslrequest<ST>(
     Ok(ssl)
 }
 
-pub async fn process_socket<A, Q, EQ>(
+pub async fn process_socket<A, Q, EQ, C>(
     tcp_socket: TcpStream,
     tls_acceptor: Option<Arc<TlsAcceptor>>,
     startup_handler: Arc<A>,
     query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
+    copy_handler: Arc<C>,
 ) -> Result<(), IOError>
 where
     A: StartupHandler,
     Q: SimpleQueryHandler,
     EQ: ExtendedQueryHandler,
+    C: CopyHandler,
 {
     let addr = tcp_socket.peer_addr()?;
     tcp_socket.set_nodelay(true)?;
@@ -278,6 +280,7 @@ where
                 startup_handler.clone(),
                 query_handler.clone(),
                 extended_query_handler.clone(),
+                copy_handler.clone(),
             )
             .await
             {
@@ -302,6 +305,7 @@ where
                 startup_handler.clone(),
                 query_handler.clone(),
                 extended_query_handler.clone(),
+                copy_handler.clone(),
             )
             .await
             {
