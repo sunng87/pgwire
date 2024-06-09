@@ -7,6 +7,7 @@ use std::sync::Arc;
 pub use postgres_types::Type;
 
 pub mod auth;
+pub mod copy;
 pub mod portal;
 pub mod query;
 pub mod results;
@@ -22,6 +23,7 @@ pub enum PgWireConnectionState {
     AuthenticationInProgress,
     ReadyForQuery,
     QueryInProgress,
+    CopyInProgress,
     AwaitingSync,
 }
 

@@ -10,6 +10,7 @@ use tokio_rustls::TlsAcceptor;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
 use crate::api::auth::StartupHandler;
+use crate::api::copy::CopyHandler;
 use crate::api::query::ExtendedQueryHandler;
 use crate::api::query::SimpleQueryHandler;
 use crate::api::{ClientInfo, ClientPortalStore, DefaultClient, PgWireConnectionState};
@@ -93,18 +94,20 @@ impl<T, S> ClientPortalStore for Framed<T, PgWireMessageServerCodec<S>> {
     }
 }
 
-async fn process_message<S, A, Q, EQ>(
+async fn process_message<S, A, Q, EQ, C>(
     message: PgWireFrontendMessage,
     socket: &mut Framed<S, PgWireMessageServerCodec<EQ::Statement>>,
     authenticator: Arc<A>,
     query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
+    copy_handler: Arc<C>,
 ) -> PgWireResult<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
     A: StartupHandler,
     Q: SimpleQueryHandler,
     EQ: ExtendedQueryHandler,
+    C: CopyHandler,
 {
     match socket.codec().client_info.state() {
         PgWireConnectionState::AwaitingStartup
@@ -145,6 +148,15 @@ where
                 }
                 PgWireFrontendMessage::Close(close) => {
                     extended_query_handler.on_close(socket, close).await?;
+                }
+                PgWireFrontendMessage::CopyData(copy_data) => {
+                    copy_handler.on_copy_data(socket, copy_data).await?;
+                }
+                PgWireFrontendMessage::CopyDone(copy_done) => {
+                    copy_handler.on_copy_done(socket, copy_done).await?;
+                }
+                PgWireFrontendMessage::CopyFail(copy_fail) => {
+                    copy_handler.on_copy_fail(socket, copy_fail).await?;
                 }
                 _ => {}
             }
@@ -235,17 +247,19 @@ async fn peek_for_sslrequest<ST>(
     Ok(ssl)
 }
 
-pub async fn process_socket<A, Q, EQ>(
+pub async fn process_socket<A, Q, EQ, C>(
     tcp_socket: TcpStream,
     tls_acceptor: Option<Arc<TlsAcceptor>>,
     startup_handler: Arc<A>,
     query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
+    copy_handler: Arc<C>,
 ) -> Result<(), IOError>
 where
     A: StartupHandler,
     Q: SimpleQueryHandler,
     EQ: ExtendedQueryHandler,
+    C: CopyHandler,
 {
     let addr = tcp_socket.peer_addr()?;
     tcp_socket.set_nodelay(true)?;
@@ -266,6 +280,7 @@ where
                 startup_handler.clone(),
                 query_handler.clone(),
                 extended_query_handler.clone(),
+                copy_handler.clone(),
             )
             .await
             {
@@ -290,6 +305,7 @@ where
                 startup_handler.clone(),
                 query_handler.clone(),
                 extended_query_handler.clone(),
+                copy_handler.clone(),
             )
             .await
             {

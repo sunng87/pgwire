@@ -11,6 +11,7 @@ use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 
 use pgwire::api::auth::noop::NoopStartupHandler;
+use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
 use pgwire::api::{ClientInfo, MakeHandler, StatelessMakeHandler, Type};
@@ -84,6 +85,7 @@ pub async fn main() {
         PlaceholderExtendedQueryHandler,
     )));
     let authenticator = Arc::new(StatelessMakeHandler::new(Arc::new(NoopStartupHandler)));
+    let noop_copy_handler = Arc::new(NoopCopyHandler);
 
     let server_addr = "127.0.0.1:5433";
     let tls_acceptor = Arc::new(setup_tls().unwrap());
@@ -96,6 +98,7 @@ pub async fn main() {
         let authenticator_ref = authenticator.make();
         let processor_ref = processor.make();
         let placeholder_ref = placeholder.make();
+        let copy_handler_ref = noop_copy_handler.clone();
         tokio::spawn(async move {
             process_socket(
                 incoming_socket.0,
@@ -103,6 +106,7 @@ pub async fn main() {
                 authenticator_ref,
                 processor_ref,
                 placeholder_ref,
+                copy_handler_ref,
             )
             .await
         });

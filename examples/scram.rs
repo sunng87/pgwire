@@ -12,6 +12,7 @@ use tokio_rustls::TlsAcceptor;
 
 use pgwire::api::auth::scram::{gen_salted_password, MakeSASLScramAuthStartupHandler};
 use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
+use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{Response, Tag};
 
@@ -79,6 +80,7 @@ pub async fn main() {
     let placeholder = Arc::new(StatelessMakeHandler::new(Arc::new(
         PlaceholderExtendedQueryHandler,
     )));
+    let noop_copy_handler = Arc::new(NoopCopyHandler);
     let mut authenticator = MakeSASLScramAuthStartupHandler::new(
         Arc::new(DummyAuthDB),
         Arc::new(DefaultServerParameterProvider::default()),
@@ -99,6 +101,8 @@ pub async fn main() {
         let authenticator_ref = authenticator.make();
         let processor_ref = processor.make();
         let placeholder_ref = placeholder.make();
+        let copy_handler_ref = noop_copy_handler.clone();
+
         tokio::spawn(async move {
             process_socket(
                 incoming_socket.0,
@@ -106,6 +110,7 @@ pub async fn main() {
                 authenticator_ref,
                 processor_ref,
                 placeholder_ref,
+                copy_handler_ref,
             )
             .await
         });

@@ -3,8 +3,10 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use futures::stream;
 use futures::Stream;
+
 use pgwire::api::auth::md5pass::{hash_md5_password, MakeMd5PasswordAuthStartupHandler};
 use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
+use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
@@ -306,6 +308,7 @@ pub async fn main() {
         Arc::new(parameters),
     ));
     let processor = Arc::new(MakeSqliteBackend::new());
+    let noop_copy_handler = Arc::new(NoopCopyHandler);
 
     let server_addr = "127.0.0.1:5432";
     let listener = TcpListener::bind(server_addr).await.unwrap();
@@ -314,6 +317,8 @@ pub async fn main() {
         let incoming_socket = listener.accept().await.unwrap();
         let authenticator_ref = authenticator.make();
         let processor_ref = processor.make();
+        let copy_handler_ref = noop_copy_handler.clone();
+
         tokio::spawn(async move {
             process_socket(
                 incoming_socket.0,
@@ -321,6 +326,7 @@ pub async fn main() {
                 authenticator_ref,
                 processor_ref.clone(),
                 processor_ref,
+                copy_handler_ref,
             )
             .await
         });
