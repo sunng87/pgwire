@@ -14,7 +14,7 @@ use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
-use pgwire::api::{ClientInfo, MakeHandler, StatelessMakeHandler, Type};
+use pgwire::api::{ClientInfo, Type};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 
@@ -79,12 +79,10 @@ fn setup_tls() -> Result<TlsAcceptor, IOError> {
 
 #[tokio::main]
 pub async fn main() {
-    let processor = Arc::new(StatelessMakeHandler::new(Arc::new(DummyProcessor)));
+    let processor = Arc::new(DummyProcessor);
     // We have not implemented extended query in this server, use placeholder instead
-    let placeholder = Arc::new(StatelessMakeHandler::new(Arc::new(
-        PlaceholderExtendedQueryHandler,
-    )));
-    let authenticator = Arc::new(StatelessMakeHandler::new(Arc::new(NoopStartupHandler)));
+    let placeholder = Arc::new(PlaceholderExtendedQueryHandler);
+    let authenticator = Arc::new(NoopStartupHandler);
     let noop_copy_handler = Arc::new(NoopCopyHandler);
 
     let server_addr = "127.0.0.1:5433";
@@ -95,9 +93,9 @@ pub async fn main() {
     loop {
         let incoming_socket = listener.accept().await.unwrap();
         let tls_acceptor_ref = tls_acceptor.clone();
-        let authenticator_ref = authenticator.make();
-        let processor_ref = processor.make();
-        let placeholder_ref = placeholder.make();
+        let authenticator_ref = authenticator.clone();
+        let processor_ref = processor.clone();
+        let placeholder_ref = placeholder.clone();
         let copy_handler_ref = noop_copy_handler.clone();
         tokio::spawn(async move {
             process_socket(

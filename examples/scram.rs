@@ -10,13 +10,13 @@ use tokio::net::TcpListener;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 
-use pgwire::api::auth::scram::{gen_salted_password, MakeSASLScramAuthStartupHandler};
+use pgwire::api::auth::scram::{gen_salted_password, SASLScramAuthStartupHandler};
 use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
 use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{Response, Tag};
 
-use pgwire::api::{ClientInfo, MakeHandler, StatelessMakeHandler};
+use pgwire::api::ClientInfo;
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 
@@ -75,21 +75,12 @@ fn setup_tls() -> Result<TlsAcceptor, IOError> {
 
 #[tokio::main]
 pub async fn main() {
-    let processor = Arc::new(StatelessMakeHandler::new(Arc::new(DummyProcessor)));
+    let processor = Arc::new(DummyProcessor);
     // We have not implemented extended query in this server, use placeholder instead
-    let placeholder = Arc::new(StatelessMakeHandler::new(Arc::new(
-        PlaceholderExtendedQueryHandler,
-    )));
+    let placeholder = Arc::new(PlaceholderExtendedQueryHandler);
     let noop_copy_handler = Arc::new(NoopCopyHandler);
-    let mut authenticator = MakeSASLScramAuthStartupHandler::new(
-        Arc::new(DummyAuthDB),
-        Arc::new(DefaultServerParameterProvider::default()),
-    );
-    authenticator.set_iterations(ITERATIONS);
 
     let cert = fs::read("examples/ssl/server.crt").unwrap();
-    authenticator.configure_certificate(cert.as_ref()).unwrap();
-    let authenticator = Arc::new(authenticator);
 
     let server_addr = "127.0.0.1:5432";
     let tls_acceptor = Arc::new(setup_tls().unwrap());
@@ -98,16 +89,22 @@ pub async fn main() {
     loop {
         let incoming_socket = listener.accept().await.unwrap();
         let tls_acceptor_ref = tls_acceptor.clone();
-        let authenticator_ref = authenticator.make();
-        let processor_ref = processor.make();
-        let placeholder_ref = placeholder.make();
+        let authenticator = Arc::new(SASLScramAuthStartupHandler::new(
+            Arc::new(DummyAuthDB),
+            Arc::new(DefaultServerParameterProvider::default()),
+        ));
+        authenticator.set_iterations(ITERATIONS);
+        authenticator.configure_certificate(cert.as_ref()).unwrap();
+
+        let processor_ref = processor.clone();
+        let placeholder_ref = placeholder.clone();
         let copy_handler_ref = noop_copy_handler.clone();
 
         tokio::spawn(async move {
             process_socket(
                 incoming_socket.0,
                 Some(tls_acceptor_ref),
-                authenticator_ref,
+                authenticator.clone(),
                 processor_ref,
                 placeholder_ref,
                 copy_handler_ref,

@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 pub use postgres_types::Type;
 
@@ -105,22 +104,5 @@ impl<S> ClientPortalStore for DefaultClient<S> {
 
     fn portal_store(&self) -> &Self::PortalStore {
         &self.portal_store
-    }
-}
-
-pub trait MakeHandler {
-    type Handler;
-
-    fn make(&self) -> Self::Handler;
-}
-
-#[derive(new)]
-pub struct StatelessMakeHandler<H>(Arc<H>);
-
-impl<H> MakeHandler for StatelessMakeHandler<H> {
-    type Handler = Arc<H>;
-
-    fn make(&self) -> Self::Handler {
-        self.0.clone()
     }
 }
