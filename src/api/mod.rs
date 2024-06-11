@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 pub use postgres_types::Type;
 
@@ -105,4 +106,19 @@ impl<S> ClientPortalStore for DefaultClient<S> {
     fn portal_store(&self) -> &Self::PortalStore {
         &self.portal_store
     }
+}
+
+pub trait PgWireHandlerFactory {
+    type StartupHandler: auth::StartupHandler;
+    type SimpleQueryHandler: query::SimpleQueryHandler;
+    type ExtendedQueryHandler: query::ExtendedQueryHandler;
+    type CopyHandler: copy::CopyHandler;
+
+    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler>;
+
+    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler>;
+
+    fn startup_handler(&self) -> Arc<Self::StartupHandler>;
+
+    fn copy_handler(&self) -> Arc<Self::CopyHandler>;
 }
