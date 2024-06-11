@@ -3,6 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::stream;
 use futures::StreamExt;
+use pgwire::api::PgWireHandlerFactory;
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::noop::NoopStartupHandler;
@@ -66,34 +67,46 @@ impl SimpleQueryHandler for DummyProcessor {
     }
 }
 
+struct DummyProcessorFactory {
+    handler: Arc<DummyProcessor>,
+}
+
+impl PgWireHandlerFactory for DummyProcessorFactory {
+    type StartupHandler = NoopStartupHandler;
+    type SimpleQueryHandler = DummyProcessor;
+    type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
+    type CopyHandler = NoopCopyHandler;
+
+    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+        self.handler.clone()
+    }
+
+    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+        Arc::new(PlaceholderExtendedQueryHandler)
+    }
+
+    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+        Arc::new(NoopStartupHandler)
+    }
+
+    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
+        Arc::new(NoopCopyHandler)
+    }
+}
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 10)]
 pub async fn main() {
-    let processor = Arc::new(DummyProcessor);
-    // We have not implemented extended query in this server, use placeholder instead
-    let placeholder = Arc::new(PlaceholderExtendedQueryHandler);
-    let authenticator = Arc::new(NoopStartupHandler);
-    let noop_copy_handler = Arc::new(NoopCopyHandler);
+    let factory = Arc::new(DummyProcessorFactory {
+        handler: Arc::new(DummyProcessor),
+    });
 
     let server_addr = "127.0.0.1:5433";
     let listener = TcpListener::bind(server_addr).await.unwrap();
     println!("Listening to {}", server_addr);
     loop {
         let incoming_socket = listener.accept().await.unwrap();
-        let authenticator_ref = authenticator.clone();
-        let processor_ref = processor.clone();
-        let placeholder_ref = placeholder.clone();
-        let copy_handler_ref = noop_copy_handler.clone();
+        let factory_ref = factory.clone();
 
-        tokio::spawn(async move {
-            process_socket(
-                incoming_socket.0,
-                None,
-                authenticator_ref,
-                processor_ref,
-                placeholder_ref,
-                copy_handler_ref,
-            )
-            .await
-        });
+        tokio::spawn(async move { process_socket(incoming_socket.0, None, factory_ref).await });
     }
 }

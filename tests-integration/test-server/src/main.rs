@@ -15,7 +15,7 @@ use pgwire::api::results::{
     Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
-use pgwire::api::{ClientInfo, Type};
+use pgwire::api::{ClientInfo, PgWireHandlerFactory, Type};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 use tokio::net::TcpListener;
@@ -197,35 +197,49 @@ impl ExtendedQueryHandler for DummyDatabase {
     }
 }
 
-#[tokio::main]
-pub async fn main() {
-    let processor = Arc::new(DummyDatabase::default());
-    let noop_copy_handler = Arc::new(NoopCopyHandler);
+struct DummyDatabaseFactory(Arc<DummyDatabase>);
 
-    let server_addr = "127.0.0.1:5432";
-    let listener = TcpListener::bind(server_addr).await.unwrap();
-    println!("Listening to {}", server_addr);
-    loop {
-        let incoming_socket = listener.accept().await.unwrap();
+impl PgWireHandlerFactory for DummyDatabaseFactory {
+    type StartupHandler =
+        SASLScramAuthStartupHandler<DummyAuthSource, DefaultServerParameterProvider>;
+    type SimpleQueryHandler = DummyDatabase;
+    type ExtendedQueryHandler = DummyDatabase;
+    type CopyHandler = NoopCopyHandler;
+
+    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+        self.0.clone()
+    }
+
+    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+        self.0.clone()
+    }
+
+    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
         let mut authenticator = SASLScramAuthStartupHandler::new(
             Arc::new(DummyAuthSource),
             Arc::new(DefaultServerParameterProvider::default()),
         );
         authenticator.set_iterations(ITERATIONS);
 
-        let processor_ref = processor.clone();
-        let copy_handler_ref = noop_copy_handler.clone();
+        Arc::new(authenticator)
+    }
 
-        tokio::spawn(async move {
-            process_socket(
-                incoming_socket.0,
-                None,
-                Arc::new(authenticator),
-                processor_ref.clone(),
-                processor_ref,
-                copy_handler_ref,
-            )
-            .await
-        });
+    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
+        Arc::new(NoopCopyHandler)
+    }
+}
+
+#[tokio::main]
+pub async fn main() {
+    let factory = Arc::new(DummyDatabaseFactory(Arc::new(DummyDatabase::default())));
+
+    let server_addr = "127.0.0.1:5432";
+    let listener = TcpListener::bind(server_addr).await.unwrap();
+    println!("Listening to {}", server_addr);
+    loop {
+        let incoming_socket = listener.accept().await.unwrap();
+        let factory_ref = factory.clone();
+
+        tokio::spawn(async move { process_socket(incoming_socket.0, None, factory_ref).await });
     }
 }

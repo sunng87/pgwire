@@ -16,7 +16,7 @@ use pgwire::api::results::{
     Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
-use pgwire::api::{ClientInfo, Type};
+use pgwire::api::{ClientInfo, PgWireHandlerFactory, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::data::DataRow;
 use pgwire::tokio::process_socket;
@@ -324,12 +324,42 @@ impl DuckDBBackend {
     }
 }
 
+struct DuckDBBackendFactory {
+    handler: Arc<DuckDBBackend>,
+}
+
+impl PgWireHandlerFactory for DuckDBBackendFactory {
+    type StartupHandler =
+        Md5PasswordAuthStartupHandler<DummyAuthSource, DefaultServerParameterProvider>;
+    type SimpleQueryHandler = DuckDBBackend;
+    type ExtendedQueryHandler = DuckDBBackend;
+    type CopyHandler = NoopCopyHandler;
+
+    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+        self.handler.clone()
+    }
+
+    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+        self.handler.clone()
+    }
+
+    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+        Arc::new(Md5PasswordAuthStartupHandler::new(
+            Arc::new(DummyAuthSource),
+            Arc::new(DefaultServerParameterProvider::default()),
+        ))
+    }
+
+    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
+        Arc::new(NoopCopyHandler)
+    }
+}
+
 #[tokio::main]
 pub async fn main() {
-    let parameters = Arc::new(DefaultServerParameterProvider::default());
-
-    let noop_copy_handler = Arc::new(NoopCopyHandler);
-
+    let factory = Arc::new(DuckDBBackendFactory {
+        handler: Arc::new(DuckDBBackend::new()),
+    });
     let server_addr = "127.0.0.1:5432";
     let listener = TcpListener::bind(server_addr).await.unwrap();
     println!(
@@ -338,23 +368,8 @@ pub async fn main() {
     );
     loop {
         let incoming_socket = listener.accept().await.unwrap();
-        let authenticator = Arc::new(Md5PasswordAuthStartupHandler::new(
-            Arc::new(DummyAuthSource),
-            parameters.clone(),
-        ));
-        let processor = Arc::new(DuckDBBackend::new());
-        let copy_handler_ref = noop_copy_handler.clone();
+        let factory_ref = factory.clone();
 
-        tokio::spawn(async move {
-            process_socket(
-                incoming_socket.0,
-                None,
-                authenticator,
-                processor.clone(),
-                processor,
-                copy_handler_ref,
-            )
-            .await
-        });
+        tokio::spawn(async move { process_socket(incoming_socket.0, None, factory_ref).await });
     }
 }

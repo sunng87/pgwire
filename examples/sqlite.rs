@@ -14,6 +14,7 @@ use pgwire::api::results::{
     Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
+use pgwire::api::PgWireHandlerFactory;
 use pgwire::api::{ClientInfo, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::data::DataRow;
@@ -280,37 +281,53 @@ impl SqliteBackend {
     }
 }
 
+struct SqliteBackendFactory {
+    handler: Arc<SqliteBackend>,
+}
+
+impl PgWireHandlerFactory for SqliteBackendFactory {
+    type StartupHandler =
+        Md5PasswordAuthStartupHandler<DummyAuthSource, DefaultServerParameterProvider>;
+    type SimpleQueryHandler = SqliteBackend;
+    type ExtendedQueryHandler = SqliteBackend;
+    type CopyHandler = NoopCopyHandler;
+
+    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+        self.handler.clone()
+    }
+
+    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+        self.handler.clone()
+    }
+
+    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+        let mut parameters = DefaultServerParameterProvider::default();
+        parameters.server_version = rusqlite::version().to_owned();
+
+        Arc::new(Md5PasswordAuthStartupHandler::new(
+            Arc::new(DummyAuthSource),
+            Arc::new(parameters),
+        ))
+    }
+
+    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
+        Arc::new(NoopCopyHandler)
+    }
+}
+
 #[tokio::main]
 pub async fn main() {
-    let mut parameters = DefaultServerParameterProvider::default();
-    parameters.server_version = rusqlite::version().to_owned();
-    let parameters = Arc::new(parameters);
-
-    let noop_copy_handler = Arc::new(NoopCopyHandler);
+    let factory = Arc::new(SqliteBackendFactory {
+        handler: Arc::new(SqliteBackend::new()),
+    });
 
     let server_addr = "127.0.0.1:5432";
     let listener = TcpListener::bind(server_addr).await.unwrap();
     println!("Listening to {}", server_addr);
     loop {
         let incoming_socket = listener.accept().await.unwrap();
-        let authenticator = Arc::new(Md5PasswordAuthStartupHandler::new(
-            Arc::new(DummyAuthSource),
-            parameters.clone(),
-        ));
+        let factory_ref = factory.clone();
 
-        let processor = Arc::new(SqliteBackend::new());
-        let copy_handler_ref = noop_copy_handler.clone();
-
-        tokio::spawn(async move {
-            process_socket(
-                incoming_socket.0,
-                None,
-                authenticator,
-                processor.clone(),
-                processor,
-                copy_handler_ref,
-            )
-            .await
-        });
+        tokio::spawn(async move { process_socket(incoming_socket.0, None, factory_ref).await });
     }
 }

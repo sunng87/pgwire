@@ -16,7 +16,7 @@ use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{Response, Tag};
 
-use pgwire::api::ClientInfo;
+use pgwire::api::{ClientInfo, PgWireHandlerFactory};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 
@@ -73,14 +73,50 @@ fn setup_tls() -> Result<TlsAcceptor, IOError> {
     Ok(TlsAcceptor::from(Arc::new(config)))
 }
 
+struct DummyProcessorFactory {
+    handler: Arc<DummyProcessor>,
+    cert: Vec<u8>,
+}
+
+impl PgWireHandlerFactory for DummyProcessorFactory {
+    type StartupHandler = SASLScramAuthStartupHandler<DummyAuthDB, DefaultServerParameterProvider>;
+    type SimpleQueryHandler = DummyProcessor;
+    type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
+    type CopyHandler = NoopCopyHandler;
+
+    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+        self.handler.clone()
+    }
+
+    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+        Arc::new(PlaceholderExtendedQueryHandler)
+    }
+
+    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+        let mut authenticator = SASLScramAuthStartupHandler::new(
+            Arc::new(DummyAuthDB),
+            Arc::new(DefaultServerParameterProvider::default()),
+        );
+        authenticator.set_iterations(ITERATIONS);
+        authenticator
+            .configure_certificate(self.cert.as_ref())
+            .unwrap();
+
+        Arc::new(authenticator)
+    }
+
+    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
+        Arc::new(NoopCopyHandler)
+    }
+}
+
 #[tokio::main]
 pub async fn main() {
-    let processor = Arc::new(DummyProcessor);
-    // We have not implemented extended query in this server, use placeholder instead
-    let placeholder = Arc::new(PlaceholderExtendedQueryHandler);
-    let noop_copy_handler = Arc::new(NoopCopyHandler);
-
     let cert = fs::read("examples/ssl/server.crt").unwrap();
+    let factory = Arc::new(DummyProcessorFactory {
+        handler: Arc::new(DummyProcessor),
+        cert,
+    });
 
     let server_addr = "127.0.0.1:5432";
     let tls_acceptor = Arc::new(setup_tls().unwrap());
@@ -89,27 +125,11 @@ pub async fn main() {
     loop {
         let incoming_socket = listener.accept().await.unwrap();
         let tls_acceptor_ref = tls_acceptor.clone();
-        let authenticator = Arc::new(SASLScramAuthStartupHandler::new(
-            Arc::new(DummyAuthDB),
-            Arc::new(DefaultServerParameterProvider::default()),
-        ));
-        authenticator.set_iterations(ITERATIONS);
-        authenticator.configure_certificate(cert.as_ref()).unwrap();
 
-        let processor_ref = processor.clone();
-        let placeholder_ref = placeholder.clone();
-        let copy_handler_ref = noop_copy_handler.clone();
+        let factory_ref = factory.clone();
 
         tokio::spawn(async move {
-            process_socket(
-                incoming_socket.0,
-                Some(tls_acceptor_ref),
-                authenticator.clone(),
-                processor_ref,
-                placeholder_ref,
-                copy_handler_ref,
-            )
-            .await
+            process_socket(incoming_socket.0, Some(tls_acceptor_ref), factory_ref).await
         });
     }
 }

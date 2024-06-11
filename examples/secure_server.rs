@@ -14,7 +14,7 @@ use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
-use pgwire::api::{ClientInfo, Type};
+use pgwire::api::{ClientInfo, PgWireHandlerFactory, Type};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 
@@ -77,13 +77,38 @@ fn setup_tls() -> Result<TlsAcceptor, IOError> {
     Ok(TlsAcceptor::from(Arc::new(config)))
 }
 
+struct DummyProcessorFactory {
+    handler: Arc<DummyProcessor>,
+}
+
+impl PgWireHandlerFactory for DummyProcessorFactory {
+    type StartupHandler = NoopStartupHandler;
+    type SimpleQueryHandler = DummyProcessor;
+    type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
+    type CopyHandler = NoopCopyHandler;
+
+    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+        self.handler.clone()
+    }
+
+    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+        Arc::new(PlaceholderExtendedQueryHandler)
+    }
+
+    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+        Arc::new(NoopStartupHandler)
+    }
+
+    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
+        Arc::new(NoopCopyHandler)
+    }
+}
+
 #[tokio::main]
 pub async fn main() {
-    let processor = Arc::new(DummyProcessor);
-    // We have not implemented extended query in this server, use placeholder instead
-    let placeholder = Arc::new(PlaceholderExtendedQueryHandler);
-    let authenticator = Arc::new(NoopStartupHandler);
-    let noop_copy_handler = Arc::new(NoopCopyHandler);
+    let factory = Arc::new(DummyProcessorFactory {
+        handler: Arc::new(DummyProcessor),
+    });
 
     let server_addr = "127.0.0.1:5433";
     let tls_acceptor = Arc::new(setup_tls().unwrap());
@@ -93,20 +118,9 @@ pub async fn main() {
     loop {
         let incoming_socket = listener.accept().await.unwrap();
         let tls_acceptor_ref = tls_acceptor.clone();
-        let authenticator_ref = authenticator.clone();
-        let processor_ref = processor.clone();
-        let placeholder_ref = placeholder.clone();
-        let copy_handler_ref = noop_copy_handler.clone();
+        let factory_ref = factory.clone();
         tokio::spawn(async move {
-            process_socket(
-                incoming_socket.0,
-                Some(tls_acceptor_ref),
-                authenticator_ref,
-                processor_ref,
-                placeholder_ref,
-                copy_handler_ref,
-            )
-            .await
+            process_socket(incoming_socket.0, Some(tls_acceptor_ref), factory_ref).await
         });
     }
 }
