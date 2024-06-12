@@ -318,6 +318,15 @@ impl DescribeResponse for DescribePortalResponse {
     }
 }
 
+/// Response for copy operations
+#[non_exhaustive]
+#[derive(Debug, new)]
+pub struct CopyResponse {
+    pub format: i8,
+    pub columns: usize,
+    pub column_formats: Vec<i16>,
+}
+
 /// Query response types:
 ///
 /// * Query: the response contains data rows
@@ -328,6 +337,9 @@ pub enum Response<'a> {
     Query(QueryResponse<'a>),
     Execution(Tag),
     Error(Box<ErrorInfo>),
+    CopyIn(CopyResponse),
+    CopyOut(CopyResponse),
+    CopyBoth(CopyResponse),
 }
 
 #[cfg(test)]
