@@ -9,7 +9,7 @@ use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
-use pgwire::api::{ClientInfo, MakeHandler, StatelessMakeHandler, Type};
+use pgwire::api::{ClientInfo, PgWireHandlerFactory, Type};
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
 
@@ -159,40 +159,50 @@ impl SimpleQueryHandler for GluesqlProcessor {
     }
 }
 
+struct GluesqlHandlerFactory {
+    processor: Arc<GluesqlProcessor>,
+}
+
+impl PgWireHandlerFactory for GluesqlHandlerFactory {
+    type StartupHandler = NoopStartupHandler;
+    type SimpleQueryHandler = GluesqlProcessor;
+    type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
+    type CopyHandler = NoopCopyHandler;
+
+    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+        self.processor.clone()
+    }
+
+    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+        Arc::new(PlaceholderExtendedQueryHandler)
+    }
+
+    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+        Arc::new(NoopStartupHandler)
+    }
+
+    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
+        Arc::new(NoopCopyHandler)
+    }
+}
+
 #[tokio::main]
 pub async fn main() {
     let gluesql = GluesqlProcessor {
         glue: Arc::new(Mutex::new(Glue::new(MemoryStorage::default()))),
     };
 
-    let processor = Arc::new(StatelessMakeHandler::new(Arc::new(gluesql)));
-    // We have not implemented extended query in this server, use placeholder instead
-    let placeholder = Arc::new(StatelessMakeHandler::new(Arc::new(
-        PlaceholderExtendedQueryHandler,
-    )));
-    let authenticator = Arc::new(StatelessMakeHandler::new(Arc::new(NoopStartupHandler)));
-    let noop_copy_handler = Arc::new(NoopCopyHandler);
+    let factory = Arc::new(GluesqlHandlerFactory {
+        processor: Arc::new(gluesql),
+    });
 
     let server_addr = "127.0.0.1:5432";
     let listener = TcpListener::bind(server_addr).await.unwrap();
     println!("Listening to {}", server_addr);
     loop {
         let incoming_socket = listener.accept().await.unwrap();
-        let authenticator_ref = authenticator.make();
-        let processor_ref = processor.make();
-        let placeholder_ref = placeholder.make();
-        let copy_handler_ref = noop_copy_handler.clone();
+        let factory_ref = factory.clone();
 
-        tokio::spawn(async move {
-            process_socket(
-                incoming_socket.0,
-                None,
-                authenticator_ref,
-                processor_ref,
-                placeholder_ref,
-                copy_handler_ref,
-            )
-            .await
-        });
+        tokio::spawn(async move { process_socket(incoming_socket.0, None, factory_ref).await });
     }
 }

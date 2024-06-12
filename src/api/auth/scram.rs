@@ -19,7 +19,7 @@ use aws_lc_rs::{digest, hmac, pbkdf2};
 use ring::{digest, hmac, pbkdf2};
 
 use crate::api::auth::{AuthSource, LoginInfo, Password};
-use crate::api::{ClientInfo, MakeHandler, PgWireConnectionState};
+use crate::api::{ClientInfo, PgWireConnectionState};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::Authentication;
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
@@ -227,17 +227,17 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
     }
 }
 
-#[derive(Debug, new)]
-pub struct MakeSASLScramAuthStartupHandler<A, P> {
-    auth_db: Arc<A>,
-    parameter_provider: Arc<P>,
-    #[new(default)]
-    server_cert_sig: Option<Arc<String>>,
-    #[new(value = "4096")]
-    iterations: usize,
-}
+impl<A, P> SASLScramAuthStartupHandler<A, P> {
+    pub fn new(auth_db: Arc<A>, parameter_provider: Arc<P>) -> Self {
+        SASLScramAuthStartupHandler {
+            auth_db,
+            parameter_provider,
+            state: Mutex::new(ScramState::Initial),
+            server_cert_sig: None,
+            iterations: 4096,
+        }
+    }
 
-impl<A, P> MakeSASLScramAuthStartupHandler<A, P> {
     /// enable channel binding (SCRAM-SHA-256-PLUS) by configuring server
     /// certificate.
     ///
@@ -259,24 +259,6 @@ impl<A, P> MakeSASLScramAuthStartupHandler<A, P> {
     /// should be identical to your `AuthSource` implementation.
     pub fn set_iterations(&mut self, iterations: usize) {
         self.iterations = iterations;
-    }
-}
-
-impl<A, P> MakeHandler for MakeSASLScramAuthStartupHandler<A, P>
-where
-    A: AuthSource,
-    P: ServerParameterProvider,
-{
-    type Handler = Arc<SASLScramAuthStartupHandler<A, P>>;
-
-    fn make(&self) -> Self::Handler {
-        Arc::new(SASLScramAuthStartupHandler {
-            auth_db: self.auth_db.clone(),
-            parameter_provider: self.parameter_provider.clone(),
-            state: Mutex::new(ScramState::Initial),
-            server_cert_sig: self.server_cert_sig.clone(),
-            iterations: self.iterations,
-        })
     }
 }
 

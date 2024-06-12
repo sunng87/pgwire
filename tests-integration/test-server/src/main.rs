@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use futures::stream;
 use futures::StreamExt;
 
-use pgwire::api::auth::scram::{gen_salted_password, MakeSASLScramAuthStartupHandler};
+use pgwire::api::auth::scram::{gen_salted_password, SASLScramAuthStartupHandler};
 use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
 use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::portal::{Format, Portal};
@@ -15,7 +15,7 @@ use pgwire::api::results::{
     Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
-use pgwire::api::{ClientInfo, MakeHandler, Type};
+use pgwire::api::{ClientInfo, PgWireHandlerFactory, Type};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 use tokio::net::TcpListener;
@@ -197,45 +197,49 @@ impl ExtendedQueryHandler for DummyDatabase {
     }
 }
 
-struct MakeDummyDatabase;
+struct DummyDatabaseFactory(Arc<DummyDatabase>);
 
-impl MakeHandler for MakeDummyDatabase {
-    type Handler = Arc<DummyDatabase>;
+impl PgWireHandlerFactory for DummyDatabaseFactory {
+    type StartupHandler =
+        SASLScramAuthStartupHandler<DummyAuthSource, DefaultServerParameterProvider>;
+    type SimpleQueryHandler = DummyDatabase;
+    type ExtendedQueryHandler = DummyDatabase;
+    type CopyHandler = NoopCopyHandler;
 
-    fn make(&self) -> Self::Handler {
-        Arc::new(DummyDatabase::default())
+    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+        self.0.clone()
+    }
+
+    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+        self.0.clone()
+    }
+
+    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+        let mut authenticator = SASLScramAuthStartupHandler::new(
+            Arc::new(DummyAuthSource),
+            Arc::new(DefaultServerParameterProvider::default()),
+        );
+        authenticator.set_iterations(ITERATIONS);
+
+        Arc::new(authenticator)
+    }
+
+    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
+        Arc::new(NoopCopyHandler)
     }
 }
 
 #[tokio::main]
 pub async fn main() {
-    let mut authenticator = MakeSASLScramAuthStartupHandler::new(
-        Arc::new(DummyAuthSource),
-        Arc::new(DefaultServerParameterProvider::default()),
-    );
-    authenticator.set_iterations(ITERATIONS);
-    let processor = Arc::new(MakeDummyDatabase);
-    let noop_copy_handler = Arc::new(NoopCopyHandler);
+    let factory = Arc::new(DummyDatabaseFactory(Arc::new(DummyDatabase::default())));
 
     let server_addr = "127.0.0.1:5432";
     let listener = TcpListener::bind(server_addr).await.unwrap();
     println!("Listening to {}", server_addr);
     loop {
         let incoming_socket = listener.accept().await.unwrap();
-        let authenticator_ref = authenticator.make();
-        let processor_ref = processor.make();
-        let copy_handler_ref = noop_copy_handler.clone();
+        let factory_ref = factory.clone();
 
-        tokio::spawn(async move {
-            process_socket(
-                incoming_socket.0,
-                None,
-                authenticator_ref,
-                processor_ref.clone(),
-                processor_ref,
-                copy_handler_ref,
-            )
-            .await
-        });
+        tokio::spawn(async move { process_socket(incoming_socket.0, None, factory_ref).await });
     }
 }

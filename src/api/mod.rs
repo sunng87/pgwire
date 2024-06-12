@@ -108,19 +108,17 @@ impl<S> ClientPortalStore for DefaultClient<S> {
     }
 }
 
-pub trait MakeHandler {
-    type Handler;
+pub trait PgWireHandlerFactory {
+    type StartupHandler: auth::StartupHandler;
+    type SimpleQueryHandler: query::SimpleQueryHandler;
+    type ExtendedQueryHandler: query::ExtendedQueryHandler;
+    type CopyHandler: copy::CopyHandler;
 
-    fn make(&self) -> Self::Handler;
-}
+    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler>;
 
-#[derive(new)]
-pub struct StatelessMakeHandler<H>(Arc<H>);
+    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler>;
 
-impl<H> MakeHandler for StatelessMakeHandler<H> {
-    type Handler = Arc<H>;
+    fn startup_handler(&self) -> Arc<Self::StartupHandler>;
 
-    fn make(&self) -> Self::Handler {
-        self.0.clone()
-    }
+    fn copy_handler(&self) -> Arc<Self::CopyHandler>;
 }

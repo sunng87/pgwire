@@ -9,7 +9,6 @@ use super::{
     AuthSource, ClientInfo, LoginInfo, PgWireConnectionState, ServerParameterProvider,
     StartupHandler,
 };
-use crate::api::MakeHandler;
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::response::ErrorResponse;
 use crate::messages::startup::Authentication;
@@ -19,6 +18,16 @@ pub struct Md5PasswordAuthStartupHandler<A, P> {
     auth_source: Arc<A>,
     parameter_provider: Arc<P>,
     cached_password: Mutex<Vec<u8>>,
+}
+
+impl<A, P> Md5PasswordAuthStartupHandler<A, P> {
+    pub fn new(auth_source: Arc<A>, parameter_provider: Arc<P>) -> Self {
+        Md5PasswordAuthStartupHandler {
+            auth_source,
+            parameter_provider,
+            cached_password: Mutex::new(vec![]),
+        }
+    }
 }
 
 #[async_trait]
@@ -99,28 +108,6 @@ pub fn hash_md5_password(username: &str, password: &str, salt: &[u8]) -> String 
     bytes.extend_from_slice(salt);
 
     format!("md5{:x}", md5::compute(bytes))
-}
-
-#[derive(Debug, new)]
-pub struct MakeMd5PasswordAuthStartupHandler<A, P> {
-    auth_source: Arc<A>,
-    parameter_provider: Arc<P>,
-}
-
-impl<V, P> MakeHandler for MakeMd5PasswordAuthStartupHandler<V, P>
-where
-    V: AuthSource,
-    P: ServerParameterProvider,
-{
-    type Handler = Arc<Md5PasswordAuthStartupHandler<V, P>>;
-
-    fn make(&self) -> Self::Handler {
-        Arc::new(Md5PasswordAuthStartupHandler {
-            auth_source: self.auth_source.clone(),
-            parameter_provider: self.parameter_provider.clone(),
-            cached_password: Mutex::new(vec![]),
-        })
-    }
 }
 
 #[cfg(test)]

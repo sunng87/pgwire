@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use futures::stream;
 use futures::Stream;
 
-use pgwire::api::auth::md5pass::{hash_md5_password, MakeMd5PasswordAuthStartupHandler};
+use pgwire::api::auth::md5pass::{hash_md5_password, Md5PasswordAuthStartupHandler};
 use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
 use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::portal::{Format, Portal};
@@ -14,7 +14,8 @@ use pgwire::api::results::{
     Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
-use pgwire::api::{ClientInfo, MakeHandler, Type};
+use pgwire::api::PgWireHandlerFactory;
+use pgwire::api::{ClientInfo, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::data::DataRow;
 use pgwire::tokio::process_socket;
@@ -271,64 +272,62 @@ impl ExtendedQueryHandler for SqliteBackend {
     }
 }
 
-/// The parent handler that creates a handler instance for each incoming
-/// connection.
-struct MakeSqliteBackend {
-    conn: Arc<Mutex<Connection>>,
-    query_parser: Arc<NoopQueryParser>,
-}
-
-impl MakeSqliteBackend {
-    fn new() -> MakeSqliteBackend {
-        MakeSqliteBackend {
+impl SqliteBackend {
+    fn new() -> SqliteBackend {
+        SqliteBackend {
             conn: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
             query_parser: Arc::new(NoopQueryParser::new()),
         }
     }
 }
 
-impl MakeHandler for MakeSqliteBackend {
-    type Handler = Arc<SqliteBackend>;
+struct SqliteBackendFactory {
+    handler: Arc<SqliteBackend>,
+}
 
-    fn make(&self) -> Self::Handler {
-        Arc::new(SqliteBackend {
-            conn: self.conn.clone(),
-            query_parser: self.query_parser.clone(),
-        })
+impl PgWireHandlerFactory for SqliteBackendFactory {
+    type StartupHandler =
+        Md5PasswordAuthStartupHandler<DummyAuthSource, DefaultServerParameterProvider>;
+    type SimpleQueryHandler = SqliteBackend;
+    type ExtendedQueryHandler = SqliteBackend;
+    type CopyHandler = NoopCopyHandler;
+
+    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+        self.handler.clone()
+    }
+
+    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+        self.handler.clone()
+    }
+
+    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+        let mut parameters = DefaultServerParameterProvider::default();
+        parameters.server_version = rusqlite::version().to_owned();
+
+        Arc::new(Md5PasswordAuthStartupHandler::new(
+            Arc::new(DummyAuthSource),
+            Arc::new(parameters),
+        ))
+    }
+
+    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
+        Arc::new(NoopCopyHandler)
     }
 }
 
 #[tokio::main]
 pub async fn main() {
-    let mut parameters = DefaultServerParameterProvider::default();
-    parameters.server_version = rusqlite::version().to_owned();
-
-    let authenticator = Arc::new(MakeMd5PasswordAuthStartupHandler::new(
-        Arc::new(DummyAuthSource),
-        Arc::new(parameters),
-    ));
-    let processor = Arc::new(MakeSqliteBackend::new());
-    let noop_copy_handler = Arc::new(NoopCopyHandler);
+    let factory = Arc::new(SqliteBackendFactory {
+        handler: Arc::new(SqliteBackend::new()),
+    });
 
     let server_addr = "127.0.0.1:5432";
     let listener = TcpListener::bind(server_addr).await.unwrap();
     println!("Listening to {}", server_addr);
     loop {
         let incoming_socket = listener.accept().await.unwrap();
-        let authenticator_ref = authenticator.make();
-        let processor_ref = processor.make();
-        let copy_handler_ref = noop_copy_handler.clone();
+        let factory_ref = factory.clone();
 
-        tokio::spawn(async move {
-            process_socket(
-                incoming_socket.0,
-                None,
-                authenticator_ref,
-                processor_ref.clone(),
-                processor_ref,
-                copy_handler_ref,
-            )
-            .await
-        });
+        tokio::spawn(async move { process_socket(incoming_socket.0, None, factory_ref).await });
     }
 }

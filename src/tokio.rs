@@ -13,7 +13,9 @@ use crate::api::auth::StartupHandler;
 use crate::api::copy::CopyHandler;
 use crate::api::query::ExtendedQueryHandler;
 use crate::api::query::SimpleQueryHandler;
-use crate::api::{ClientInfo, ClientPortalStore, DefaultClient, PgWireConnectionState};
+use crate::api::{
+    ClientInfo, ClientPortalStore, DefaultClient, PgWireConnectionState, PgWireHandlerFactory,
+};
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::response::ReadyForQuery;
 use crate::messages::response::{SslResponse, TransactionStatus};
@@ -247,19 +249,13 @@ async fn peek_for_sslrequest<ST>(
     Ok(ssl)
 }
 
-pub async fn process_socket<A, Q, EQ, C>(
+pub async fn process_socket<H>(
     tcp_socket: TcpStream,
     tls_acceptor: Option<Arc<TlsAcceptor>>,
-    startup_handler: Arc<A>,
-    query_handler: Arc<Q>,
-    extended_query_handler: Arc<EQ>,
-    copy_handler: Arc<C>,
+    handlers: Arc<H>,
 ) -> Result<(), IOError>
 where
-    A: StartupHandler,
-    Q: SimpleQueryHandler,
-    EQ: ExtendedQueryHandler,
-    C: CopyHandler,
+    H: PgWireHandlerFactory,
 {
     let addr = tcp_socket.peer_addr()?;
     tcp_socket.set_nodelay(true)?;
@@ -267,6 +263,11 @@ where
     let client_info = DefaultClient::new(addr, false);
     let mut tcp_socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
     let ssl = peek_for_sslrequest(&mut tcp_socket, tls_acceptor.is_some()).await?;
+
+    let startup_handler = handlers.startup_handler();
+    let simple_query_handler = handlers.simple_query_handler();
+    let extended_query_handler = handlers.extended_query_handler();
+    let copy_handler = handlers.copy_handler();
 
     if !ssl {
         // use an already configured socket.
@@ -278,7 +279,7 @@ where
                 msg,
                 &mut socket,
                 startup_handler.clone(),
-                query_handler.clone(),
+                simple_query_handler.clone(),
                 extended_query_handler.clone(),
                 copy_handler.clone(),
             )
@@ -303,7 +304,7 @@ where
                 msg,
                 &mut socket,
                 startup_handler.clone(),
-                query_handler.clone(),
+                simple_query_handler.clone(),
                 extended_query_handler.clone(),
                 copy_handler.clone(),
             )

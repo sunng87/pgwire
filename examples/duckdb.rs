@@ -6,7 +6,7 @@ use duckdb::Rows;
 use duckdb::{params, types::ValueRef, Connection, Statement, ToSql};
 use futures::stream;
 use futures::Stream;
-use pgwire::api::auth::md5pass::{hash_md5_password, MakeMd5PasswordAuthStartupHandler};
+use pgwire::api::auth::md5pass::{hash_md5_password, Md5PasswordAuthStartupHandler};
 use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
 use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::portal::{Format, Portal};
@@ -16,7 +16,7 @@ use pgwire::api::results::{
     Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
-use pgwire::api::{ClientInfo, MakeHandler, Type};
+use pgwire::api::{ClientInfo, PgWireHandlerFactory, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::data::DataRow;
 use pgwire::tokio::process_socket;
@@ -315,63 +315,61 @@ impl ExtendedQueryHandler for DuckDBBackend {
     }
 }
 
-/// The parent handler that creates a handler instance for each incoming
-/// connection.
-struct MakeDuckDBBackend {
-    conn: Arc<Mutex<Connection>>,
-    query_parser: Arc<NoopQueryParser>,
-}
-
-impl MakeDuckDBBackend {
-    fn new() -> MakeDuckDBBackend {
-        MakeDuckDBBackend {
+impl DuckDBBackend {
+    fn new() -> DuckDBBackend {
+        DuckDBBackend {
             conn: Arc::new(Mutex::new(Connection::open_in_memory().unwrap())),
             query_parser: Arc::new(NoopQueryParser::new()),
         }
     }
 }
 
-impl MakeHandler for MakeDuckDBBackend {
-    type Handler = Arc<DuckDBBackend>;
+struct DuckDBBackendFactory {
+    handler: Arc<DuckDBBackend>,
+}
 
-    fn make(&self) -> Self::Handler {
-        Arc::new(DuckDBBackend {
-            conn: self.conn.clone(),
-            query_parser: self.query_parser.clone(),
-        })
+impl PgWireHandlerFactory for DuckDBBackendFactory {
+    type StartupHandler =
+        Md5PasswordAuthStartupHandler<DummyAuthSource, DefaultServerParameterProvider>;
+    type SimpleQueryHandler = DuckDBBackend;
+    type ExtendedQueryHandler = DuckDBBackend;
+    type CopyHandler = NoopCopyHandler;
+
+    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+        self.handler.clone()
+    }
+
+    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+        self.handler.clone()
+    }
+
+    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+        Arc::new(Md5PasswordAuthStartupHandler::new(
+            Arc::new(DummyAuthSource),
+            Arc::new(DefaultServerParameterProvider::default()),
+        ))
+    }
+
+    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
+        Arc::new(NoopCopyHandler)
     }
 }
 
 #[tokio::main]
 pub async fn main() {
-    let parameters = DefaultServerParameterProvider::default();
-
-    let authenticator = Arc::new(MakeMd5PasswordAuthStartupHandler::new(
-        Arc::new(DummyAuthSource),
-        Arc::new(parameters),
-    ));
-    let processor = Arc::new(MakeDuckDBBackend::new());
-    let noop_copy_handler = Arc::new(NoopCopyHandler);
-
+    let factory = Arc::new(DuckDBBackendFactory {
+        handler: Arc::new(DuckDBBackend::new()),
+    });
     let server_addr = "127.0.0.1:5432";
     let listener = TcpListener::bind(server_addr).await.unwrap();
-    println!("Listening to {}", server_addr);
+    println!(
+        "Listening to {}, use password `pencil` to connect",
+        server_addr
+    );
     loop {
         let incoming_socket = listener.accept().await.unwrap();
-        let authenticator_ref = authenticator.make();
-        let processor_ref = processor.make();
-        let copy_handler_ref = noop_copy_handler.clone();
+        let factory_ref = factory.clone();
 
-        tokio::spawn(async move {
-            process_socket(
-                incoming_socket.0,
-                None,
-                authenticator_ref,
-                processor_ref.clone(),
-                processor_ref,
-                copy_handler_ref,
-            )
-            .await
-        });
+        tokio::spawn(async move { process_socket(incoming_socket.0, None, factory_ref).await });
     }
 }
