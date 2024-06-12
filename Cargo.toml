@@ -108,5 +108,9 @@ name = "duckdb"
 required-features = ["server-api"]
 
 [[example]]
+name = "copy"
+required-features = ["server-api"]
+
+[[example]]
 name = "scram"
 required-features = ["scram"]
