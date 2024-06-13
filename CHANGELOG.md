@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Added
+
+- New `CopyHandler` API for processing postgres `COPY`-in operations.
+
+### Changed
+
+- Updated the API of `pgwire::tokio::process_socket` to accept new
+  `PgWireHandlerFactory` instead of each subprotocol handler individually, to
+  keep API clean, also reduce some of boilerplate code.
+- `MakeHandler` trait and its implementation are removed. You will need to
+  implement those logic with new `PgWireHandlerFactory`. For stateful handlers,
+  like most `ExtenededQueryHandler` implementations, it need to be created for
+  every call to `extended_query_handler`. For stateless ones, it can be cached.
+
+### Fixed
+
+- Include API usage on random nonce generate [#182]
+
+
 ## [0.22.0] - 2024-04-29
 
 ### Changed
