@@ -54,10 +54,10 @@ with its usage.
   - [x] ResultSet builder/encoder API
   - [ ] Query Cancellation API
   - [x] Error and Notice API
-  - [ ] Copy API
-    - [ ] Copy-in
-    - [ ] Copy-out
-    - [ ] Copy-both
+  - [x] Copy API
+    - [x] Copy-in
+    - [x] Copy-out
+    - [x] Copy-both
   - [ ] Logical replication server API
 
 ## About Postgres Wire Protocol

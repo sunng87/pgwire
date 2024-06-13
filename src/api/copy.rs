@@ -8,6 +8,7 @@ use crate::messages::copy::{
 };
 use crate::messages::PgWireBackendMessage;
 
+use super::results::CopyResponse;
 use super::ClientInfo;
 
 /// handler for copy messages
@@ -41,54 +42,39 @@ pub trait CopyHandler: Send + Sync {
     }
 }
 
-pub async fn send_copy_in_response<C>(
-    client: &mut C,
-    overall_format: i8,
-    columns: usize,
-    column_formats: Vec<i16>,
-) -> PgWireResult<()>
+pub async fn send_copy_in_response<C>(client: &mut C, resp: CopyResponse) -> PgWireResult<()>
 where
     C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
-    let resp = CopyInResponse::new(overall_format, columns as i16, column_formats);
+    let resp = CopyInResponse::new(resp.format, resp.columns as i16, resp.column_formats);
     client
         .send(PgWireBackendMessage::CopyInResponse(resp))
         .await?;
     Ok(())
 }
 
-pub async fn send_copy_out_response<C>(
-    client: &mut C,
-    overall_format: i8,
-    columns: usize,
-    column_formats: Vec<i16>,
-) -> PgWireResult<()>
+pub async fn send_copy_out_response<C>(client: &mut C, resp: CopyResponse) -> PgWireResult<()>
 where
     C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
-    let resp = CopyOutResponse::new(overall_format, columns as i16, column_formats);
+    let resp = CopyOutResponse::new(resp.format, resp.columns as i16, resp.column_formats);
     client
         .send(PgWireBackendMessage::CopyOutResponse(resp))
         .await?;
     Ok(())
 }
 
-pub async fn send_copy_both_response<C>(
-    client: &mut C,
-    overall_format: i8,
-    columns: usize,
-    column_formats: Vec<i16>,
-) -> PgWireResult<()>
+pub async fn send_copy_both_response<C>(client: &mut C, resp: CopyResponse) -> PgWireResult<()>
 where
     C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
-    let resp = CopyBothResponse::new(overall_format, columns as i16, column_formats);
+    let resp = CopyBothResponse::new(resp.format, resp.columns as i16, resp.column_formats);
     client
         .send(PgWireBackendMessage::CopyBothResponse(resp))
         .await?;

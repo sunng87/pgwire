@@ -9,7 +9,7 @@ use super::portal::Portal;
 use super::results::{into_row_description, Tag};
 use super::stmt::{NoopQueryParser, QueryParser, StoredStatement};
 use super::store::PortalStore;
-use super::{ClientInfo, ClientPortalStore, DEFAULT_NAME};
+use super::{copy, ClientInfo, ClientPortalStore, DEFAULT_NAME};
 use crate::api::results::{
     DescribePortalResponse, DescribeResponse, DescribeStatementResponse, QueryResponse, Response,
 };
@@ -68,6 +68,15 @@ pub trait SimpleQueryHandler: Send + Sync {
                         client
                             .feed(PgWireBackendMessage::ErrorResponse((*e).into()))
                             .await?;
+                    }
+                    Response::CopyIn(result) => {
+                        copy::send_copy_in_response(client, result).await?;
+                    }
+                    Response::CopyOut(result) => {
+                        copy::send_copy_out_response(client, result).await?;
+                    }
+                    Response::CopyBoth(result) => {
+                        copy::send_copy_both_response(client, result).await?;
                     }
                 }
             }
@@ -185,6 +194,15 @@ pub trait ExtendedQueryHandler: Send + Sync {
                     client
                         .send(PgWireBackendMessage::ErrorResponse((*err).into()))
                         .await?;
+                }
+                Response::CopyIn(result) => {
+                    copy::send_copy_in_response(client, result).await?;
+                }
+                Response::CopyOut(result) => {
+                    copy::send_copy_out_response(client, result).await?;
+                }
+                Response::CopyBoth(result) => {
+                    copy::send_copy_both_response(client, result).await?;
                 }
             }
 
