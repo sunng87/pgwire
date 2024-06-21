@@ -11,8 +11,8 @@ use tokio_util::codec::{Decoder, Encoder, Framed};
 
 use crate::api::auth::StartupHandler;
 use crate::api::copy::CopyHandler;
-use crate::api::query::ExtendedQueryHandler;
 use crate::api::query::SimpleQueryHandler;
+use crate::api::query::{send_ready_for_query, ExtendedQueryHandler};
 use crate::api::{
     ClientInfo, ClientPortalStore, DefaultClient, PgWireConnectionState, PgWireHandlerFactory,
 };
@@ -111,7 +111,7 @@ where
     EQ: ExtendedQueryHandler,
     C: CopyHandler,
 {
-    match socket.codec().client_info.state() {
+    match socket.state() {
         PgWireConnectionState::AwaitingStartup
         | PgWireConnectionState::AuthenticationInProgress => {
             authenticator.on_startup(socket, message).await?;
@@ -125,6 +125,52 @@ where
             if let PgWireFrontendMessage::Sync(sync) = message {
                 extended_query_handler.on_sync(socket, sync).await?;
                 socket.set_state(PgWireConnectionState::ReadyForQuery);
+            }
+        }
+        PgWireConnectionState::CopyInProgress(is_extended_query) => {
+            // query or query in progress
+            match message {
+                PgWireFrontendMessage::CopyData(copy_data) => {
+                    copy_handler.on_copy_data(socket, copy_data).await?;
+                }
+                PgWireFrontendMessage::CopyDone(copy_done) => {
+                    let result = copy_handler.on_copy_done(socket, copy_done).await;
+                    if !is_extended_query {
+                        // If the copy was initiated from a simple protocol
+                        // query, we should leave the CopyInProgress state
+                        // before returning the error in order to resume normal
+                        // operation after handling it in process_error.
+                        socket.set_state(PgWireConnectionState::ReadyForQuery);
+                    }
+                    match result {
+                        Ok(_) => {
+                            if !is_extended_query {
+                                // If the copy was initiated from a simple protocol
+                                // query, notify the client that we are not ready
+                                // for the next query.
+                                send_ready_for_query(socket, TransactionStatus::Idle).await?
+                            } else {
+                                // In the extended protocol (at least as
+                                // implemented by rust-postgres) we get a Sync
+                                // after the CopyDone, so we should let the
+                                // on_sync handler send the ReadyForQuery.
+                            }
+                        }
+                        err => return err,
+                    }
+                }
+                PgWireFrontendMessage::CopyFail(copy_fail) => {
+                    let error = copy_handler.on_copy_fail(socket, copy_fail).await;
+                    if !is_extended_query {
+                        // If the copy was initiated from a simple protocol query,
+                        // we should leave the CopyInProgress state
+                        // before returning the error in order to resume normal
+                        // operation after handling it in process_error.
+                        socket.set_state(PgWireConnectionState::ReadyForQuery);
+                    }
+                    return Err(error);
+                }
+                _ => {}
             }
         }
         _ => {
@@ -150,15 +196,6 @@ where
                 }
                 PgWireFrontendMessage::Close(close) => {
                     extended_query_handler.on_close(socket, close).await?;
-                }
-                PgWireFrontendMessage::CopyData(copy_data) => {
-                    copy_handler.on_copy_data(socket, copy_data).await?;
-                }
-                PgWireFrontendMessage::CopyDone(copy_done) => {
-                    copy_handler.on_copy_done(socket, copy_done).await?;
-                }
-                PgWireFrontendMessage::CopyFail(copy_fail) => {
-                    copy_handler.on_copy_fail(socket, copy_fail).await?;
                 }
                 _ => {}
             }
@@ -274,7 +311,10 @@ where
         let mut socket = tcp_socket;
 
         while let Some(Ok(msg)) = socket.next().await {
-            let is_extended_query = msg.is_extended_query();
+            let is_extended_query = match socket.state() {
+                PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
+                _ => msg.is_extended_query(),
+            };
             if let Err(e) = process_message(
                 msg,
                 &mut socket,
@@ -299,7 +339,10 @@ where
         let mut socket = Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
 
         while let Some(Ok(msg)) = socket.next().await {
-            let is_extended_query = msg.is_extended_query();
+            let is_extended_query = match socket.state() {
+                PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
+                _ => msg.is_extended_query(),
+            };
             if let Err(e) = process_message(
                 msg,
                 &mut socket,

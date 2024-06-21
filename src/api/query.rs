@@ -13,6 +13,7 @@ use super::{copy, ClientInfo, ClientPortalStore, DEFAULT_NAME};
 use crate::api::results::{
     DescribePortalResponse, DescribeResponse, DescribeStatementResponse, QueryResponse, Response,
 };
+use crate::api::PgWireConnectionState;
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::data::{NoData, ParameterDescription};
 use crate::messages::extendedquery::{
@@ -71,24 +72,30 @@ pub trait SimpleQueryHandler: Send + Sync {
                     }
                     Response::CopyIn(result) => {
                         copy::send_copy_in_response(client, result).await?;
+                        client.set_state(PgWireConnectionState::CopyInProgress(false));
                     }
                     Response::CopyOut(result) => {
                         copy::send_copy_out_response(client, result).await?;
+                        client.set_state(PgWireConnectionState::CopyInProgress(false));
                     }
                     Response::CopyBoth(result) => {
                         copy::send_copy_both_response(client, result).await?;
+                        client.set_state(PgWireConnectionState::CopyInProgress(false));
                     }
                 }
             }
         }
 
-        client
-            .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                TransactionStatus::Idle,
-            )))
-            .await?;
-        client.flush().await?;
-        client.set_state(super::PgWireConnectionState::ReadyForQuery);
+        if !matches!(client.state(), PgWireConnectionState::CopyInProgress(_)) {
+            // If the client state to `CopyInProgress` it means that a COPY FROM
+            // STDIN / TO STDOUT is now in progress. In this case, we don't want
+            // to send a `ReadyForQuery` message or reset the connection state
+            // back to `ReadyForQuery`. This is the responsibility of of the
+            // `on_copy_done` / `on_copy_fail`.
+            send_ready_for_query(client, TransactionStatus::Idle).await?;
+            client.set_state(super::PgWireConnectionState::ReadyForQuery);
+        };
+
         Ok(())
     }
 
@@ -196,12 +203,15 @@ pub trait ExtendedQueryHandler: Send + Sync {
                         .await?;
                 }
                 Response::CopyIn(result) => {
+                    client.set_state(PgWireConnectionState::CopyInProgress(true));
                     copy::send_copy_in_response(client, result).await?;
                 }
                 Response::CopyOut(result) => {
+                    client.set_state(PgWireConnectionState::CopyInProgress(true));
                     copy::send_copy_out_response(client, result).await?;
                 }
                 Response::CopyBoth(result) => {
+                    client.set_state(PgWireConnectionState::CopyInProgress(true));
                     copy::send_copy_both_response(client, result).await?;
                 }
             }
@@ -372,6 +382,24 @@ where
     let tag = Tag::new(&command_tag).with_rows(rows);
     client
         .send(PgWireBackendMessage::CommandComplete(tag.into()))
+        .await?;
+
+    Ok(())
+}
+
+/// Helper function to send a ReadyForQuery response.
+pub async fn send_ready_for_query<C>(
+    client: &mut C,
+    transaction_status: TransactionStatus,
+) -> PgWireResult<()>
+where
+    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+{
+    let message = ReadyForQuery::new(transaction_status);
+    client
+        .send(PgWireBackendMessage::ReadyForQuery(message))
         .await?;
 
     Ok(())

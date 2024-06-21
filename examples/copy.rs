@@ -9,7 +9,7 @@ use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::copy::CopyHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{CopyResponse, Response};
-use pgwire::api::{ClientInfo, PgWireHandlerFactory};
+use pgwire::api::{ClientInfo, PgWireConnectionState, PgWireHandlerFactory};
 use pgwire::error::ErrorInfo;
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::messages::copy::{CopyData, CopyDone, CopyFail};
@@ -47,34 +47,56 @@ impl SimpleQueryHandler for DummyProcessor {
 
 #[async_trait]
 impl CopyHandler for DummyProcessor {
-    async fn on_copy_data<C>(&self, _client: &mut C, copy_data: CopyData) -> PgWireResult<()>
+    async fn on_copy_data<C>(&self, client: &mut C, copy_data: CopyData) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
+        use PgWireConnectionState::*;
+        // This is set by the `on_query` implementations while handling a
+        // `CopyIn`/`CopyOut`/`CopyBoth` response.
+        assert!(matches!(client.state(), CopyInProgress(_)));
+
         println!("receiving data: {:?}", copy_data);
+
         Ok(())
     }
 
-    async fn on_copy_done<C>(&self, _client: &mut C, _done: CopyDone) -> PgWireResult<()>
+    async fn on_copy_done<C>(&self, client: &mut C, _done: CopyDone) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
+        use PgWireConnectionState::*;
+        // This is set by the `on_query` implementations while handling a
+        // `CopyIn`/`CopyOut`/`CopyBoth` response.
+        assert!(matches!(client.state(), CopyInProgress(_)));
+
         println!("copy done");
+
         Ok(())
     }
 
-    async fn on_copy_fail<C>(&self, _client: &mut C, fail: CopyFail) -> PgWireResult<()>
+    async fn on_copy_fail<C>(&self, client: &mut C, fail: CopyFail) -> PgWireError
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
+        use PgWireConnectionState::*;
+        // This is set by the `on_query` implementations while handling a
+        // `CopyIn`/`CopyOut`/`CopyBoth` response.
+        assert!(matches!(client.state(), CopyInProgress(_)));
+
         println!("copy failed: {:?}", fail);
-        Ok(())
+
+        PgWireError::UserError(Box::new(ErrorInfo::new(
+            "ERROR".to_owned(),
+            "XX000".to_owned(),
+            format!("COPY IN mode terminated by the user: {}", fail.message),
+        )))
     }
 }
 
