@@ -5,6 +5,7 @@ use bytes::{BufMut, BytesMut};
 use chrono::offset::Utc;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
 use postgres_types::{IsNull, Type, WrongType};
+use rust_decimal::Decimal;
 
 pub trait ToSqlText: fmt::Debug {
     /// Converts value to text format of Postgres type.
@@ -215,6 +216,25 @@ impl ToSqlText for NaiveTime {
             Type::TIME => self.format("%H:%M:%S%.6f").to_string(),
             _ => Err(Box::new(WrongType::new::<NaiveTime>(ty.clone())))?,
         };
+        out.put_slice(fmt.as_bytes());
+        Ok(IsNull::No)
+    }
+}
+
+impl ToSqlText for Decimal {
+    fn to_sql_text(
+        &self,
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
+        let fmt = match *ty {
+            Type::NUMERIC => self.to_string(),
+            _ => Err(Box::new(WrongType::new::<Decimal>(ty.clone())))?,
+        };
+
         out.put_slice(fmt.as_bytes());
         Ok(IsNull::No)
     }
