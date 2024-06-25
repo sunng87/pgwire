@@ -42,6 +42,7 @@ postgres-types = { version = "0.2", features = [
     "array-impls",
 ], optional = true }
 chrono = { version = "0.4", features = ["std"], optional = true }
+rust_decimal = { version = "1.35", features = ["db-postgres"], optional = true }
 
 [features]
 default = ["server-api-aws-lc-rs"]
@@ -58,6 +59,7 @@ server-api = [
     "dep:hex",
     "dep:postgres-types",
     "dep:chrono",
+    "dep:rust_decimal",
 ]
 server-api-ring = ["server-api", "ring"]
 server-api-aws-lc-rs = ["server-api", "aws-lc-rs"]
