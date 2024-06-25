@@ -43,6 +43,9 @@ with its usage.
   - [x] Copy
   - [x] Notification
 - [ ] Logical replication over TCP
+- [x] Data types
+  - [x] Text format
+  - [x] Binary format, implemented in `postgres-types`
 - [ ] APIs
   - [x] Startup APIs
     - [x] AuthSource API, fetching and hashing passwords
@@ -50,7 +53,6 @@ with its usage.
   - [x] Simple Query API
   - [x] Extended Query API
     - [x] QueryParser API, for transforming prepared statement
-    - [x] PortalStore API, for caching statements and portals
   - [x] ResultSet builder/encoder API
   - [ ] Query Cancellation API
   - [x] Error and Notice API
