@@ -23,7 +23,7 @@ pub enum PgWireConnectionState {
     AuthenticationInProgress,
     ReadyForQuery,
     QueryInProgress,
-    CopyInProgress,
+    CopyInProgress(bool),
     AwaitingSync,
 }
 

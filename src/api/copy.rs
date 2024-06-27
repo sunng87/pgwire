@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 use std::fmt::Debug;
 
-use crate::error::{PgWireError, PgWireResult};
+use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::copy::{
     CopyBothResponse, CopyData, CopyDone, CopyFail, CopyInResponse, CopyOutResponse,
 };
@@ -32,13 +32,17 @@ pub trait CopyHandler: Send + Sync {
         Ok(())
     }
 
-    async fn on_copy_fail<C>(&self, _client: &mut C, _fail: CopyFail) -> PgWireResult<()>
+    async fn on_copy_fail<C>(&self, _client: &mut C, fail: CopyFail) -> PgWireError
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        Ok(())
+        PgWireError::UserError(Box::new(ErrorInfo::new(
+            "ERROR".to_owned(),
+            "XX000".to_owned(),
+            format!("COPY IN mode terminated by the user: {}", fail.message),
+        )))
     }
 }
 
