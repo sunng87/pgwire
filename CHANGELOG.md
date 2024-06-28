@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Added
+
+- `ToSqlText` support for `Decimal` [#186]
+
+### Changed
+
+- Improvement our API for COPY. [#185]
+  - Added `CopyInProgress` for `PgWireConnectionState` to track connection in
+    COPY
+  - Changed `on_copy_fail` in `CopyHandler` to return an `Error` as Postgres
+    document specified.
+  - Corrected behaviour for error handling when COPY is initialized via extended
+    subprotocol.
+
 ## [0.23.0] - 2024-06-14
 
 ### Added

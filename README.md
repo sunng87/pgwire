@@ -18,7 +18,8 @@ with its usage.
 
 - [x] Message format
   - [x] Frontend-Backend protocol messages
-  - [ ] Logical replication streaming protocol message
+  - [ ] Streaming replication protocol
+  - [ ] Logical streaming replication protocol message
 - [x] Backend TCP/TLS server on Tokio
 - [x] Frontend-Backend interaction over TCP
   - [x] SSL Request and Response
@@ -42,7 +43,8 @@ with its usage.
   - [x] Error and Notice
   - [x] Copy
   - [x] Notification
-- [ ] Logical replication over TCP
+- [ ] Streaming replication over TCP
+- [ ] Logical streaming replication over TCP
 - [x] Data types
   - [x] Text format
   - [x] Binary format, implemented in `postgres-types`
@@ -60,7 +62,8 @@ with its usage.
     - [x] Copy-in
     - [x] Copy-out
     - [x] Copy-both
-  - [ ] Logical replication server API
+  - [ ] Streaming replication over TCP
+  - [ ] Logical streaming replication server API
 
 ## About Postgres Wire Protocol
 
