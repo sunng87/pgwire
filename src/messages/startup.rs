@@ -457,8 +457,8 @@ impl Message for SslRequest {
 
     /// Try to decode and check if the packet is a `SslRequest`.
     fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
-        if buf.remaining() >= 8 && (&buf[4..8]).get_i32() == Self::BODY_MAGIC_NUMBER {
-            buf.advance(8);
+        if buf.remaining() >= Self::BODY_SIZE && (&buf[4..8]).get_i32() == Self::BODY_MAGIC_NUMBER {
+            buf.advance(Self::BODY_SIZE);
             Ok(Some(SslRequest))
         } else {
             Ok(None)

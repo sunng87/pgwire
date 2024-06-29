@@ -1,13 +1,14 @@
 use std::io::Error as IOError;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{ready, Poll};
 
 use bytes::BytesMut;
 use futures::future::poll_fn;
-use futures::{SinkExt, StreamExt};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use futures::{pin_mut, FutureExt, Sink, SinkExt, Stream, StreamExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsAcceptor;
-use tokio_util::codec::{Decoder, Encoder, Framed};
 
 use crate::api::auth::StartupHandler;
 use crate::api::copy::CopyHandler;
@@ -24,81 +25,154 @@ use crate::messages::{Message, PgWireBackendMessage, PgWireFrontendMessage};
 
 #[non_exhaustive]
 #[derive(Debug, new)]
-pub struct PgWireMessageServerCodec<S> {
+pub struct TokioTcpFrontendConnection<S, W> {
     pub client_info: DefaultClient<S>,
+    pub socket: W,
+    #[new(value = "BytesMut::with_capacity(8192)")]
+    read_buffer: BytesMut,
+    #[new(value = "false")]
+    error: bool,
 }
 
-impl<S> Decoder for PgWireMessageServerCodec<S> {
-    type Item = PgWireFrontendMessage;
-    type Error = PgWireError;
+impl<S, W: AsyncRead + Unpin> TokioTcpFrontendConnection<S, W> {
+    async fn poll_socket(&mut self) -> std::io::Result<usize> {
+        self.socket.read_buf(&mut self.read_buffer).await
+    }
 
-    fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+    fn decode(&mut self) -> Result<Option<PgWireFrontendMessage>, PgWireError> {
         match self.client_info.state() {
             PgWireConnectionState::AwaitingStartup => {
-                if let Some(request) = SslRequest::decode(src)? {
+                if let Some(request) = SslRequest::decode(&mut self.read_buffer)? {
                     return Ok(Some(PgWireFrontendMessage::SslRequest(request)));
                 }
 
-                if let Some(startup) = Startup::decode(src)? {
+                if let Some(startup) = Startup::decode(&mut self.read_buffer)? {
                     return Ok(Some(PgWireFrontendMessage::Startup(startup)));
                 }
 
                 Ok(None)
             }
-            _ => PgWireFrontendMessage::decode(src),
+            _ => PgWireFrontendMessage::decode(&mut self.read_buffer),
         }
     }
 }
 
-impl<S> Encoder<PgWireBackendMessage> for PgWireMessageServerCodec<S> {
-    type Error = IOError;
+impl<S, W: AsyncRead + Unpin> Stream for TokioTcpFrontendConnection<S, W> {
+    type Item = Result<PgWireFrontendMessage, PgWireError>;
 
-    fn encode(
-        &mut self,
-        item: PgWireBackendMessage,
-        dst: &mut bytes::BytesMut,
-    ) -> Result<(), Self::Error> {
-        item.encode(dst).map_err(Into::into)
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        if self.error {
+            return Poll::Ready(None);
+        }
+        let mut conn = self.as_mut();
+
+        let result = {
+            let f = conn.poll_socket();
+            pin_mut!(f);
+            f.poll_unpin(cx)
+        };
+
+        match result {
+            Poll::Ready(re) => match re {
+                Ok(bytes_read) => {
+                    if bytes_read == 0 {
+                        // EOF
+                        Poll::Ready(None)
+                    } else {
+                        let decode_result = conn.decode();
+                        match decode_result {
+                            Ok(Some(msg)) => Poll::Ready(Some(Ok(msg))),
+                            Ok(None) => Poll::Pending,
+                            Err(e) => {
+                                conn.error = true;
+                                Poll::Ready(Some(Err(e)))
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    conn.error = true;
+                    Poll::Ready(Some(Err(PgWireError::IoError(e))))
+                }
+            },
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 
-impl<T, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
+impl<S, W: AsyncWrite + Unpin> Sink<PgWireBackendMessage> for TokioTcpFrontendConnection<S, W> {
+    type Error = IOError;
+
+    fn poll_ready(
+        self: Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: PgWireBackendMessage) -> Result<(), Self::Error> {
+        todo!()
+    }
+
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        let f = Pin::new(&mut self.get_mut().socket).get_mut().flush();
+        pin_mut!(f);
+
+        f.poll_unpin(cx)
+    }
+
+    fn poll_close(
+        mut self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
+        ready!(self.as_mut().poll_flush(cx))?;
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl<S, W> ClientInfo for TokioTcpFrontendConnection<S, W> {
     fn socket_addr(&self) -> std::net::SocketAddr {
-        self.codec().client_info.socket_addr
+        self.client_info.socket_addr
     }
 
     fn is_secure(&self) -> bool {
-        self.codec().client_info.is_secure
+        self.client_info.is_secure
     }
 
     fn state(&self) -> PgWireConnectionState {
-        self.codec().client_info.state
+        self.client_info.state
     }
 
     fn set_state(&mut self, new_state: PgWireConnectionState) {
-        self.codec_mut().client_info.set_state(new_state);
+        self.client_info.set_state(new_state);
     }
 
     fn metadata(&self) -> &std::collections::HashMap<String, String> {
-        self.codec().client_info.metadata()
+        self.client_info.metadata()
     }
 
     fn metadata_mut(&mut self) -> &mut std::collections::HashMap<String, String> {
-        self.codec_mut().client_info.metadata_mut()
+        self.client_info.metadata_mut()
     }
 }
 
-impl<T, S> ClientPortalStore for Framed<T, PgWireMessageServerCodec<S>> {
+impl<S, W> ClientPortalStore for TokioTcpFrontendConnection<S, W> {
     type PortalStore = <DefaultClient<S> as ClientPortalStore>::PortalStore;
 
     fn portal_store(&self) -> &Self::PortalStore {
-        self.codec().client_info.portal_store()
+        self.client_info.portal_store()
     }
 }
 
 async fn process_message<S, A, Q, EQ, C>(
     message: PgWireFrontendMessage,
-    socket: &mut Framed<S, PgWireMessageServerCodec<EQ::Statement>>,
+    socket: &mut TokioTcpFrontendConnection<EQ::Statement, S>,
     authenticator: Arc<A>,
     query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
@@ -205,7 +279,7 @@ where
 }
 
 async fn process_error<S, ST>(
-    socket: &mut Framed<S, PgWireMessageServerCodec<ST>>,
+    socket: &mut TokioTcpFrontendConnection<ST, S>,
     error: PgWireError,
     wait_for_sync: bool,
 ) -> Result<(), IOError>
@@ -267,13 +341,13 @@ async fn is_sslrequest_pending(tcp_socket: &TcpStream) -> Result<bool, IOError> 
 }
 
 async fn peek_for_sslrequest<ST>(
-    socket: &mut Framed<TcpStream, PgWireMessageServerCodec<ST>>,
+    client: &mut TokioTcpFrontendConnection<ST, TcpStream>,
     ssl_supported: bool,
 ) -> Result<bool, IOError> {
     let mut ssl = false;
-    if is_sslrequest_pending(socket.get_ref()).await? {
-        // consume request
-        socket.next().await;
+    if is_sslrequest_pending(&client.socket).await? {
+        // consume the request
+        client.next().await;
 
         let response = if ssl_supported {
             ssl = true;
@@ -281,7 +355,7 @@ async fn peek_for_sslrequest<ST>(
         } else {
             PgWireBackendMessage::SslResponse(SslResponse::Refuse)
         };
-        socket.send(response).await?;
+        client.send(response).await?;
     }
     Ok(ssl)
 }
@@ -298,8 +372,8 @@ where
     tcp_socket.set_nodelay(true)?;
 
     let client_info = DefaultClient::new(addr, false);
-    let mut tcp_socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
-    let ssl = peek_for_sslrequest(&mut tcp_socket, tls_acceptor.is_some()).await?;
+    let mut client = TokioTcpFrontendConnection::new(client_info, tcp_socket);
+    let ssl = peek_for_sslrequest(&mut client, tls_acceptor.is_some()).await?;
 
     let startup_handler = handlers.startup_handler();
     let simple_query_handler = handlers.simple_query_handler();
@@ -307,17 +381,14 @@ where
     let copy_handler = handlers.copy_handler();
 
     if !ssl {
-        // use an already configured socket.
-        let mut socket = tcp_socket;
-
-        while let Some(Ok(msg)) = socket.next().await {
-            let is_extended_query = match socket.state() {
+        while let Some(Ok(msg)) = client.next().await {
+            let is_extended_query = match client.state() {
                 PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
                 _ => msg.is_extended_query(),
             };
             if let Err(e) = process_message(
                 msg,
-                &mut socket,
+                &mut client,
                 startup_handler.clone(),
                 simple_query_handler.clone(),
                 extended_query_handler.clone(),
@@ -325,27 +396,24 @@ where
             )
             .await
             {
-                process_error(&mut socket, e, is_extended_query).await?;
+                process_error(&mut client, e, is_extended_query).await?;
             }
         }
     } else {
         // mention the use of ssl
         let client_info = DefaultClient::new(addr, true);
         // safe to unwrap tls_acceptor here
-        let ssl_socket = tls_acceptor
-            .unwrap()
-            .accept(tcp_socket.into_inner())
-            .await?;
-        let mut socket = Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
+        let ssl_socket = tls_acceptor.unwrap().accept(client.socket).await?;
+        let mut client = TokioTcpFrontendConnection::new(client_info, ssl_socket);
 
-        while let Some(Ok(msg)) = socket.next().await {
-            let is_extended_query = match socket.state() {
+        while let Some(Ok(msg)) = client.next().await {
+            let is_extended_query = match client.state() {
                 PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
                 _ => msg.is_extended_query(),
             };
             if let Err(e) = process_message(
                 msg,
-                &mut socket,
+                &mut client,
                 startup_handler.clone(),
                 simple_query_handler.clone(),
                 extended_query_handler.clone(),
@@ -353,7 +421,7 @@ where
             )
             .await
             {
-                process_error(&mut socket, e, is_extended_query).await?;
+                process_error(&mut client, e, is_extended_query).await?;
             }
         }
     }
