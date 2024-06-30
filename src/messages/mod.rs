@@ -6,10 +6,12 @@
 //! them on a `BytesMut` buffer.
 
 use bytes::{Buf, BufMut, BytesMut};
+use tokio::io::AsyncWriteExt;
 
 use crate::error::{PgWireError, PgWireResult};
 
 /// Define how message encode and decoded.
+#[cfg_attr(feature = "message-write", async_trait::async_trait)]
 pub trait Message: Sized {
     /// Return the type code of the message. In order to maintain backward
     /// compatibility, `Startup` has no message type.
@@ -38,6 +40,24 @@ pub trait Message: Sized {
 
         buf.put_i32(self.message_length() as i32);
         self.encode_body(buf)
+    }
+
+    #[cfg(feature = "message-write")]
+    async fn write_body<AW>(&self, writer: &mut AW) -> PgWireResult<()>
+    where
+        AW: AsyncWriteExt + Send + Unpin;
+
+    #[cfg(feature = "message-write")]
+    async fn write<AW>(&self, writer: &mut AW) -> PgWireResult<()>
+    where
+        AW: AsyncWriteExt + Send + Unpin,
+    {
+        if let Some(mt) = Self::message_type() {
+            writer.write_u8(mt).await?;
+        }
+
+        writer.write_i32(self.message_length() as i32).await?;
+        self.write_body(writer).await
     }
 
     /// Default implementation for decoding message.
@@ -129,6 +149,34 @@ impl PgWireFrontendMessage {
             Self::CopyData(msg) => msg.encode(buf),
             Self::CopyFail(msg) => msg.encode(buf),
             Self::CopyDone(msg) => msg.encode(buf),
+        }
+    }
+
+    #[cfg(feature = "message-write")]
+    pub async fn write<AW>(&self, writer: &mut AW) -> PgWireResult<()>
+    where
+        AW: AsyncWriteExt + Send + Unpin,
+    {
+        match self {
+            Self::Startup(msg) => msg.write(writer).await,
+            Self::SslRequest(msg) => msg.write(writer).await,
+            Self::PasswordMessageFamily(msg) => msg.write(writer).await,
+
+            Self::Query(msg) => msg.write(writer).await,
+
+            Self::Parse(msg) => msg.write(writer).await,
+            Self::Bind(msg) => msg.write(writer).await,
+            Self::Close(msg) => msg.write(writer).await,
+            Self::Describe(msg) => msg.write(writer).await,
+            Self::Execute(msg) => msg.write(writer).await,
+            Self::Flush(msg) => msg.write(writer).await,
+            Self::Sync(msg) => msg.write(writer).await,
+
+            Self::Terminate(msg) => msg.write(writer).await,
+
+            Self::CopyData(msg) => msg.write(writer).await,
+            Self::CopyFail(msg) => msg.write(writer).await,
+            Self::CopyDone(msg) => msg.write(writer).await,
         }
     }
 
@@ -259,6 +307,43 @@ impl PgWireBackendMessage {
             Self::CopyInResponse(msg) => msg.encode(buf),
             Self::CopyOutResponse(msg) => msg.encode(buf),
             Self::CopyBothResponse(msg) => msg.encode(buf),
+        }
+    }
+
+    #[cfg(feature = "message-write")]
+    pub async fn write<AW>(&self, writer: &mut AW) -> PgWireResult<()>
+    where
+        AW: AsyncWriteExt + Send + Unpin,
+    {
+        match self {
+            Self::Authentication(msg) => msg.write(writer).await,
+            Self::ParameterStatus(msg) => msg.write(writer).await,
+            Self::BackendKeyData(msg) => msg.write(writer).await,
+
+            Self::ParseComplete(msg) => msg.write(writer).await,
+            Self::BindComplete(msg) => msg.write(writer).await,
+            Self::CloseComplete(msg) => msg.write(writer).await,
+            Self::PortalSuspended(msg) => msg.write(writer).await,
+
+            Self::CommandComplete(msg) => msg.write(writer).await,
+            Self::EmptyQueryResponse(msg) => msg.write(writer).await,
+            Self::ReadyForQuery(msg) => msg.write(writer).await,
+            Self::ErrorResponse(msg) => msg.write(writer).await,
+            Self::NoticeResponse(msg) => msg.write(writer).await,
+            Self::SslResponse(msg) => msg.write(writer).await,
+            Self::NotificationResponse(msg) => msg.write(writer).await,
+
+            Self::ParameterDescription(msg) => msg.write(writer).await,
+            Self::RowDescription(msg) => msg.write(writer).await,
+            Self::DataRow(msg) => msg.write(writer).await,
+            Self::NoData(msg) => msg.write(writer).await,
+
+            Self::CopyData(msg) => msg.write(writer).await,
+            Self::CopyFail(msg) => msg.write(writer).await,
+            Self::CopyDone(msg) => msg.write(writer).await,
+            Self::CopyInResponse(msg) => msg.write(writer).await,
+            Self::CopyOutResponse(msg) => msg.write(writer).await,
+            Self::CopyBothResponse(msg) => msg.write(writer).await,
         }
     }
 

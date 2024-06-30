@@ -1,6 +1,7 @@
 use std::str;
 
 use bytes::{Buf, BufMut, BytesMut};
+use tokio::io::AsyncWriteExt;
 
 use crate::error::PgWireResult;
 
@@ -36,11 +37,37 @@ pub(crate) fn put_cstring(buf: &mut BytesMut, input: &str) {
     buf.put_u8(b'\0');
 }
 
+#[cfg(feature = "message-write")]
+pub(crate) async fn write_cstring<AW>(writer: &mut AW, input: &str) -> PgWireResult<()>
+where
+    AW: AsyncWriteExt + Send + Unpin,
+{
+    writer.write_all(input.as_bytes()).await?;
+    writer.write_u8(b'\0').await?;
+    Ok(())
+}
+
 pub(crate) fn put_option_cstring(buf: &mut BytesMut, input: &Option<String>) {
     if let Some(input) = input {
         put_cstring(buf, input);
     } else {
         buf.put_u8(b'\0');
+    }
+}
+
+#[cfg(feature = "message-write")]
+pub(crate) async fn write_option_cstring<AW>(
+    writer: &mut AW,
+    input: &Option<String>,
+) -> PgWireResult<()>
+where
+    AW: AsyncWriteExt + Send + Unpin,
+{
+    if let Some(input) = input {
+        write_cstring(writer, &input).await
+    } else {
+        writer.write_u8(b'\0').await?;
+        Ok(())
     }
 }
 

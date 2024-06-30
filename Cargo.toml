@@ -22,6 +22,7 @@ tokio = { version = "1.19", features = [
     "net",
     "rt",
     "io-util",
+    "sync"
 ], optional = true }
 tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["logging", "tls12"]}
 futures = { version = "0.3", optional = true }
@@ -44,7 +45,7 @@ chrono = { version = "0.4", features = ["std"], optional = true }
 rust_decimal = { version = "1.35", features = ["db-postgres"], optional = true }
 
 [features]
-default = ["server-api-aws-lc-rs"]
+default = ["server-api-aws-lc-rs", "message-write"]
 ring = ["dep:ring", "tokio-rustls/ring"]
 aws-lc-rs = ["dep:aws-lc-rs", "tokio-rustls/aws-lc-rs"]
 server-api = [
@@ -62,6 +63,7 @@ server-api = [
 server-api-ring = ["server-api", "ring"]
 server-api-aws-lc-rs = ["server-api", "aws-lc-rs"]
 scram = ["dep:base64", "dep:stringprep", "dep:x509-certificate"]
+message-write = []
 
 [dev-dependencies]
 tokio = { version = "1.19", features = ["rt-multi-thread", "net", "macros"]}

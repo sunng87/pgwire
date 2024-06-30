@@ -1,6 +1,11 @@
-use crate::messages::response::{ErrorResponse, NoticeResponse};
+use crate::messages::{
+    response::{ErrorResponse, NoticeResponse},
+    PgWireBackendMessage,
+};
 use std::io::{Error as IOError, ErrorKind};
 use thiserror::Error;
+#[cfg(feature = "server-api")]
+use tokio::sync::mpsc::error::SendError;
 
 #[derive(Error, Debug)]
 pub enum PgWireError {
@@ -32,6 +37,8 @@ pub enum PgWireError {
     UnsupportedCertificateSignatureAlgorithm,
     #[error("Username is required")]
     UserNameRequired,
+    #[error(transparent)]
+    BackendMessageChannelSendError(#[from] SendError<PgWireBackendMessage>),
 
     #[error(transparent)]
     ApiError(#[from] Box<dyn std::error::Error + 'static + Send + Sync>),

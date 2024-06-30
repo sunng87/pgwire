@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use tokio::io::AsyncWriteExt;
 
 use super::codec;
 use super::Message;
@@ -36,6 +37,7 @@ impl Startup {
     }
 }
 
+#[cfg_attr(feature = "message-write", async_trait::async_trait)]
 impl Message for Startup {
     fn message_length(&self) -> usize {
         let param_length = self
@@ -102,6 +104,26 @@ impl Message for Startup {
             parameters,
         })
     }
+
+    #[cfg(feature = "message-write")]
+    async fn write_body<AW>(&self, writer: &mut AW) -> PgWireResult<()>
+    where
+        AW: AsyncWriteExt + Send + Unpin,
+    {
+        // version number
+        writer.write_u16(self.protocol_number_major).await?;
+        writer.write_u16(self.protocol_number_minor).await?;
+
+        // parameters
+        for (k, v) in self.parameters.iter() {
+            codec::write_cstring(writer, k).await?;
+            codec::write_cstring(writer, v).await?;
+        }
+        // ends with empty cstring, a \0
+        writer.write_u8(b'\0').await?;
+
+        Ok(())
+    }
 }
 
 /// authentication response family, sent by backend
@@ -127,6 +149,7 @@ pub enum Authentication {
 
 pub const MESSAGE_TYPE_BYTE_AUTHENTICATION: u8 = b'R';
 
+#[cfg_attr(feature = "message-write", async_trait::async_trait)]
 impl Message for Authentication {
     #[inline]
     fn message_type() -> Option<u8> {
@@ -201,6 +224,13 @@ impl Message for Authentication {
 
         Ok(msg)
     }
+
+    #[cfg(feature = "message-write")]
+    async fn write_body<AW>(&self, writer: &mut AW) -> PgWireResult<usize>
+    where
+        AW: AsyncWriteExt + Send + Unpin,
+    {
+    }
 }
 
 pub const MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY: u8 = b'p';
@@ -232,6 +262,7 @@ pub enum PasswordMessageFamily {
     SASLResponse(SASLResponse),
 }
 
+#[cfg_attr(feature = "message-write", async_trait::async_trait)]
 impl Message for PasswordMessageFamily {
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY)
@@ -261,6 +292,14 @@ impl Message for PasswordMessageFamily {
     fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self> {
         let body = buf.split_to(full_len - 4);
         Ok(PasswordMessageFamily::Raw(body))
+    }
+
+    #[cfg(feature = "message-write")]
+    async fn write_body<AW>(&self, writer: &mut AW) -> PgWireResult<()>
+    where
+        AW: AsyncWriteExt + Send + Unpin,
+    {
+        Ok(())
     }
 }
 
@@ -345,6 +384,14 @@ impl Message for Password {
 
         Ok(Password::new(pass))
     }
+
+    #[cfg(feature = "message-write")]
+    async fn write_body<AW>(&self, writer: &mut AW) -> PgWireResult<()>
+    where
+        AW: AsyncWriteExt + Send + Unpin,
+    {
+        todo!()
+    }
 }
 
 /// parameter ack sent from backend after authentication success
@@ -357,6 +404,7 @@ pub struct ParameterStatus {
 
 pub const MESSAGE_TYPE_BYTE_PARAMETER_STATUS: u8 = b'S';
 
+#[cfg_attr(feature = "message-write", async_trait::async_trait)]
 impl Message for ParameterStatus {
     #[inline]
     fn message_type() -> Option<u8> {
@@ -380,6 +428,13 @@ impl Message for ParameterStatus {
 
         Ok(ParameterStatus::new(name, value))
     }
+
+    #[cfg(feature = "message-write")]
+    async fn write_body<AW>(&self, writer: &mut AW) -> PgWireResult<()>
+    where
+        AW: AsyncWriteExt + Send + Unpin,
+    {
+    }
 }
 
 /// `BackendKeyData` message, sent from backend to frontend for issuing
@@ -393,6 +448,7 @@ pub struct BackendKeyData {
 
 pub const MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA: u8 = b'K';
 
+#[cfg_attr(feature = "message-write", async_trait::async_trait)]
 impl Message for BackendKeyData {
     #[inline]
     fn message_type() -> Option<u8> {
@@ -417,6 +473,13 @@ impl Message for BackendKeyData {
 
         Ok(BackendKeyData { pid, secret_key })
     }
+
+    #[cfg(feature = "message-write")]
+    async fn write_body<AW>(&self, writer: &mut AW) -> PgWireResult<()>
+    where
+        AW: AsyncWriteExt + Send + Unpin,
+    {
+    }
 }
 
 /// `Sslrequest` sent from frontend to negotiate with backend to check if the
@@ -435,6 +498,7 @@ impl SslRequest {
     pub const BODY_SIZE: usize = 8;
 }
 
+#[cfg_attr(feature = "message-write", async_trait::async_trait)]
 impl Message for SslRequest {
     #[inline]
     fn message_type() -> Option<u8> {
@@ -464,6 +528,15 @@ impl Message for SslRequest {
             Ok(None)
         }
     }
+
+    #[cfg(feature = "message-write")]
+    async fn write_body<AW>(&self, writer: &mut AW) -> PgWireResult<()>
+    where
+        AW: AsyncWriteExt + Send + Unpin,
+    {
+        writer.write_i32(Self::BODY_MAGIC_NUMBER).await?;
+        Ok(())
+    }
 }
 
 #[non_exhaustive]
@@ -473,6 +546,7 @@ pub struct SASLInitialResponse {
     pub data: Option<Bytes>,
 }
 
+#[cfg_attr(feature = "message-write", async_trait::async_trait)]
 impl Message for SASLInitialResponse {
     #[inline]
     fn message_type() -> Option<u8> {
@@ -509,6 +583,22 @@ impl Message for SASLInitialResponse {
 
         Ok(SASLInitialResponse { auth_method, data })
     }
+
+    #[cfg(feature = "message-write")]
+    async fn write_body<AW>(&self, writer: &mut AW) -> PgWireResult<()>
+    where
+        AW: AsyncWriteExt + Send + Unpin,
+    {
+        codec::write_cstring(writer, &self.auth_method).await?;
+        if let Some(ref data) = self.data {
+            let data_len = data.len();
+            writer.write_i32(data_len as i32);
+            writer.write_all(data.as_ref());
+        } else {
+            writer.write_i32(-1).await?;
+        }
+        Ok(())
+    }
 }
 
 #[non_exhaustive]
@@ -517,6 +607,7 @@ pub struct SASLResponse {
     pub data: Bytes,
 }
 
+#[cfg_attr(feature = "message-write", async_trait::async_trait)]
 impl Message for SASLResponse {
     #[inline]
     fn message_type() -> Option<u8> {
@@ -536,5 +627,14 @@ impl Message for SASLResponse {
     fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self> {
         let data = buf.split_to(full_len - 4).freeze();
         Ok(SASLResponse { data })
+    }
+
+    #[cfg(feature = "message-write")]
+    async fn write_body<AW>(&self, writer: &mut AW) -> PgWireResult<()>
+    where
+        AW: AsyncWriteExt + Send + Unpin,
+    {
+        writer.write_all(self.data.as_ref()).await?;
+        Ok(())
     }
 }

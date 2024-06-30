@@ -1,4 +1,4 @@
-use std::io::Error as IOError;
+use std::io::{Error as IOError, ErrorKind};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{ready, Poll};
@@ -6,8 +6,9 @@ use std::task::{ready, Poll};
 use bytes::BytesMut;
 use futures::future::poll_fn;
 use futures::{pin_mut, FutureExt, Sink, SinkExt, Stream, StreamExt};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio_rustls::TlsAcceptor;
 
 use crate::api::auth::StartupHandler;
@@ -23,15 +24,32 @@ use crate::messages::response::{SslResponse, TransactionStatus};
 use crate::messages::startup::{SslRequest, Startup};
 use crate::messages::{Message, PgWireBackendMessage, PgWireFrontendMessage};
 
+const FLUSH_THRESHOLD: usize = 10;
+const READ_BUFFER_SIZE: usize = 8192;
+
 #[non_exhaustive]
-#[derive(Debug, new)]
+#[derive(Debug)]
 pub struct TokioTcpFrontendConnection<S, W> {
     pub client_info: DefaultClient<S>,
     pub socket: W,
-    #[new(value = "BytesMut::with_capacity(8192)")]
     read_buffer: BytesMut,
-    #[new(value = "false")]
     error: bool,
+    outbound_sender: UnboundedSender<PgWireBackendMessage>,
+    outbound_receiver: UnboundedReceiver<PgWireBackendMessage>,
+}
+
+impl<S, W> TokioTcpFrontendConnection<S, W> {
+    fn new(client_info: DefaultClient<S>, socket: W) -> TokioTcpFrontendConnection<S, W> {
+        let (outbound_sender, outbound_receiver) = unbounded_channel::<PgWireBackendMessage>();
+        TokioTcpFrontendConnection {
+            client_info,
+            socket,
+            read_buffer: BytesMut::with_capacity(READ_BUFFER_SIZE),
+            error: false,
+            outbound_sender,
+            outbound_receiver,
+        }
+    }
 }
 
 impl<S, W: AsyncRead + Unpin> TokioTcpFrontendConnection<S, W> {
@@ -103,28 +121,45 @@ impl<S, W: AsyncRead + Unpin> Stream for TokioTcpFrontendConnection<S, W> {
     }
 }
 
-impl<S, W: AsyncWrite + Unpin> Sink<PgWireBackendMessage> for TokioTcpFrontendConnection<S, W> {
+impl<S, W: AsyncWrite + Unpin + Send> Sink<PgWireBackendMessage>
+    for TokioTcpFrontendConnection<S, W>
+{
     type Error = IOError;
 
     fn poll_ready(
         self: Pin<&mut Self>,
-        _cx: &mut std::task::Context<'_>,
+        cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), Self::Error>> {
-        Poll::Ready(Ok(()))
+        let pending = self.outbound_receiver.len();
+        if pending > FLUSH_THRESHOLD {
+            self.poll_flush(cx)
+        } else {
+            Poll::Ready(Ok(()))
+        }
     }
 
-    fn start_send(self: Pin<&mut Self>, item: PgWireBackendMessage) -> Result<(), Self::Error> {
-        todo!()
+    fn start_send(mut self: Pin<&mut Self>, item: PgWireBackendMessage) -> Result<(), Self::Error> {
+        self.as_mut()
+            .outbound_sender
+            .send(item)
+            .map_err(|e| IOError::new(ErrorKind::Other, e))
     }
 
     fn poll_flush(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), Self::Error>> {
-        let f = Pin::new(&mut self.get_mut().socket).get_mut().flush();
-        pin_mut!(f);
+        let mut conn = self.as_mut();
 
-        f.poll_unpin(cx)
+        // actually write messages to the socket
+        while let Some(msg) = ready!(conn.outbound_receiver.poll_recv(cx)) {
+            let f = msg.write(&mut conn.socket);
+            pin_mut!(f);
+
+            ready!(f.poll_unpin(cx))?;
+        }
+
+        Pin::new(&mut conn.socket).poll_flush(cx)
     }
 
     fn poll_close(
@@ -132,6 +167,8 @@ impl<S, W: AsyncWrite + Unpin> Sink<PgWireBackendMessage> for TokioTcpFrontendCo
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Result<(), Self::Error>> {
         ready!(self.as_mut().poll_flush(cx))?;
+        ready!(Pin::new(&mut self.socket).poll_shutdown(cx)?);
+
         Poll::Ready(Ok(()))
     }
 }
