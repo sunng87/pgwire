@@ -363,6 +363,7 @@ pub struct Password {
     pub password: String,
 }
 
+#[cfg_attr(feature = "message-write", async_trait::async_trait)]
 impl Message for Password {
     #[inline]
     fn message_type() -> Option<u8> {
@@ -390,7 +391,8 @@ impl Message for Password {
     where
         AW: AsyncWriteExt + Send + Unpin,
     {
-        todo!()
+        codec::write_cstring(writer, &self.password);
+        Ok(())
     }
 }
 
@@ -434,6 +436,9 @@ impl Message for ParameterStatus {
     where
         AW: AsyncWriteExt + Send + Unpin,
     {
+        codec::write_cstring(writer, &self.name).await?;
+        codec::write_cstring(writer, &self.value).await?;
+        Ok(())
     }
 }
 
@@ -479,6 +484,9 @@ impl Message for BackendKeyData {
     where
         AW: AsyncWriteExt + Send + Unpin,
     {
+        writer.write_i32(self.pid).await?;
+        writer.write_i32(self.secret_key).await?;
+        Ok(())
     }
 }
 
