@@ -68,7 +68,7 @@ with its usage.
 ## About Postgres Wire Protocol
 
 Postgres Wire Protocol is a relatively general-purpose Layer-7 protocol. There
-are 3 parts of the protocol:
+are 6 parts of the protocol:
 
 - Startup: client-server handshake and authentication.
 - Simple Query: The text-based query protocol of postgresql. Query are provided
@@ -76,6 +76,9 @@ are 3 parts of the protocol:
 - Extended Query: A new sub-protocol for query which has ability to cache the
   query on server-side and reuse it with new parameters. The response part is
   identical to Simple Query.
+- Copy: the subprotocol to copy data from and to postgresql.
+- Replication
+- Logical Replication
 
 Also note that Postgres Wire Protocol has no semantics about SQL, so literally
 you can use any query language, data formats or even natural language to
@@ -84,6 +87,9 @@ interact with the backend.
 The response are always encoded as data row format. And there is a field
 description as header of the data to describe its name, type and format.
 
+[Jelte Fennema-Nio](https://github.com/JelteF)'s on talk on PgConf.dev 2024 has
+a great coverage of how the wire protocol works:
+https://www.youtube.com/watch?v=nh62VgNj6hY
 
 ## Usage
 
