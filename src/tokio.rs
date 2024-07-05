@@ -2,9 +2,8 @@ use std::io::Error as IOError;
 use std::sync::Arc;
 
 use bytes::BytesMut;
-use futures::future::poll_fn;
 use futures::{SinkExt, StreamExt};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsAcceptor;
 use tokio_util::codec::{Decoder, Encoder, Framed};
@@ -249,21 +248,29 @@ where
     Ok(())
 }
 
-async fn is_sslrequest_pending(tcp_socket: &TcpStream) -> Result<bool, IOError> {
+enum SslNegotiationType {
+    Postgres,
+    Direct,
+    None,
+}
+
+async fn check_ssl_negotiation(tcp_socket: &TcpStream) -> Result<SslNegotiationType, IOError> {
     let mut buf = [0u8; SslRequest::BODY_SIZE];
-    let mut buf = ReadBuf::new(&mut buf);
-    while buf.filled().len() < SslRequest::BODY_SIZE {
-        if poll_fn(|cx| tcp_socket.poll_peek(cx, &mut buf)).await? == 0 {
-            // the tcp_stream has ended
-            return Ok(false);
+    loop {
+        let n = tcp_socket.peek(&mut buf).await?;
+        if n >= SslRequest::BODY_SIZE {
+            break;
         }
     }
-
-    let mut buf = BytesMut::from(buf.filled());
-    if let Ok(Some(_)) = SslRequest::decode(&mut buf) {
-        return Ok(true);
+    if buf[0] == 0x16 {
+        return Ok(SslNegotiationType::Direct);
     }
-    Ok(false)
+
+    let mut buf = BytesMut::from(buf.as_slice());
+    if let Ok(Some(_)) = SslRequest::decode(&mut buf) {
+        return Ok(SslNegotiationType::Postgres);
+    }
+    Ok(SslNegotiationType::None)
 }
 
 async fn peek_for_sslrequest<ST>(
@@ -271,18 +278,25 @@ async fn peek_for_sslrequest<ST>(
     ssl_supported: bool,
 ) -> Result<bool, IOError> {
     let mut ssl = false;
-    if is_sslrequest_pending(socket.get_ref()).await? {
-        // consume request
-        socket.next().await;
+    match check_ssl_negotiation(socket.get_ref()).await? {
+        SslNegotiationType::Postgres => {
+            // consume request
+            socket.next().await;
 
-        let response = if ssl_supported {
-            ssl = true;
-            PgWireBackendMessage::SslResponse(SslResponse::Accept)
-        } else {
-            PgWireBackendMessage::SslResponse(SslResponse::Refuse)
-        };
-        socket.send(response).await?;
+            let response = if ssl_supported {
+                ssl = true;
+                PgWireBackendMessage::SslResponse(SslResponse::Accept)
+            } else {
+                PgWireBackendMessage::SslResponse(SslResponse::Refuse)
+            };
+            socket.send(response).await?;
+        }
+        SslNegotiationType::Direct => {
+            ssl = ssl_supported;
+        }
+        SslNegotiationType::None => {}
     }
+
     Ok(ssl)
 }
 
