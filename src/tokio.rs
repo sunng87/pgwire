@@ -5,6 +5,7 @@ use bytes::BytesMut;
 use futures::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
+use tokio_rustls::server::TlsStream;
 use tokio_rustls::TlsAcceptor;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
@@ -248,6 +249,7 @@ where
     Ok(())
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum SslNegotiationType {
     Postgres,
     Direct,
@@ -276,28 +278,81 @@ async fn check_ssl_negotiation(tcp_socket: &TcpStream) -> Result<SslNegotiationT
 async fn peek_for_sslrequest<ST>(
     socket: &mut Framed<TcpStream, PgWireMessageServerCodec<ST>>,
     ssl_supported: bool,
-) -> Result<bool, IOError> {
-    let mut ssl = false;
-    match check_ssl_negotiation(socket.get_ref()).await? {
+) -> Result<SslNegotiationType, IOError> {
+    let mut negotiation_type = check_ssl_negotiation(socket.get_ref()).await?;
+    match negotiation_type {
         SslNegotiationType::Postgres => {
             // consume request
             socket.next().await;
 
             let response = if ssl_supported {
-                ssl = true;
                 PgWireBackendMessage::SslResponse(SslResponse::Accept)
             } else {
+                negotiation_type = SslNegotiationType::None;
                 PgWireBackendMessage::SslResponse(SslResponse::Refuse)
             };
             socket.send(response).await?;
         }
-        SslNegotiationType::Direct => {
-            ssl = ssl_supported;
-        }
+        SslNegotiationType::Direct => {}
         SslNegotiationType::None => {}
     }
 
-    Ok(ssl)
+    Ok(negotiation_type)
+}
+
+async fn do_process_socket<S, A, Q, EQ, C>(
+    socket: &mut Framed<S, PgWireMessageServerCodec<EQ::Statement>>,
+    startup_handler: Arc<A>,
+    simple_query_handler: Arc<Q>,
+    extended_query_handler: Arc<EQ>,
+    copy_handler: Arc<C>,
+) -> Result<(), IOError>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
+    A: StartupHandler,
+    Q: SimpleQueryHandler,
+    EQ: ExtendedQueryHandler,
+    C: CopyHandler,
+{
+    while let Some(Ok(msg)) = socket.next().await {
+        let is_extended_query = match socket.state() {
+            PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
+            _ => msg.is_extended_query(),
+        };
+        if let Err(e) = process_message(
+            msg,
+            socket,
+            startup_handler.clone(),
+            simple_query_handler.clone(),
+            extended_query_handler.clone(),
+            copy_handler.clone(),
+        )
+        .await
+        {
+            process_error(socket, e, is_extended_query).await?;
+        }
+    }
+
+    Ok(())
+}
+
+fn check_alpn_for_direct_ssl<IO>(tls_socket: &TlsStream<IO>) -> Result<(), IOError> {
+    let (_, the_conn) = tls_socket.get_ref();
+    let mut accept = false;
+    if let Some(alpn) = the_conn.alpn_protocol() {
+        if alpn == b"\x0apostgresql" {
+            accept = true;
+        }
+    }
+
+    if !accept {
+        Err(IOError::new(
+            std::io::ErrorKind::InvalidData,
+            "received direct SSL connection request without ALPN protocol negotiation extension",
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 pub async fn process_socket<H>(
@@ -320,28 +375,18 @@ where
     let extended_query_handler = handlers.extended_query_handler();
     let copy_handler = handlers.copy_handler();
 
-    if !ssl {
+    if ssl == SslNegotiationType::None {
         // use an already configured socket.
         let mut socket = tcp_socket;
 
-        while let Some(Ok(msg)) = socket.next().await {
-            let is_extended_query = match socket.state() {
-                PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
-                _ => msg.is_extended_query(),
-            };
-            if let Err(e) = process_message(
-                msg,
-                &mut socket,
-                startup_handler.clone(),
-                simple_query_handler.clone(),
-                extended_query_handler.clone(),
-                copy_handler.clone(),
-            )
-            .await
-            {
-                process_error(&mut socket, e, is_extended_query).await?;
-            }
-        }
+        do_process_socket(
+            &mut socket,
+            startup_handler,
+            simple_query_handler,
+            extended_query_handler,
+            copy_handler,
+        )
+        .await
     } else {
         // mention the use of ssl
         let client_info = DefaultClient::new(addr, true);
@@ -350,27 +395,21 @@ where
             .unwrap()
             .accept(tcp_socket.into_inner())
             .await?;
+
+        // check alpn for direct ssl connection
+        if ssl == SslNegotiationType::Direct {
+            check_alpn_for_direct_ssl(&ssl_socket)?;
+        }
+
         let mut socket = Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
 
-        while let Some(Ok(msg)) = socket.next().await {
-            let is_extended_query = match socket.state() {
-                PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
-                _ => msg.is_extended_query(),
-            };
-            if let Err(e) = process_message(
-                msg,
-                &mut socket,
-                startup_handler.clone(),
-                simple_query_handler.clone(),
-                extended_query_handler.clone(),
-                copy_handler.clone(),
-            )
-            .await
-            {
-                process_error(&mut socket, e, is_extended_query).await?;
-            }
-        }
+        do_process_socket(
+            &mut socket,
+            startup_handler,
+            simple_query_handler,
+            extended_query_handler,
+            copy_handler,
+        )
+        .await
     }
-
-    Ok(())
 }
