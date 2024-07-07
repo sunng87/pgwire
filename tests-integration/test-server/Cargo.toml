@@ -11,3 +11,6 @@ pgwire = { path = "../../", features = ["scram"] }
 async-trait = "0.1"
 futures = "0.3"
 tokio = { version = "1", features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12"]}
+rustls-pemfile = "2.0"
+rustls-pki-types = "1.0"

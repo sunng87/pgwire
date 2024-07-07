@@ -69,10 +69,12 @@ fn setup_tls() -> Result<TlsAcceptor, IOError> {
         .collect::<Result<Vec<PrivateKeyDer>, IOError>>()?
         .remove(0);
 
-    let config = ServerConfig::builder()
+    let mut config = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(cert, key)
         .map_err(|err| IOError::new(ErrorKind::InvalidInput, err))?;
+
+    config.alpn_protocols = vec![b"postgresql".to_vec()];
 
     Ok(TlsAcceptor::from(Arc::new(config)))
 }
