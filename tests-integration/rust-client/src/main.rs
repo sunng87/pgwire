@@ -1,11 +1,17 @@
 use std::time::SystemTime;
 
-use postgres::{Client, NoTls, SimpleQueryMessage};
+use openssl::ssl::{SslConnector, SslMethod, SslVerifyMode};
+use postgres::{Client, SimpleQueryMessage};
+use postgres_openssl::MakeTlsConnector;
 
 fn main() {
+    let mut builder = SslConnector::builder(SslMethod::tls()).unwrap();
+    builder.set_verify(SslVerifyMode::NONE);
+    postgres_openssl::set_postgresql_alpn(&mut builder).unwrap();
+    let connector = MakeTlsConnector::new(builder.build());
     let mut client = Client::connect(
-        "host=localhost port=5432 user=postgres password=pencil dbname=localdb keepalives=0",
-        NoTls,
+        "host=localhost port=5432 user=postgres password=pencil dbname=localdb keepalives=0 sslmode=require sslnegotiation=direct",
+        connector,
     )
     .unwrap();
 
