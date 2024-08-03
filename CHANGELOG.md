@@ -11,6 +11,9 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - `ToSqlText` support for `Decimal` [#186]
+- Direct SSL startup, a new feature introduced in PostgreSQL 17. It allows
+  ssl handshake once tcp connected, which saves a roundtrip on secure connection
+  startup. [#189]
 
 ### Changed
 
