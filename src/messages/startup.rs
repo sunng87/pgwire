@@ -196,7 +196,9 @@ impl Message for Authentication {
             }
             11 => Authentication::SASLContinue(buf.split_to(msg_len - 8).freeze()),
             12 => Authentication::SASLFinal(buf.split_to(msg_len - 8).freeze()),
-            _ => unreachable!(),
+            _ => {
+                return Err(PgWireError::InvalidAuthenticationMessageCode(code));
+            }
         };
 
         Ok(msg)

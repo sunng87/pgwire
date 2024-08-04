@@ -1,6 +1,8 @@
-use crate::messages::response::{ErrorResponse, NoticeResponse};
+use std::fmt::Display;
 use std::io::{Error as IOError, ErrorKind};
 use thiserror::Error;
+
+use crate::messages::response::{ErrorResponse, NoticeResponse};
 
 #[derive(Error, Debug)]
 pub enum PgWireError {
@@ -14,17 +16,19 @@ pub enum PgWireError {
     InvalidTransactionStatus(u8),
     #[error("Invalid startup message")]
     InvalidStartupMessage,
+    #[error("Invalid authentication message code: {0}")]
+    InvalidAuthenticationMessageCode(i32),
     #[error(transparent)]
     IoError(#[from] std::io::Error),
-    #[error("Portal not found for name: {0:?}")]
+    #[error("Portal not found for name: {0}")]
     PortalNotFound(String),
-    #[error("Statement not found for name: {0:?}")]
+    #[error("Statement not found for name: {0}")]
     StatementNotFound(String),
-    #[error("Parameter index out of bound: {0:?}")]
+    #[error("Parameter index out of bound: {0}")]
     ParameterIndexOutOfBound(usize),
-    #[error("Cannot convert postgre type {0:?} to given rust type")]
+    #[error("Cannot convert postgre type {0} to given rust type")]
     InvalidRustTypeForParameter(String),
-    #[error("Failed to parse parameter: {0:?}")]
+    #[error("Failed to parse parameter: {0}")]
     FailedToParseParameter(Box<dyn std::error::Error + Send + Sync>),
     #[error("Failed to parse scram message: {0}")]
     InvalidScramMessage(String),
@@ -36,7 +40,7 @@ pub enum PgWireError {
     #[error(transparent)]
     ApiError(#[from] Box<dyn std::error::Error + 'static + Send + Sync>),
 
-    #[error("User provided error: {0:?}")]
+    #[error("User provided error: {0}")]
     UserError(Box<ErrorInfo>),
 }
 
@@ -95,6 +99,16 @@ pub struct ErrorInfo {
     // Routine: the name of the source-code routine reporting the error.
     #[new(default)]
     pub routine: Option<String>,
+}
+
+impl Display for ErrorInfo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ErrorInfo: {}, {}, {}",
+            self.severity, self.code, self.message
+        )
+    }
 }
 
 impl ErrorInfo {
