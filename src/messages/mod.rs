@@ -512,6 +512,16 @@ mod test {
     }
 
     #[test]
+    fn test_parse_65k() {
+        let parse = Parse::new(
+            Some("many-params".to_owned()),
+            "it won't be parsed anyway".to_owned(),
+            vec![25; u16::MAX as usize],
+        );
+        roundtrip!(parse, Parse);
+    }
+
+    #[test]
     fn test_parse_complete() {
         let parse_complete = ParseComplete::new();
         roundtrip!(parse_complete, ParseComplete);
@@ -533,6 +543,18 @@ mod test {
             Some("find-user-by-id".to_owned()),
             vec![0],
             vec![Some(Bytes::from_static(b"1234"))],
+            vec![0],
+        );
+        roundtrip!(bind, Bind);
+    }
+
+    #[test]
+    fn test_bind_65k() {
+        let bind = Bind::new(
+            Some("lol".to_owned()),
+            Some("kek".to_owned()),
+            vec![0; u16::MAX as usize],
+            vec![Some(Bytes::from_static(b"1234")); u16::MAX as usize],
             vec![0],
         );
         roundtrip!(bind, Bind);

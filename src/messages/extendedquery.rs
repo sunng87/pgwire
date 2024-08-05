@@ -30,7 +30,7 @@ impl Message for Parse {
         codec::put_option_cstring(buf, &self.name);
         codec::put_cstring(buf, &self.query);
 
-        buf.put_i16(self.type_oids.len() as i16);
+        buf.put_u16(self.type_oids.len() as u16);
         for oid in &self.type_oids {
             buf.put_u32(*oid);
         }
@@ -41,7 +41,7 @@ impl Message for Parse {
     fn decode_body(buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
         let name = codec::get_cstring(buf);
         let query = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
-        let type_oid_count = buf.get_i16();
+        let type_oid_count = buf.get_u16();
 
         let mut type_oids = Vec::with_capacity(type_oid_count as usize);
         for _ in 0..type_oid_count {
@@ -187,12 +187,12 @@ impl Message for Bind {
         codec::put_option_cstring(buf, &self.portal_name);
         codec::put_option_cstring(buf, &self.statement_name);
 
-        buf.put_i16(self.parameter_format_codes.len() as i16);
+        buf.put_u16(self.parameter_format_codes.len() as u16);
         for c in &self.parameter_format_codes {
             buf.put_i16(*c);
         }
 
-        buf.put_i16(self.parameters.len() as i16);
+        buf.put_u16(self.parameters.len() as u16);
         for v in &self.parameters {
             if let Some(v) = v {
                 buf.put_i32(v.len() as i32);
@@ -214,14 +214,14 @@ impl Message for Bind {
         let portal_name = codec::get_cstring(buf);
         let statement_name = codec::get_cstring(buf);
 
-        let parameter_format_code_len = buf.get_i16();
+        let parameter_format_code_len = buf.get_u16();
         let mut parameter_format_codes = Vec::with_capacity(parameter_format_code_len as usize);
 
         for _ in 0..parameter_format_code_len {
             parameter_format_codes.push(buf.get_i16());
         }
 
-        let parameter_len = buf.get_i16();
+        let parameter_len = buf.get_u16();
         let mut parameters = Vec::with_capacity(parameter_len as usize);
         for _ in 0..parameter_len {
             let data_len = buf.get_i32();
