@@ -140,6 +140,8 @@ scenarios. Please rise an issue if there is a scenario.
   distributed, cloud native time-series database from AntGroup.
 * [dozer](https://github.com/getdozer/dozer) a real-time data platform for
   building, deploying and maintaining data products.
+* [restate](https://github.com/restatedev/restate) Framework for building
+  resilient workflow
 
 ## License
 
