@@ -106,7 +106,7 @@ impl Message for ParameterDescription {
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
-        buf.put_i16(self.types.len() as i16);
+        buf.put_u16(self.types.len() as u16);
 
         for t in &self.types {
             buf.put_i32(*t as i32);
@@ -116,7 +116,7 @@ impl Message for ParameterDescription {
     }
 
     fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
-        let types_len = buf.get_i16();
+        let types_len = buf.get_u16();
         let mut types = Vec::with_capacity(types_len as usize);
 
         for _ in 0..types_len {
