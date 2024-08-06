@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Fixed
+
+- Codec error when decoding authentication messages [#190]
+- Codec error when decoding parameters larger than 32767 [#192]
+- Panic when client sends invalid authentication message type [#191]
+
 ## [0.24.0] - 2024-08-03
 
 ### Added
