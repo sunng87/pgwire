@@ -215,10 +215,11 @@ impl Message for NoticeResponse {
 }
 
 /// Response to SSLRequest.
-/// To initiate an SSL-encrypted connection, the frontend initially sends an SSLRequest
-/// message rather than a StartupMessage. The server then responds with a single byte
-/// containing 'S' or 'N', indicating that it is willing or unwilling to perform
-/// SSL, respectively.
+///
+/// To initiate an SSL-encrypted connection, the frontend initially sends an
+/// SSLRequest message rather than a StartupMessage. The server then responds
+/// with a single byte containing 'S' or 'N', indicating that it is willing or
+/// unwilling to perform SSL, respectively.
 #[non_exhaustive]
 #[derive(Debug, PartialEq)]
 pub enum SslResponse {

@@ -6,11 +6,7 @@ use super::codec;
 use super::Message;
 use crate::error::{PgWireError, PgWireResult};
 
-/// postgresql wire protocol startup message, sent by frontend
-/// the strings are null-ternimated string, which is a string
-/// terminated by a zero byte.
-/// the key-value parameter pairs are terminated by a zero byte, too.
-///
+/// Postgresql wire protocol startup message.
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct Startup {
