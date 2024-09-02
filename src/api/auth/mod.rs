@@ -120,7 +120,7 @@ impl<'a> LoginInfo<'a> {
         &self.host
     }
 
-    pub fn from_client_info<C>(client: &'a C) -> LoginInfo
+    pub fn from_client_info<C>(client: &C) -> LoginInfo
     where
         C: ClientInfo,
     {
