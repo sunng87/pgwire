@@ -1,7 +1,7 @@
 //! # pgwire
 //!
 //! `pgwire` provides the PostgreSQL wire protocol as a library for
-//! implementing PostgreSQL-compatible servers and clients. 
+//! implementing PostgreSQL-compatible servers and clients.
 //! [`rust-postgres`](https://crates.io/crates/postgres) will be sufficient
 //! for most Postgres client use-cases, so this library focuses on
 //! server development.
