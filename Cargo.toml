@@ -68,7 +68,7 @@ _duckdb = []
 
 [dev-dependencies]
 tokio = { version = "1.19", features = ["rt-multi-thread", "net", "macros"]}
-rusqlite = { version = "0.31.0", features = ["bundled", "column_decltype"] }
+rusqlite = { version = "0.32.1", features = ["bundled", "column_decltype"] }
 ## for duckdb example
 duckdb = { version = "1.0.0", features = ["bundled"] }
 
