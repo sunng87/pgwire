@@ -59,6 +59,8 @@ jobs:
       run: cargo test --features server-api-ring,scram
     - name: Run tests on additional scram+aws-lc-rs feature set
       run: cargo test --features scram
+    - name: Run tests on _duckdb example
+      run: cargo test --features _duckdb
 
   integration:
     name: Integration tests
