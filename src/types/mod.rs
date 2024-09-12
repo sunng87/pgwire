@@ -4,7 +4,7 @@ use std::{error::Error, fmt};
 use bytes::{BufMut, BytesMut};
 use chrono::offset::Utc;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
-use postgres_types::{IsNull, Type, WrongType};
+use postgres_types::{IsNull, Kind, Type, WrongType};
 
 pub trait ToSqlText: fmt::Debug {
     /// Converts value to text format of Postgres type.
@@ -212,14 +212,19 @@ impl<T: ToSqlText> ToSqlText for &[T] {
         ty: &Type,
         out: &mut BytesMut,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
-        out.put_slice(b"[");
+        let ty = match ty.kind() {
+            Kind::Array(inner_ty) => inner_ty,
+            _ => ty,
+        };
+
+        out.put_slice(b"{");
         for (i, val) in self.iter().enumerate() {
             if i > 0 {
                 out.put_slice(b",");
             }
             val.to_sql_text(ty, out)?;
         }
-        out.put_slice(b"]");
+        out.put_slice(b"}");
         Ok(IsNull::No)
     }
 }
@@ -265,5 +270,41 @@ mod test {
         date.to_sql_text(&Type::TIMESTAMPTZ, &mut buf).unwrap();
         // format: 2023-02-01 22:31:49.479895+08
         assert_eq!(29, String::from_utf8_lossy(buf.freeze().as_ref()).len());
+    }
+
+    #[test]
+    fn test_null() {
+        let data = vec![None::<i8>, Some(8)];
+        let mut buf = BytesMut::new();
+        data.to_sql_text(&Type::INT2, &mut buf).unwrap();
+        assert_eq!("{NULL,8}", String::from_utf8_lossy(buf.freeze().as_ref()));
+    }
+
+    #[test]
+    fn test_bool() {
+        let yes = true;
+        let no = false;
+
+        let mut buf = BytesMut::new();
+        yes.to_sql_text(&Type::BOOL, &mut buf).unwrap();
+        assert_eq!("t", String::from_utf8_lossy(buf.freeze().as_ref()));
+
+        let mut buf = BytesMut::new();
+        no.to_sql_text(&Type::BOOL, &mut buf).unwrap();
+        assert_eq!("f", String::from_utf8_lossy(buf.freeze().as_ref()));
+    }
+
+    #[test]
+    fn test_array() {
+        let date = &[
+            NaiveDate::from_ymd_opt(2023, 3, 5).unwrap(),
+            NaiveDate::from_ymd_opt(2023, 3, 6).unwrap(),
+        ];
+        let mut buf = BytesMut::new();
+        date.to_sql_text(&Type::DATE_ARRAY, &mut buf).unwrap();
+        assert_eq!(
+            "{2023-03-05,2023-03-06}",
+            String::from_utf8_lossy(buf.freeze().as_ref())
+        );
     }
 }
