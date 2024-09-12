@@ -65,12 +65,14 @@ server-api-ring = ["server-api", "ring"]
 server-api-aws-lc-rs = ["server-api", "aws-lc-rs"]
 scram = ["dep:base64", "dep:stringprep", "dep:x509-certificate"]
 _duckdb = []
+_sqlite = []
+_bundled = ["duckdb/bundled", "rusqlite/bundled"]
 
 [dev-dependencies]
 tokio = { version = "1.19", features = ["rt-multi-thread", "net", "macros"]}
-rusqlite = { version = "0.32.1", features = ["bundled", "column_decltype"] }
+rusqlite = { version = "0.32.1", features = ["column_decltype"] }
 ## for duckdb example
-duckdb = { version = "1.0.0", features = ["bundled"] }
+duckdb = { version = "1.0.0" }
 
 ## for loading custom cert files
 rustls-pemfile = "2.0"
@@ -104,7 +106,7 @@ required-features = ["server-api"]
 
 [[example]]
 name = "sqlite"
-required-features = ["server-api"]
+required-features = ["server-api", "_sqlite"]
 
 [[example]]
 name = "duckdb"
