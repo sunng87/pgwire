@@ -43,6 +43,7 @@ postgres-types = { version = "0.2", features = [
 ], optional = true }
 chrono = { version = "0.4", features = ["std"], optional = true }
 rust_decimal = { version = "1.35", features = ["db-postgres"], optional = true }
+lazy-regex = {version = "3.3", default-features = false, features = ["lite"]}
 
 [features]
 default = ["server-api-aws-lc-rs"]

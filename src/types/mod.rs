@@ -4,8 +4,12 @@ use std::{error::Error, fmt};
 use bytes::{BufMut, BytesMut};
 use chrono::offset::Utc;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
+use lazy_regex::{lazy_regex, Lazy, Regex};
 use postgres_types::{IsNull, Kind, Type, WrongType};
 use rust_decimal::Decimal;
+
+pub static QUOTE_CHECK: Lazy<Regex> = lazy_regex!(r#"^$|["{},\\s]|^null$"#i);
+pub static QUOTE_ESCAPE: Lazy<Regex> = lazy_regex!(r#"(["\\])"#);
 
 pub trait ToSqlText: fmt::Debug {
     /// Converts value to text format of Postgres type.
@@ -75,10 +79,19 @@ impl ToSqlText for String {
 impl<'a> ToSqlText for &'a str {
     fn to_sql_text(
         &self,
-        _ty: &Type,
+        ty: &Type,
         w: &mut BytesMut,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
-        w.put_slice(self.as_bytes());
+        let quote = matches!(ty.kind(), Kind::Array(_)) && QUOTE_CHECK.is_match(self);
+
+        if quote {
+            w.put_u8(b'"');
+            w.put_slice(QUOTE_ESCAPE.replace(self, r#"\$1"#).as_bytes());
+            w.put_u8(b'"');
+        } else {
+            w.put_slice(self.as_bytes());
+        }
+
         Ok(IsNull::No)
     }
 }
@@ -161,11 +174,11 @@ where
         out: &mut BytesMut,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let fmt = match *ty {
-            Type::TIMESTAMP => "%Y-%m-%d %H:%M:%S%.6f",
-            Type::TIMESTAMPTZ => "%Y-%m-%d %H:%M:%S%.6f%:::z",
-            Type::DATE => "%Y-%m-%d",
-            Type::TIME => "%H:%M:%S%.6f",
-            Type::TIMETZ => "%H:%M:%S%.6f%:::z",
+            Type::TIMESTAMP | Type::TIMESTAMP_ARRAY => "%Y-%m-%d %H:%M:%S%.6f",
+            Type::TIMESTAMPTZ | Type::TIMESTAMPTZ_ARRAY => "%Y-%m-%d %H:%M:%S%.6f%:::z",
+            Type::DATE | Type::DATE_ARRAY => "%Y-%m-%d",
+            Type::TIME | Type::TIME_ARRAY => "%H:%M:%S%.6f",
+            Type::TIMETZ | Type::TIMETZ_ARRAY => "%H:%M:%S%.6f%:::z",
             _ => Err(Box::new(WrongType::new::<DateTime<Tz>>(ty.clone())))?,
         };
         out.put_slice(self.format(fmt).to_string().as_bytes());
@@ -180,9 +193,9 @@ impl ToSqlText for NaiveDateTime {
         out: &mut BytesMut,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let fmt = match *ty {
-            Type::TIMESTAMP => "%Y-%m-%d %H:%M:%S%.6f",
-            Type::DATE => "%Y-%m-%d",
-            Type::TIME => "%H:%M:%S%.6f",
+            Type::TIMESTAMP | Type::TIMESTAMP_ARRAY => "%Y-%m-%d %H:%M:%S%.6f",
+            Type::DATE | Type::DATE_ARRAY => "%Y-%m-%d",
+            Type::TIME | Type::TIME_ARRAY => "%H:%M:%S%.6f",
             _ => Err(Box::new(WrongType::new::<NaiveDateTime>(ty.clone())))?,
         };
         out.put_slice(self.format(fmt).to_string().as_bytes());
@@ -197,7 +210,7 @@ impl ToSqlText for NaiveDate {
         out: &mut BytesMut,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let fmt = match *ty {
-            Type::DATE => self.format("%Y-%m-%d").to_string(),
+            Type::DATE | Type::DATE_ARRAY => self.format("%Y-%m-%d").to_string(),
             _ => Err(Box::new(WrongType::new::<NaiveDate>(ty.clone())))?,
         };
 
@@ -213,7 +226,7 @@ impl ToSqlText for NaiveTime {
         out: &mut BytesMut,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let fmt = match *ty {
-            Type::TIME => self.format("%H:%M:%S%.6f").to_string(),
+            Type::TIME | Type::TIME_ARRAY => self.format("%H:%M:%S%.6f").to_string(),
             _ => Err(Box::new(WrongType::new::<NaiveTime>(ty.clone())))?,
         };
         out.put_slice(fmt.as_bytes());
@@ -231,7 +244,7 @@ impl ToSqlText for Decimal {
         Self: Sized,
     {
         let fmt = match *ty {
-            Type::NUMERIC => self.to_string(),
+            Type::NUMERIC | Type::NUMERIC_ARRAY => self.to_string(),
             _ => Err(Box::new(WrongType::new::<Decimal>(ty.clone())))?,
         };
 
@@ -246,11 +259,6 @@ impl<T: ToSqlText> ToSqlText for &[T] {
         ty: &Type,
         out: &mut BytesMut,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
-        let ty = match ty.kind() {
-            Kind::Array(inner_ty) => inner_ty,
-            _ => ty,
-        };
-
         out.put_slice(b"{");
         for (i, val) in self.iter().enumerate() {
             if i > 0 {
@@ -341,6 +349,16 @@ mod test {
         date.to_sql_text(&Type::DATE_ARRAY, &mut buf).unwrap();
         assert_eq!(
             "{2023-03-05,2023-03-06}",
+            String::from_utf8_lossy(buf.freeze().as_ref())
+        );
+
+        let chars = &[
+            "{", "abc", "}", "\"", "", "a,b", "null", "NULL", "NULL!", "\\",
+        ];
+        let mut buf = BytesMut::new();
+        chars.to_sql_text(&Type::VARCHAR_ARRAY, &mut buf).unwrap();
+        assert_eq!(
+            "{\"{\",abc,\"}\",\"\\\"\",\"\",\"a,b\",\"null\",\"NULL\",NULL!,\"\\\\\"}",
             String::from_utf8_lossy(buf.freeze().as_ref())
         );
     }
