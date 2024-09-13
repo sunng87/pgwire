@@ -106,9 +106,11 @@ Examples are provided to demo the very basic usage of `pgwire` on server side:
 
 - `examples/sqlite.rs`: uses an in-memory sqlite database at its core and serves
   it with postgresql protocol. This is a full example with both simple and
-  extended query implementation.
+  extended query implementation. `cargo run --features _sqlite_ --example
+  sqlite`
 - `examples/duckdb.rs`: similar to sqlite example but with duckdb backend. Note
-  that not all data types are implemented in this example.
+  that not all data types are implemented in this example. `cargo run --features
+  _duckdb_ --example duckdb`
 - `examples/gluesql.rs`: uses an in-memory
   [gluesql](https://github.com/gluesql/gluesql) at its core and serves
   it with postgresql protocol.
