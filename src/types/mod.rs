@@ -297,7 +297,7 @@ impl<T: ToSqlText, const N: usize> ToSqlText for [T; N] {
 #[cfg(test)]
 mod test {
     use super::*;
-    use chrono::offset::Local;
+    use chrono::offset::FixedOffset;
 
     #[test]
     fn test_date_time_format() {
@@ -310,11 +310,20 @@ mod test {
         let mut buf = BytesMut::new();
         assert!(date.to_sql_text(&Type::INT8, &mut buf).is_err());
 
-        let date = Local::now();
+        let date = NaiveDateTime::new(
+            NaiveDate::from_ymd_opt(2023, 3, 5).unwrap(),
+            NaiveTime::from_hms_opt(10, 20, 00).unwrap(),
+        )
+        .and_local_timezone(FixedOffset::east_opt(8 * 3600).unwrap())
+        .unwrap();
+
         let mut buf = BytesMut::new();
         date.to_sql_text(&Type::TIMESTAMPTZ, &mut buf).unwrap();
         // format: 2023-02-01 22:31:49.479895+08
-        assert_eq!(29, String::from_utf8_lossy(buf.freeze().as_ref()).len());
+        assert_eq!(
+            "2023-03-05 10:20:00.000000+08",
+            String::from_utf8_lossy(buf.freeze().as_ref())
+        );
     }
 
     #[test]
