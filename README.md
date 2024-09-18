@@ -62,6 +62,7 @@ with its usage.
     - [x] Copy-in
     - [x] Copy-out
     - [x] Copy-both
+  - [x] Transaction state
   - [ ] Streaming replication over TCP
   - [ ] Logical streaming replication server API
 
