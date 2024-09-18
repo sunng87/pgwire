@@ -124,7 +124,10 @@ where
         PgWireConnectionState::AwaitingSync => {
             if let PgWireFrontendMessage::Sync(sync) = message {
                 extended_query_handler.on_sync(socket, sync).await?;
-                socket.set_state(PgWireConnectionState::ReadyForQuery);
+                // TODO: confirm if we need to track transaction state there
+                socket.set_state(PgWireConnectionState::ReadyForQuery(
+                    TransactionStatus::Idle,
+                ));
             }
         }
         PgWireConnectionState::CopyInProgress(is_extended_query) => {
@@ -140,7 +143,9 @@ where
                         // query, we should leave the CopyInProgress state
                         // before returning the error in order to resume normal
                         // operation after handling it in process_error.
-                        socket.set_state(PgWireConnectionState::ReadyForQuery);
+                        socket.set_state(PgWireConnectionState::ReadyForQuery(
+                            TransactionStatus::Idle,
+                        ));
                     }
                     match result {
                         Ok(_) => {
@@ -166,7 +171,9 @@ where
                         // we should leave the CopyInProgress state
                         // before returning the error in order to resume normal
                         // operation after handling it in process_error.
-                        socket.set_state(PgWireConnectionState::ReadyForQuery);
+                        socket.set_state(PgWireConnectionState::ReadyForQuery(
+                            TransactionStatus::Idle,
+                        ));
                     }
                     return Err(error);
                 }

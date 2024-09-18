@@ -186,7 +186,9 @@ where
     )));
     let mut message_stream = stream::iter(messages.into_iter().map(Ok));
     client.send_all(&mut message_stream).await.unwrap();
-    client.set_state(PgWireConnectionState::ReadyForQuery);
+    client.set_state(PgWireConnectionState::ReadyForQuery(
+        TransactionStatus::Idle,
+    ));
 }
 
 pub mod cleartext;

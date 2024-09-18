@@ -336,6 +336,8 @@ pub enum Response<'a> {
     EmptyQuery,
     Query(QueryResponse<'a>),
     Execution(Tag),
+    TransactionStart(Tag),
+    TransactionEnd(Tag),
     Error(Box<ErrorInfo>),
     CopyIn(CopyResponse),
     CopyOut(CopyResponse),

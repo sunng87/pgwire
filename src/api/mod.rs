@@ -6,6 +6,8 @@ use std::sync::Arc;
 
 pub use postgres_types::Type;
 
+use crate::messages::response::TransactionStatus;
+
 pub mod auth;
 pub mod copy;
 pub mod portal;
@@ -21,7 +23,8 @@ pub enum PgWireConnectionState {
     #[default]
     AwaitingStartup,
     AuthenticationInProgress,
-    ReadyForQuery,
+    // in transaction or not
+    ReadyForQuery(TransactionStatus),
     QueryInProgress,
     CopyInProgress(bool),
     AwaitingSync,
