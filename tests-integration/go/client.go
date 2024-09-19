@@ -36,4 +36,15 @@ func main() {
         rows.Scan( & r.id, & r.name, & r.date, & r.isOk)
         log.Printf("%#v", r)
     }
+
+    rows, err = db.Query("SELECT * FROM testtable where id = ?", 1)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    for rows.Next() {
+        var r result
+        rows.Scan( & r.id, & r.name, & r.date, & r.isOk)
+        log.Printf("%#v", r)
+    }
 }
