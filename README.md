@@ -7,12 +7,11 @@
 Build Postgres compatible access layer for your data service.
 
 This library implements PostgreSQL Wire Protocol, and provide essential APIs to
-write PostgreSQL comptible servers and clients.
+write PostgreSQL compatible servers and clients. If you are interested in
+related topic, you can check [project
+ideas](https://github.com/sunng87/pgwire/discussions/204) to build on top of
+this library.
 
-This library is a work in progress and in its relatively early stage. There is
-no guarantee for API stability. I'm constantly introducing break changes during
-this period. And also sorry for lack of API docs, examples may get you familiar
-with its usage.
 
 ## Status
 
