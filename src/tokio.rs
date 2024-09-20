@@ -359,7 +359,7 @@ fn check_alpn_for_direct_ssl<IO>(tls_socket: &TlsStream<IO>) -> Result<(), IOErr
 pub async fn process_socket<H>(
     tcp_socket: TcpStream,
     tls_acceptor: Option<Arc<TlsAcceptor>>,
-    handlers: Arc<H>,
+    handlers: H,
 ) -> Result<(), IOError>
 where
     H: PgWireHandlerFactory,
