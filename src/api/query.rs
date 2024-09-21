@@ -44,11 +44,15 @@ pub trait SimpleQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        // make sure client is ready for query
-        let mut transaction_status = match client.state() {
-            PgWireConnectionState::ReadyForQuery(transaction_status) => transaction_status,
-            _ => return Err(PgWireError::NotReadyForQuery),
-        };
+        // Make sure client is ready for query
+        // We will still let query to execute when running in transaction error
+        // state because we have no knowledge about whether to query is to
+        // terminate the transaction. But developer who implementing transaction
+        // should respect the transaction state.
+        if !matches!(client.state(), super::PgWireConnectionState::ReadyForQuery) {
+            return Err(PgWireError::NotReadyForQuery);
+        }
+        let mut transaction_status = client.transaction_status();
 
         client.set_state(super::PgWireConnectionState::QueryInProgress);
         let query_string = query.query;
@@ -74,19 +78,17 @@ pub trait SimpleQueryHandler: Send + Sync {
                     }
                     Response::TransactionStart(tag) => {
                         send_execution_response(client, tag).await?;
-                        transaction_status = TransactionStatus::Transaction;
+                        transaction_status = transaction_status.to_in_transaction_state();
                     }
                     Response::TransactionEnd(tag) => {
                         send_execution_response(client, tag).await?;
-                        transaction_status = TransactionStatus::Idle;
+                        transaction_status = transaction_status.to_idle_state();
                     }
                     Response::Error(e) => {
                         client
                             .feed(PgWireBackendMessage::ErrorResponse((*e).into()))
                             .await?;
-                        if transaction_status == TransactionStatus::Transaction {
-                            transaction_status = TransactionStatus::Error;
-                        }
+                        transaction_status = transaction_status.to_error_state();
                     }
                     Response::CopyIn(result) => {
                         copy::send_copy_in_response(client, result).await?;
@@ -110,10 +112,9 @@ pub trait SimpleQueryHandler: Send + Sync {
             // to send a `ReadyForQuery` message or reset the connection state
             // back to `ReadyForQuery`. This is the responsibility of of the
             // `on_copy_done` / `on_copy_fail`.
+            client.set_state(super::PgWireConnectionState::ReadyForQuery);
+            client.set_transaction_status(transaction_status);
             send_ready_for_query(client, transaction_status).await?;
-            client.set_state(super::PgWireConnectionState::ReadyForQuery(
-                transaction_status,
-            ));
         };
 
         Ok(())
@@ -201,10 +202,10 @@ pub trait ExtendedQueryHandler: Send + Sync {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         // make sure client is ready for query
-        let mut transaction_status = match client.state() {
-            PgWireConnectionState::ReadyForQuery(transaction_status) => transaction_status,
-            _ => return Err(PgWireError::NotReadyForQuery),
-        };
+        if !matches!(client.state(), super::PgWireConnectionState::ReadyForQuery) {
+            return Err(PgWireError::NotReadyForQuery);
+        }
+        let mut transaction_status = client.transaction_status();
 
         client.set_state(super::PgWireConnectionState::QueryInProgress);
 
@@ -227,17 +228,18 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 }
                 Response::TransactionStart(tag) => {
                     send_execution_response(client, tag).await?;
-                    transaction_status = TransactionStatus::Transaction;
+                    transaction_status = transaction_status.to_in_transaction_state();
                 }
                 Response::TransactionEnd(tag) => {
                     send_execution_response(client, tag).await?;
-                    transaction_status = TransactionStatus::Idle;
+                    transaction_status = transaction_status.to_idle_state();
                 }
 
                 Response::Error(err) => {
                     client
                         .send(PgWireBackendMessage::ErrorResponse((*err).into()))
                         .await?;
+                    transaction_status = transaction_status.to_error_state();
                 }
                 Response::CopyIn(result) => {
                     client.set_state(PgWireConnectionState::CopyInProgress(true));
@@ -254,9 +256,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
             }
 
             if !matches!(client.state(), PgWireConnectionState::CopyInProgress(_)) {
-                client.set_state(super::PgWireConnectionState::ReadyForQuery(
-                    transaction_status,
-                ));
+                client.set_state(super::PgWireConnectionState::ReadyForQuery);
+                client.set_transaction_status(transaction_status);
             };
 
             Ok(())
@@ -309,15 +310,12 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        if let PgWireConnectionState::ReadyForQuery(status) = client.state() {
-            client
-                .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                    status,
-                )))
-                .await?;
-            client.flush().await?;
-        }
-
+        client
+            .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+                client.transaction_status(),
+            )))
+            .await?;
+        client.flush().await?;
         Ok(())
     }
 

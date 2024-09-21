@@ -86,6 +86,16 @@ impl<T, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
     fn metadata_mut(&mut self) -> &mut std::collections::HashMap<String, String> {
         self.codec_mut().client_info.metadata_mut()
     }
+
+    fn transaction_status(&self) -> TransactionStatus {
+        self.codec().client_info.transaction_status()
+    }
+
+    fn set_transaction_status(&mut self, new_status: TransactionStatus) {
+        self.codec_mut()
+            .client_info
+            .set_transaction_status(new_status);
+    }
 }
 
 impl<T, S> ClientPortalStore for Framed<T, PgWireMessageServerCodec<S>> {
@@ -125,9 +135,7 @@ where
             if let PgWireFrontendMessage::Sync(sync) = message {
                 extended_query_handler.on_sync(socket, sync).await?;
                 // TODO: confirm if we need to track transaction state there
-                socket.set_state(PgWireConnectionState::ReadyForQuery(
-                    TransactionStatus::Idle,
-                ));
+                socket.set_state(PgWireConnectionState::ReadyForQuery);
             }
         }
         PgWireConnectionState::CopyInProgress(is_extended_query) => {
@@ -143,9 +151,7 @@ where
                         // query, we should leave the CopyInProgress state
                         // before returning the error in order to resume normal
                         // operation after handling it in process_error.
-                        socket.set_state(PgWireConnectionState::ReadyForQuery(
-                            TransactionStatus::Idle,
-                        ));
+                        socket.set_state(PgWireConnectionState::ReadyForQuery);
                     }
                     match result {
                         Ok(_) => {
@@ -171,9 +177,7 @@ where
                         // we should leave the CopyInProgress state
                         // before returning the error in order to resume normal
                         // operation after handling it in process_error.
-                        socket.set_state(PgWireConnectionState::ReadyForQuery(
-                            TransactionStatus::Idle,
-                        ));
+                        socket.set_state(PgWireConnectionState::ReadyForQuery);
                     }
                     return Err(error);
                 }
@@ -242,12 +246,16 @@ where
         }
     }
 
+    let transaction_status = socket.transaction_status().to_error_state();
+    socket.set_transaction_status(transaction_status);
+
     if wait_for_sync {
         socket.set_state(PgWireConnectionState::AwaitingSync);
     } else {
+        socket.set_state(PgWireConnectionState::ReadyForQuery);
         socket
             .feed(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                TransactionStatus::Idle,
+                transaction_status,
             )))
             .await?;
     }
