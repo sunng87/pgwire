@@ -263,7 +263,7 @@ async fn check_ssl_negotiation(tcp_socket: &TcpStream) -> Result<SslNegotiationT
 
         // the tcp_stream has ended
         if n == 0 {
-            return Ok(SslNegotiationType::None)
+            return Ok(SslNegotiationType::None);
         }
 
         if n >= SslRequest::BODY_SIZE {
