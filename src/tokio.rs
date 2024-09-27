@@ -260,6 +260,12 @@ async fn check_ssl_negotiation(tcp_socket: &TcpStream) -> Result<SslNegotiationT
     let mut buf = [0u8; SslRequest::BODY_SIZE];
     loop {
         let n = tcp_socket.peek(&mut buf).await?;
+
+        // the tcp_stream has ended
+        if n == 0 {
+            return Ok(SslNegotiationType::None);
+        }
+
         if n >= SslRequest::BODY_SIZE {
             break;
         }
