@@ -22,6 +22,7 @@ this library.
 - [x] Backend TCP/TLS server on Tokio
 - [x] Frontend-Backend interaction over TCP
   - [x] SSL Request and Response
+    - [x] PostgreSQL 17 direct SSL negotiation
   - [x] Startup
     - [x] No authentication
     - [x] Clear-text password authentication
