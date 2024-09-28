@@ -10,7 +10,12 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Dead-loop when client connects without send packets [#206]
+- Dead-loop when client connects without send packets or sending insufficient
+  bytes [#206], [#207]
+
+### Changes
+
+- Removed unneeded `Arc` for handler factory [#202]
 
 ## [0.24.2] - 2024-09-14
 
