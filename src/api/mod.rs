@@ -19,6 +19,7 @@ pub const DEFAULT_NAME: &str = "POSTGRESQL_DEFAULT_NAME";
 #[derive(Debug, Clone, Copy, Default)]
 pub enum PgWireConnectionState {
     #[default]
+    AwaitingSslRequest,
     AwaitingStartup,
     AuthenticationInProgress,
     ReadyForQuery,

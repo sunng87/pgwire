@@ -1,7 +1,7 @@
 use std::io::Error as IOError;
 use std::sync::Arc;
 
-use bytes::BytesMut;
+use bytes::Buf;
 use futures::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
@@ -34,17 +34,31 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         match self.client_info.state() {
-            PgWireConnectionState::AwaitingStartup => {
-                if let Some(request) = SslRequest::decode(src)? {
-                    return Ok(Some(PgWireFrontendMessage::SslRequest(request)));
-                }
+            PgWireConnectionState::AwaitingSslRequest => {
+                if src.remaining() >= SslRequest::BODY_SIZE {
+                    self.client_info
+                        .set_state(PgWireConnectionState::AwaitingStartup);
 
-                if let Some(startup) = Startup::decode(src)? {
-                    return Ok(Some(PgWireFrontendMessage::Startup(startup)));
+                    if let Some(request) = SslRequest::decode(src)? {
+                        return Ok(Some(PgWireFrontendMessage::SslRequest(Some(request))));
+                    } else {
+                        // this is not a real message, but to indicate that
+                        //  client will not init ssl handshake
+                        return Ok(Some(PgWireFrontendMessage::SslRequest(None)));
+                    }
                 }
 
                 Ok(None)
             }
+
+            PgWireConnectionState::AwaitingStartup => {
+                if let Some(startup) = Startup::decode(src)? {
+                    Ok(Some(PgWireFrontendMessage::Startup(startup)))
+                } else {
+                    Ok(None)
+                }
+            }
+
             _ => PgWireFrontendMessage::decode(src),
         }
     }
@@ -256,54 +270,34 @@ enum SslNegotiationType {
     None,
 }
 
-async fn check_ssl_negotiation(tcp_socket: &TcpStream) -> Result<SslNegotiationType, IOError> {
-    let mut buf = [0u8; SslRequest::BODY_SIZE];
-    loop {
-        let n = tcp_socket.peek(&mut buf).await?;
+async fn check_ssl_direct_negotiation(tcp_socket: &TcpStream) -> Result<bool, IOError> {
+    let mut buf = [0u8; 1];
+    let n = tcp_socket.peek(&mut buf).await?;
 
-        // the tcp_stream has ended
-        if n == 0 {
-            return Ok(SslNegotiationType::None);
-        }
-
-        if n >= SslRequest::BODY_SIZE {
-            break;
-        }
-    }
-    if buf[0] == 0x16 {
-        return Ok(SslNegotiationType::Direct);
-    }
-
-    let mut buf = BytesMut::from(buf.as_slice());
-    if let Ok(Some(_)) = SslRequest::decode(&mut buf) {
-        return Ok(SslNegotiationType::Postgres);
-    }
-    Ok(SslNegotiationType::None)
+    Ok(n > 0 && buf[0] == 0x16)
 }
 
 async fn peek_for_sslrequest<ST>(
     socket: &mut Framed<TcpStream, PgWireMessageServerCodec<ST>>,
     ssl_supported: bool,
 ) -> Result<SslNegotiationType, IOError> {
-    let mut negotiation_type = check_ssl_negotiation(socket.get_ref()).await?;
-    match negotiation_type {
-        SslNegotiationType::Postgres => {
-            // consume request
-            socket.next().await;
-
-            let response = if ssl_supported {
-                PgWireBackendMessage::SslResponse(SslResponse::Accept)
-            } else {
-                negotiation_type = SslNegotiationType::None;
-                PgWireBackendMessage::SslResponse(SslResponse::Refuse)
-            };
-            socket.send(response).await?;
+    if check_ssl_direct_negotiation(socket.get_ref()).await? {
+        Ok(SslNegotiationType::Direct)
+    } else if let Some(Ok(PgWireFrontendMessage::SslRequest(Some(_)))) = socket.next().await {
+        if ssl_supported {
+            socket
+                .send(PgWireBackendMessage::SslResponse(SslResponse::Accept))
+                .await?;
+            Ok(SslNegotiationType::Postgres)
+        } else {
+            socket
+                .send(PgWireBackendMessage::SslResponse(SslResponse::Refuse))
+                .await?;
+            Ok(SslNegotiationType::None)
         }
-        SslNegotiationType::Direct => {}
-        SslNegotiationType::None => {}
+    } else {
+        Ok(SslNegotiationType::None)
     }
-
-    Ok(negotiation_type)
 }
 
 async fn do_process_socket<S, A, Q, EQ, C>(

@@ -74,7 +74,9 @@ pub mod terminate;
 #[derive(Debug)]
 pub enum PgWireFrontendMessage {
     Startup(startup::Startup),
-    SslRequest(startup::SslRequest),
+    // when client has no ssl configured, it skip this message.
+    // our decoder will return a `SslRequest(None)` for this case.
+    SslRequest(Option<startup::SslRequest>),
     PasswordMessageFamily(startup::PasswordMessageFamily),
 
     Query(simplequery::Query),
@@ -111,7 +113,13 @@ impl PgWireFrontendMessage {
     pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         match self {
             Self::Startup(msg) => msg.encode(buf),
-            Self::SslRequest(msg) => msg.encode(buf),
+            Self::SslRequest(msg) => {
+                if let Some(msg) = msg {
+                    msg.encode(buf)
+                } else {
+                    Ok(())
+                }
+            }
             Self::PasswordMessageFamily(msg) => msg.encode(buf),
 
             Self::Query(msg) => msg.encode(buf),
@@ -135,6 +143,7 @@ impl PgWireFrontendMessage {
     pub fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
         if buf.remaining() > 1 {
             let first_byte = buf[0];
+
             match first_byte {
                 // Password, SASLInitialResponse, SASLResponse can only be
                 // decoded under certain context
