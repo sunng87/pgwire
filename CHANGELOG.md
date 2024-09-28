@@ -16,6 +16,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changes
 
 - Removed unneeded `Arc` for handler factory [#202]
+- `PgWireFrontendMessage::SslRequest` now carries an optional `SslRequest`
+  message where `None` indicates the client doesn't issue `SslRequest` and
+  starts directly. [#207]
+- Add `AwaitingSslRequest` state. [#207]
 
 ## [0.24.2] - 2024-09-14
 
