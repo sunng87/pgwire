@@ -107,7 +107,7 @@ pub struct LoginInfo<'a> {
     host: String,
 }
 
-impl<'a> LoginInfo<'a> {
+impl LoginInfo<'_> {
     pub fn user(&self) -> Option<&str> {
         self.user
     }
