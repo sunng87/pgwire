@@ -36,6 +36,8 @@ pub enum PgWireError {
     UnsupportedCertificateSignatureAlgorithm,
     #[error("Username is required")]
     UserNameRequired,
+    #[error("Connection is not ready for query")]
+    NotReadyForQuery,
 
     #[error(transparent)]
     ApiError(#[from] Box<dyn std::error::Error + 'static + Send + Sync>),
