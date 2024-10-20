@@ -25,7 +25,7 @@ pub trait ToSqlText: fmt::Debug {
         Self: Sized;
 }
 
-impl<'a, T> ToSqlText for &'a T
+impl<T> ToSqlText for &T
 where
     T: ToSqlText,
 {
@@ -76,7 +76,7 @@ impl ToSqlText for String {
     }
 }
 
-impl<'a> ToSqlText for &'a str {
+impl ToSqlText for &str {
     fn to_sql_text(
         &self,
         ty: &Type,

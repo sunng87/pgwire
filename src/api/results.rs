@@ -46,7 +46,9 @@ impl Tag {
 
 impl From<Tag> for CommandComplete {
     fn from(tag: Tag) -> CommandComplete {
-        let tag_string = if let Some(rows) = tag.rows {
+        let tag_string = if let (Some(oid), Some(rows)) = (tag.oid, tag.rows) {
+            format!("{} {oid} {rows}", tag.command)
+        } else if let Some(rows) = tag.rows {
             format!("{} {rows}", tag.command)
         } else {
             tag.command
@@ -352,10 +354,15 @@ mod test {
 
     #[test]
     fn test_command_complete() {
-        let tag = Tag::new("INSERT").with_oid(0).with_rows(100);
+        let tag = Tag::new("INSERT").with_rows(100);
         let cc = CommandComplete::from(tag);
 
         assert_eq!(cc.tag, "INSERT 100");
+
+        let tag = Tag::new("INSERT").with_oid(0).with_rows(100);
+        let cc = CommandComplete::from(tag);
+
+        assert_eq!(cc.tag, "INSERT 0 100");
     }
 
     #[test]

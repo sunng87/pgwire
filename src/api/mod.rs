@@ -22,6 +22,7 @@ pub const DEFAULT_NAME: &str = "POSTGRESQL_DEFAULT_NAME";
 #[derive(Debug, Clone, Copy, Default)]
 pub enum PgWireConnectionState {
     #[default]
+    AwaitingSslRequest,
     AwaitingStartup,
     AuthenticationInProgress,
     ReadyForQuery,
@@ -138,4 +139,30 @@ pub trait PgWireHandlerFactory {
     fn startup_handler(&self) -> Arc<Self::StartupHandler>;
 
     fn copy_handler(&self) -> Arc<Self::CopyHandler>;
+}
+
+impl<T> PgWireHandlerFactory for Arc<T>
+where
+    T: PgWireHandlerFactory,
+{
+    type StartupHandler = T::StartupHandler;
+    type SimpleQueryHandler = T::SimpleQueryHandler;
+    type ExtendedQueryHandler = T::ExtendedQueryHandler;
+    type CopyHandler = T::CopyHandler;
+
+    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+        (**self).simple_query_handler()
+    }
+
+    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+        (**self).extended_query_handler()
+    }
+
+    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+        (**self).startup_handler()
+    }
+
+    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
+        (**self).copy_handler()
+    }
 }

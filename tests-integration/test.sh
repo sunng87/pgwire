@@ -30,3 +30,8 @@ pushd nodejs
 npm install
 npm run test
 popd
+
+### golang
+pushd go
+go run client.go
+popd
