@@ -73,7 +73,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                 let cached_pass = self.cached_password.lock().await;
 
                 if pwd.password.as_bytes() == *cached_pass {
-                    super::finish_authentication(client, self.parameter_provider.as_ref()).await
+                    super::finish_authentication(client, self.parameter_provider.as_ref()).await?;
                 } else {
                     let error_info = ErrorInfo::new(
                         "FATAL".to_owned(),
