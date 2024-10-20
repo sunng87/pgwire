@@ -120,3 +120,7 @@ required-features = ["server-api"]
 [[example]]
 name = "scram"
 required-features = ["scram"]
+
+[[example]]
+name = "transaction"
+required-features = ["server-api"]
