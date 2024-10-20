@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{stream, Sink, SinkExt, StreamExt};
+use futures::{stream, Sink, SinkExt};
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::noop::NoopStartupHandler;
@@ -13,18 +13,43 @@ use pgwire::api::{ClientInfo, PgWireHandlerFactory, Type};
 use pgwire::error::ErrorInfo;
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::messages::response::NoticeResponse;
-use pgwire::messages::PgWireBackendMessage;
+use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 use pgwire::tokio::process_socket;
 
 pub struct DummyProcessor;
 
-impl NoopStartupHandler for DummyProcessor {}
+#[async_trait]
+impl NoopStartupHandler for DummyProcessor {
+    async fn post_startup<C>(
+        &self,
+        client: &mut C,
+        _message: PgWireFrontendMessage,
+    ) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        println!("Connected: {}", client.socket_addr());
+        client
+            .send(PgWireBackendMessage::NoticeResponse(NoticeResponse::from(
+                ErrorInfo::new(
+                    "NOTICE".to_owned(),
+                    "01000".to_owned(),
+                    "Supported queries in this example:\n- BEGIN;\n- ROLLBACK;\n- COMMIT;\n- SELECT 1;"
+                        .to_string(),
+                ),
+            )))
+            .await?;
+        Ok(())
+    }
+}
 
 #[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
     async fn do_query<'a, C>(
         &self,
-        client: &mut C,
+        _client: &mut C,
         query: &'a str,
     ) -> PgWireResult<Vec<Response<'a>>>
     where
@@ -32,42 +57,33 @@ impl SimpleQueryHandler for DummyProcessor {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        client
-            .send(PgWireBackendMessage::NoticeResponse(NoticeResponse::from(
-                ErrorInfo::new(
-                    "NOTICE".to_owned(),
-                    "01000".to_owned(),
-                    format!("Query received {}", query),
-                ),
-            )))
-            .await?;
+        let resp = match query {
+            "BEGIN;" => Response::TransactionStart(Tag::new("BEGIN")),
+            "ROLLBACK;" => Response::TransactionEnd(Tag::new("ROLLBACK")),
+            "COMMIT;" => Response::TransactionEnd(Tag::new("COMMIT")),
+            "SELECT 1;" => {
+                let f1 =
+                    FieldInfo::new("SELECT 1".into(), None, None, Type::INT4, FieldFormat::Text);
+                let schema = Arc::new(vec![f1]);
+                let schema_ref = schema.clone();
 
-        if query.starts_with("SELECT") {
-            let f1 = FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Text);
-            let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text);
-            let schema = Arc::new(vec![f1, f2]);
+                let row = {
+                    let mut encoder = DataRowEncoder::new(schema_ref.clone());
+                    encoder.encode_field(&Some(1))?;
 
-            let data = vec![
-                (Some(0), Some("Tom")),
-                (Some(1), Some("Jerry")),
-                (Some(2), None),
-            ];
-            let schema_ref = schema.clone();
-            let data_row_stream = stream::iter(data.into_iter()).map(move |r| {
-                let mut encoder = DataRowEncoder::new(schema_ref.clone());
-                encoder.encode_field(&r.0)?;
-                encoder.encode_field(&r.1)?;
+                    encoder.finish()
+                };
+                let data_row_stream = stream::iter(vec![row]);
+                Response::Query(QueryResponse::new(schema, data_row_stream))
+            }
+            _ => Response::Error(Box::new(ErrorInfo::new(
+                "FATAL".to_string(),
+                "38003".to_string(),
+                "Unsupported statement.".to_string(),
+            ))),
+        };
 
-                encoder.finish()
-            });
-
-            Ok(vec![Response::Query(QueryResponse::new(
-                schema,
-                data_row_stream,
-            ))])
-        } else {
-            Ok(vec![Response::Execution(Tag::new("OK").with_rows(1))])
-        }
+        Ok(vec![resp])
     }
 }
 

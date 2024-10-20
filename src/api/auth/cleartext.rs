@@ -47,7 +47,7 @@ impl<V: AuthSource, P: ServerParameterProvider> StartupHandler
                 let login_info = LoginInfo::from_client_info(client);
                 let pass = self.auth_source.get_password(&login_info).await?;
                 if pass.password == pwd.password.as_bytes() {
-                    super::finish_authentication(client, &self.parameter_provider).await
+                    super::finish_authentication(client, &self.parameter_provider).await?;
                 } else {
                     let error_info = ErrorInfo::new(
                         "FATAL".to_owned(),

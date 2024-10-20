@@ -19,6 +19,8 @@ use pgwire::tokio::process_socket;
 
 pub struct DummyProcessor;
 
+impl NoopStartupHandler for DummyProcessor {}
+
 #[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
     async fn do_query<'a, C>(
@@ -105,7 +107,7 @@ struct DummyProcessorFactory {
 }
 
 impl PgWireHandlerFactory for DummyProcessorFactory {
-    type StartupHandler = NoopStartupHandler;
+    type StartupHandler = DummyProcessor;
     type SimpleQueryHandler = DummyProcessor;
     type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
     type CopyHandler = DummyProcessor;
@@ -119,7 +121,7 @@ impl PgWireHandlerFactory for DummyProcessorFactory {
     }
 
     fn startup_handler(&self) -> Arc<Self::StartupHandler> {
-        Arc::new(NoopStartupHandler)
+        self.handler.clone()
     }
 
     fn copy_handler(&self) -> Arc<Self::CopyHandler> {

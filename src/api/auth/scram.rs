@@ -217,7 +217,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                     .await?;
 
                 if success {
-                    super::finish_authentication(client, self.parameter_provider.as_ref()).await
+                    super::finish_authentication(client, self.parameter_provider.as_ref()).await?;
                 }
             }
             _ => {}

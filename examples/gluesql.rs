@@ -17,6 +17,8 @@ pub struct GluesqlProcessor {
     glue: Arc<Mutex<Glue<MemoryStorage>>>,
 }
 
+impl NoopStartupHandler for GluesqlProcessor {}
+
 #[async_trait]
 impl SimpleQueryHandler for GluesqlProcessor {
     async fn do_query<'a, C>(
@@ -164,7 +166,7 @@ struct GluesqlHandlerFactory {
 }
 
 impl PgWireHandlerFactory for GluesqlHandlerFactory {
-    type StartupHandler = NoopStartupHandler;
+    type StartupHandler = GluesqlProcessor;
     type SimpleQueryHandler = GluesqlProcessor;
     type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
     type CopyHandler = NoopCopyHandler;
@@ -178,7 +180,7 @@ impl PgWireHandlerFactory for GluesqlHandlerFactory {
     }
 
     fn startup_handler(&self) -> Arc<Self::StartupHandler> {
-        Arc::new(NoopStartupHandler)
+        self.processor.clone()
     }
 
     fn copy_handler(&self) -> Arc<Self::CopyHandler> {

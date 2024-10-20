@@ -3,7 +3,6 @@ use std::fmt::Debug;
 
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
-use futures::stream;
 
 use super::{ClientInfo, PgWireConnectionState, METADATA_DATABASE, METADATA_USER};
 use crate::error::{PgWireError, PgWireResult};
@@ -160,33 +159,61 @@ where
     );
 }
 
-pub async fn finish_authentication<C, P>(client: &mut C, server_parameter_provider: &P)
+pub(crate) async fn finish_authentication0<C, P>(
+    client: &mut C,
+    server_parameter_provider: &P,
+) -> PgWireResult<()>
 where
     C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
     C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     P: ServerParameterProvider,
 {
-    let mut messages = vec![PgWireBackendMessage::Authentication(Authentication::Ok)];
+    client
+        .feed(PgWireBackendMessage::Authentication(Authentication::Ok))
+        .await?;
 
     if let Some(parameters) = server_parameter_provider.server_parameters(client) {
         for (k, v) in parameters {
-            messages.push(PgWireBackendMessage::ParameterStatus(ParameterStatus::new(
-                k, v,
-            )));
+            client
+                .feed(PgWireBackendMessage::ParameterStatus(ParameterStatus::new(
+                    k, v,
+                )))
+                .await?;
         }
     }
 
     // TODO: store this backend key
-    messages.push(PgWireBackendMessage::BackendKeyData(BackendKeyData::new(
-        std::process::id() as i32,
-        rand::random::<i32>(),
-    )));
-    messages.push(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-        TransactionStatus::Idle,
-    )));
-    let mut message_stream = stream::iter(messages.into_iter().map(Ok));
-    client.send_all(&mut message_stream).await.unwrap();
+    client
+        .feed(PgWireBackendMessage::BackendKeyData(BackendKeyData::new(
+            std::process::id() as i32,
+            rand::random::<i32>(),
+        )))
+        .await?;
+
+    Ok(())
+}
+
+pub async fn finish_authentication<C, P>(
+    client: &mut C,
+    server_parameter_provider: &P,
+) -> PgWireResult<()>
+where
+    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
+    C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    P: ServerParameterProvider,
+{
+    finish_authentication0(client, server_parameter_provider).await?;
+
+    client
+        .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+            TransactionStatus::Idle,
+        )))
+        .await?;
+
     client.set_state(PgWireConnectionState::ReadyForQuery);
+    Ok(())
 }
 
 pub mod cleartext;

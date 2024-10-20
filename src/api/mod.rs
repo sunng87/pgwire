@@ -6,6 +6,8 @@ use std::sync::Arc;
 
 pub use postgres_types::Type;
 
+use crate::messages::response::TransactionStatus;
+
 pub mod auth;
 pub mod copy;
 pub mod portal;
@@ -13,6 +15,7 @@ pub mod query;
 pub mod results;
 pub mod stmt;
 pub mod store;
+pub mod transaction;
 
 pub const DEFAULT_NAME: &str = "POSTGRESQL_DEFAULT_NAME";
 
@@ -38,6 +41,10 @@ pub trait ClientInfo {
 
     fn set_state(&mut self, new_state: PgWireConnectionState);
 
+    fn transaction_status(&self) -> TransactionStatus;
+
+    fn set_transaction_status(&mut self, new_status: TransactionStatus);
+
     fn metadata(&self) -> &HashMap<String, String>;
 
     fn metadata_mut(&mut self) -> &mut HashMap<String, String>;
@@ -59,6 +66,7 @@ pub struct DefaultClient<S> {
     pub socket_addr: SocketAddr,
     pub is_secure: bool,
     pub state: PgWireConnectionState,
+    pub transaction_status: TransactionStatus,
     pub metadata: HashMap<String, String>,
     pub portal_store: store::MemPortalStore<S>,
 }
@@ -87,6 +95,14 @@ impl<S> ClientInfo for DefaultClient<S> {
     fn metadata_mut(&mut self) -> &mut HashMap<String, String> {
         &mut self.metadata
     }
+
+    fn transaction_status(&self) -> TransactionStatus {
+        self.transaction_status
+    }
+
+    fn set_transaction_status(&mut self, new_status: TransactionStatus) {
+        self.transaction_status = new_status
+    }
 }
 
 impl<S> DefaultClient<S> {
@@ -95,6 +111,7 @@ impl<S> DefaultClient<S> {
             socket_addr,
             is_secure,
             state: PgWireConnectionState::default(),
+            transaction_status: TransactionStatus::Idle,
             metadata: HashMap::new(),
             portal_store: store::MemPortalStore::new(),
         }

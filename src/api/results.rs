@@ -334,10 +334,18 @@ pub struct CopyResponse {
 /// * Query: the response contains data rows
 /// * Execution: response for ddl/dml execution
 /// * Error: error response
+/// * EmptyQuery: when client sends an empty query
+/// * TransactionStart: indicate previous statement just started a transaction
+/// * TransactionEnd: indicate previous statement just ended a transaction
+/// * CopyIn: response for a copy-in request
+/// * CopyOut: response for a copy-out request
+/// * CopuBoth: response for a copy-both request
 pub enum Response<'a> {
     EmptyQuery,
     Query(QueryResponse<'a>),
     Execution(Tag),
+    TransactionStart(Tag),
+    TransactionEnd(Tag),
     Error(Box<ErrorInfo>),
     CopyIn(CopyResponse),
     CopyOut(CopyResponse),

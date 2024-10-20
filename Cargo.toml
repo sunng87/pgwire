@@ -11,7 +11,7 @@ homepage = "https://github.com/sunng87/pgwire"
 repository = "https://github.com/sunng87/pgwire"
 documentation = "https://docs.rs/crate/pgwire/"
 readme = "README.md"
-rust-version = "1.72"
+rust-version = "1.74"
 
 [dependencies]
 derive-new = "0.7"
@@ -120,3 +120,7 @@ required-features = ["server-api"]
 [[example]]
 name = "scram"
 required-features = ["scram"]
+
+[[example]]
+name = "transaction"
+required-features = ["server-api"]
