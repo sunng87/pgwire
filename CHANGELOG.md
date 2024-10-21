@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Added
+
+- New `Response` type for transforming transaction state: `TransactionStart` and
+  `TransactionEnd`. [#200]
+
+### Fixed
+
+- oid output for tags [#211]
+
+### Changed
+
+- Update MSRV to 1.74
+- Breaking: Rewrite `NoopStartupHandler` to be a trait. You can provide an empty
+  implementation to keep original behaviour. And it's now possible to customize
+  some behaviour by adding a `post_startup` implementation.
+
 ## [0.25.0] - 2024-09-28
 
 ### Fixed
