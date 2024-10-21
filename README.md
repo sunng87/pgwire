@@ -121,6 +121,8 @@ Examples are provided to demo the very basic usage of `pgwire` on server side:
 - `examples/scram.rs`: demos how to configure more secure authentication
   mechanism:
   [SCRAM](https://en.wikipedia.org/wiki/Salted_Challenge_Response_Authentication_Mechanism)
+- `examples/transaction.rs`: see how to control transaction state at wire
+  protocol level.
 - `examples/datafusion.rs`: Now moved to
   [datafusion-postgres](https://github.com/sunng87/datafusion-postgres)
 
