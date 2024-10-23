@@ -420,7 +420,7 @@ where
     while let Some(row) = data_rows.next().await {
         let row = row?;
         rows += 1;
-        client.feed(PgWireBackendMessage::DataRow(row)).await?;
+        client.send(PgWireBackendMessage::DataRow(row)).await?;
     }
 
     let tag = Tag::new(&command_tag).with_rows(rows);
