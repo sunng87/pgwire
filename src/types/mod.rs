@@ -8,7 +8,7 @@ use lazy_regex::{lazy_regex, Lazy, Regex};
 use postgres_types::{IsNull, Kind, Type, WrongType};
 use rust_decimal::Decimal;
 
-pub static QUOTE_CHECK: Lazy<Regex> = lazy_regex!(r#"^$|["{},\\s]|^null$"#i);
+pub static QUOTE_CHECK: Lazy<Regex> = lazy_regex!(r#"^$|["{},\\\s]|^null$"#i);
 pub static QUOTE_ESCAPE: Lazy<Regex> = lazy_regex!(r#"(["\\])"#);
 
 pub trait ToSqlText: fmt::Debug {
@@ -86,7 +86,7 @@ impl ToSqlText for &str {
 
         if quote {
             w.put_u8(b'"');
-            w.put_slice(QUOTE_ESCAPE.replace(self, r#"\$1"#).as_bytes());
+            w.put_slice(QUOTE_ESCAPE.replace_all(self, r#"\$1"#).as_bytes());
             w.put_u8(b'"');
         } else {
             w.put_slice(self.as_bytes());
@@ -362,12 +362,12 @@ mod test {
         );
 
         let chars = &[
-            "{", "abc", "}", "\"", "", "a,b", "null", "NULL", "NULL!", "\\",
+            "{", "abc", "}", "\"", "", "a,b", "null", "NULL", "NULL!", "\\", " ", "\"\"",
         ];
         let mut buf = BytesMut::new();
         chars.to_sql_text(&Type::VARCHAR_ARRAY, &mut buf).unwrap();
         assert_eq!(
-            "{\"{\",abc,\"}\",\"\\\"\",\"\",\"a,b\",\"null\",\"NULL\",NULL!,\"\\\\\"}",
+            r#"{"{",abc,"}","\"","","a,b","null","NULL",NULL!,"\\"," ","\"\""}"#,
             String::from_utf8_lossy(buf.freeze().as_ref())
         );
     }
