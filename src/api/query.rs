@@ -393,9 +393,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
 /// For most cases in extended query implementation, `send_describe` is set to
 /// false because not all `Execute` comes with `Describe`. The client may have
 /// decribed statement/portal before.
-pub async fn send_query_response<'a, C>(
+pub async fn send_query_response<C>(
     client: &mut C,
-    results: QueryResponse<'a>,
+    results: QueryResponse<'_>,
     send_describe: bool,
 ) -> PgWireResult<()>
 where
