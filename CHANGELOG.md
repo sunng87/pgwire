@@ -16,6 +16,7 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - oid output for tags [#211]
+- array type serialization [#212]
 
 ### Changed
 
