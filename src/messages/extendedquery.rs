@@ -22,7 +22,7 @@ impl Message for Parse {
 
     fn message_length(&self) -> usize {
         4 + codec::option_string_len(&self.name) // name
-            + (1 + self.query.as_bytes().len()) // query
+            + (1 + self.query.len()) // query
             + (4 * self.type_oids.len()) // type oids
     }
 

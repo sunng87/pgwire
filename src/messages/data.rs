@@ -44,7 +44,7 @@ impl Message for RowDescription {
             + self
                 .fields
                 .iter()
-                .map(|f| f.name.as_bytes().len() + 1 + 4 + 2 + 4 + 2 + 4 + 2)
+                .map(|f| f.name.len() + 1 + 4 + 2 + 4 + 2 + 4 + 2)
                 .sum::<usize>()
     }
 

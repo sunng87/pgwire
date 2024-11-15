@@ -73,7 +73,7 @@ impl Message for CopyFail {
     }
 
     fn message_length(&self) -> usize {
-        4 + self.message.as_bytes().len() + 1
+        4 + self.message.len() + 1
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
