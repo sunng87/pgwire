@@ -37,7 +37,7 @@ impl Message for Startup {
         let param_length = self
             .parameters
             .iter()
-            .map(|(k, v)| k.as_bytes().len() + v.as_bytes().len() + 2)
+            .map(|(k, v)| k.len() + v.len() + 2)
             .sum::<usize>();
         // length:4 + protocol_number:4 + param.len + nullbyte:1
         9 + param_length
@@ -329,7 +329,7 @@ impl Message for Password {
     }
 
     fn message_length(&self) -> usize {
-        5 + self.password.as_bytes().len()
+        5 + self.password.len()
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
@@ -362,7 +362,7 @@ impl Message for ParameterStatus {
     }
 
     fn message_length(&self) -> usize {
-        4 + 2 + self.name.as_bytes().len() + self.value.as_bytes().len()
+        4 + 2 + self.name.len() + self.value.len()
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
@@ -479,10 +479,7 @@ impl Message for SASLInitialResponse {
 
     #[inline]
     fn message_length(&self) -> usize {
-        4 + self.auth_method.as_bytes().len()
-            + 1
-            + 4
-            + self.data.as_ref().map(|b| b.len()).unwrap_or(0)
+        4 + self.auth_method.len() + 1 + 4 + self.data.as_ref().map(|b| b.len()).unwrap_or(0)
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {

@@ -20,7 +20,7 @@ impl Message for Query {
     }
 
     fn message_length(&self) -> usize {
-        5 + self.query.as_bytes().len()
+        5 + self.query.len()
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {

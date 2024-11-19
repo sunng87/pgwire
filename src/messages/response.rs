@@ -19,7 +19,7 @@ impl Message for CommandComplete {
     }
 
     fn message_length(&self) -> usize {
-        5 + self.tag.as_bytes().len()
+        5 + self.tag.len()
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
@@ -130,12 +130,7 @@ impl Message for ErrorResponse {
     }
 
     fn message_length(&self) -> usize {
-        4 + self
-            .fields
-            .iter()
-            .map(|f| 1 + f.1.as_bytes().len() + 1)
-            .sum::<usize>()
-            + 1
+        4 + self.fields.iter().map(|f| 1 + f.1.len() + 1).sum::<usize>() + 1
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
@@ -180,12 +175,7 @@ impl Message for NoticeResponse {
     }
 
     fn message_length(&self) -> usize {
-        4 + self
-            .fields
-            .iter()
-            .map(|f| 1 + f.1.as_bytes().len() + 1)
-            .sum::<usize>()
-            + 1
+        4 + self.fields.iter().map(|f| 1 + f.1.len() + 1).sum::<usize>() + 1
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
@@ -292,7 +282,7 @@ impl Message for NotificationResponse {
     }
 
     fn message_length(&self) -> usize {
-        8 + self.channel.as_bytes().len() + 1 + self.payload.as_bytes().len() + 1
+        8 + self.channel.len() + 1 + self.payload.len() + 1
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {

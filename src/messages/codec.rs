@@ -84,5 +84,5 @@ where
 // }
 
 pub(crate) fn option_string_len(s: &Option<String>) -> usize {
-    1 + s.as_ref().map(|s| s.as_bytes().len()).unwrap_or(0)
+    1 + s.as_ref().map(|s| s.len()).unwrap_or(0)
 }
