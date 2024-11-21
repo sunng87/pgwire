@@ -47,12 +47,11 @@ lazy-regex = {version = "3.3", default-features = false, features = ["lite"]}
 
 [features]
 default = ["server-api-aws-lc-rs"]
-ring = ["dep:ring", "tokio-rustls/ring"]
-aws-lc-rs = ["dep:aws-lc-rs", "tokio-rustls/aws-lc-rs"]
+_ring = ["dep:ring", "tokio-rustls/ring"]
+_aws-lc-rs = ["dep:aws-lc-rs", "tokio-rustls/aws-lc-rs"]
 server-api = [
     "dep:tokio",
     "dep:tokio-util",
-    "dep:tokio-rustls",
     "dep:futures",
     "dep:async-trait",
     "dep:rand",
@@ -62,8 +61,8 @@ server-api = [
     "dep:chrono",
     "dep:rust_decimal",
 ]
-server-api-ring = ["server-api", "ring"]
-server-api-aws-lc-rs = ["server-api", "aws-lc-rs"]
+server-api-ring = ["server-api", "_ring"]
+server-api-aws-lc-rs = ["server-api", "_aws-lc-rs"]
 scram = ["dep:base64", "dep:stringprep", "dep:x509-certificate"]
 _duckdb = []
 _sqlite = []

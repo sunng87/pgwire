@@ -55,6 +55,8 @@ jobs:
       run: cargo test
     - name: Run tests on minimal feature set
       run: cargo test --no-default-features
+    - name: Run tests without tls
+      run: cargo test --no-default-features --features server-api
     - name: Run tests on additional scram+ring feature set
       run: cargo test --features server-api-ring,scram
     - name: Run tests on additional scram+aws-lc-rs feature set
