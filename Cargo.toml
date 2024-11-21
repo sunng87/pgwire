@@ -90,36 +90,36 @@ members = [
 
 [[example]]
 name = "server"
-required-features = ["server-api"]
+required-features = ["server-api-aws-lc-rs"]
 
 [[example]]
 name = "secure_server"
-required-features = ["server-api"]
+required-features = ["server-api-aws-lc-rs"]
 
 [[example]]
 name = "bench"
-required-features = ["server-api"]
+required-features = ["server-api-aws-lc-rs"]
 
 [[example]]
 name = "gluesql"
-required-features = ["server-api"]
+required-features = ["server-api-aws-lc-rs"]
 
 [[example]]
 name = "sqlite"
-required-features = ["server-api", "_sqlite"]
+required-features = ["server-api-aws-lc-rs", "_sqlite"]
 
 [[example]]
 name = "duckdb"
-required-features = ["server-api", "_duckdb"]
+required-features = ["server-api-aws-lc-rs", "_duckdb"]
 
 [[example]]
 name = "copy"
-required-features = ["server-api"]
+required-features = ["server-api-aws-lc-rs"]
 
 [[example]]
 name = "scram"
-required-features = ["scram"]
+required-features = ["server-api-aws-lc-rs", "scram"]
 
 [[example]]
 name = "transaction"
-required-features = ["server-api"]
+required-features = ["server-api-aws-lc-rs"]
