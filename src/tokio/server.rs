@@ -5,8 +5,8 @@ use bytes::Buf;
 use futures::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
-use tokio_rustls::server::TlsStream;
-use tokio_rustls::TlsAcceptor;
+#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+use tokio_rustls::{server::TlsStream, TlsAcceptor};
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
 use crate::api::auth::StartupHandler;
@@ -351,6 +351,7 @@ where
     Ok(())
 }
 
+#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 fn check_alpn_for_direct_ssl<IO>(tls_socket: &TlsStream<IO>) -> Result<(), IOError> {
     let (_, the_conn) = tls_socket.get_ref();
     let mut accept = false;
@@ -373,7 +374,7 @@ fn check_alpn_for_direct_ssl<IO>(tls_socket: &TlsStream<IO>) -> Result<(), IOErr
 
 pub async fn process_socket<H>(
     tcp_socket: TcpStream,
-    tls_acceptor: Option<Arc<TlsAcceptor>>,
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))] tls_acceptor: Option<Arc<TlsAcceptor>>,
     handlers: H,
 ) -> Result<(), IOError>
 where
@@ -384,7 +385,11 @@ where
 
     let client_info = DefaultClient::new(addr, false);
     let mut tcp_socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
+
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     let ssl = peek_for_sslrequest(&mut tcp_socket, tls_acceptor.is_some()).await?;
+    #[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]
+    let ssl = peek_for_sslrequest(&mut tcp_socket, false).await?;
 
     let startup_handler = handlers.startup_handler();
     let simple_query_handler = handlers.simple_query_handler();
@@ -404,28 +409,34 @@ where
         )
         .await
     } else {
-        // mention the use of ssl
-        let client_info = DefaultClient::new(addr, true);
-        // safe to unwrap tls_acceptor here
-        let ssl_socket = tls_acceptor
-            .unwrap()
-            .accept(tcp_socket.into_inner())
-            .await?;
+        #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+        {
+            // mention the use of ssl
+            let client_info = DefaultClient::new(addr, true);
+            // safe to unwrap tls_acceptor here
+            let ssl_socket = tls_acceptor
+                .unwrap()
+                .accept(tcp_socket.into_inner())
+                .await?;
 
-        // check alpn for direct ssl connection
-        if ssl == SslNegotiationType::Direct {
-            check_alpn_for_direct_ssl(&ssl_socket)?;
+            // check alpn for direct ssl connection
+            if ssl == SslNegotiationType::Direct {
+                check_alpn_for_direct_ssl(&ssl_socket)?;
+            }
+
+            let mut socket = Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
+
+            do_process_socket(
+                &mut socket,
+                startup_handler,
+                simple_query_handler,
+                extended_query_handler,
+                copy_handler,
+            )
+            .await
         }
 
-        let mut socket = Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
-
-        do_process_socket(
-            &mut socket,
-            startup_handler,
-            simple_query_handler,
-            extended_query_handler,
-            copy_handler,
-        )
-        .await
+        #[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]
+        Ok(())
     }
 }

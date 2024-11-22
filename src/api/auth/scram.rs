@@ -13,9 +13,9 @@ use tokio::sync::Mutex;
 use x509_certificate::certificate::CapturedX509Certificate;
 use x509_certificate::SignatureAlgorithm;
 
-#[cfg(not(feature = "ring"))]
+#[cfg(feature = "_aws-lc-rs")]
 use aws_lc_rs::{digest, hmac, pbkdf2};
-#[cfg(feature = "ring")]
+#[cfg(feature = "_ring")]
 use ring::{digest, hmac, pbkdf2};
 
 use crate::api::auth::{AuthSource, LoginInfo, Password};
