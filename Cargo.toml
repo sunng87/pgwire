@@ -11,7 +11,7 @@ homepage = "https://github.com/sunng87/pgwire"
 repository = "https://github.com/sunng87/pgwire"
 documentation = "https://docs.rs/crate/pgwire/"
 readme = "README.md"
-rust-version = "1.74"
+rust-version = "1.75"
 
 [dependencies]
 derive-new = "0.7"
@@ -35,7 +35,7 @@ base64 = { version = "0.22", optional = true }
 ring = { version = "0.17", optional = true }
 aws-lc-rs = { version = "1.7", optional = true }
 stringprep = { version = "0.1.2", optional = true }
-x509-certificate = { version = "0.23", optional = true }
+x509-certificate = { version = "0.24", optional = true }
 ## types
 postgres-types = { version = "0.2", features = [
     "with-chrono-0_4",
