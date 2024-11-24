@@ -16,7 +16,7 @@ rust-version = "1.75"
 [dependencies]
 derive-new = "0.7"
 bytes = "1.1.0"
-thiserror = "1"
+thiserror = "2"
 ## api
 tokio = { version = "1.19", features = [
     "net",
