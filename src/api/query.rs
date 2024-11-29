@@ -17,7 +17,7 @@ use crate::api::PgWireConnectionState;
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::data::{NoData, ParameterDescription};
 use crate::messages::extendedquery::{
-    Bind, BindComplete, Close, CloseComplete, Describe, Execute, Parse, ParseComplete,
+    Bind, BindComplete, Close, CloseComplete, Describe, Execute, Flush, Parse, ParseComplete,
     Sync as PgSync, TARGET_TYPE_BYTE_PORTAL, TARGET_TYPE_BYTE_STATEMENT,
 };
 use crate::messages::response::{EmptyQueryResponse, ReadyForQuery, TransactionStatus};
@@ -297,6 +297,19 @@ pub trait ExtendedQueryHandler: Send + Sync {
             _ => return Err(PgWireError::InvalidTargetType(message.target_type)),
         }
 
+        Ok(())
+    }
+
+    /// Called when client sends `flush` command.
+    ///
+    /// The default implementation flushes client buffer
+    async fn on_flush<C>(&self, client: &mut C, _message: Flush) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        client.flush().await?;
         Ok(())
     }
 

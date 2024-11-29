@@ -216,6 +216,9 @@ where
                 PgWireFrontendMessage::Describe(describe) => {
                     extended_query_handler.on_describe(socket, describe).await?;
                 }
+                PgWireFrontendMessage::Flush(flush) => {
+                    extended_query_handler.on_flush(socket, flush).await?;
+                }
                 PgWireFrontendMessage::Sync(sync) => {
                     extended_query_handler.on_sync(socket, sync).await?;
                 }
