@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Added
+
+- `on_flush` handler for extended query handler [#220]
+
+### Fixed
+
+- `Parse` message encoding [#219]
+
+### Changed
+
+- MSRV to 1.75
+- Made TLS an optional feature. `server-api` now provides no TLS functionality
+  [#218]
+
+
 ## [0.26.0] - 2024-11-02
 
 ### Added
