@@ -3,6 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::stream;
 use futures::StreamExt;
+use pgwire::api::NoopErrorHandler;
 use pgwire::api::PgWireHandlerFactory;
 use tokio::net::TcpListener;
 
@@ -78,6 +79,7 @@ impl PgWireHandlerFactory for DummyProcessorFactory {
     type SimpleQueryHandler = DummyProcessor;
     type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
     type CopyHandler = NoopCopyHandler;
+    type ErrorHandler = NoopErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
         self.handler.clone()
@@ -93,6 +95,10 @@ impl PgWireHandlerFactory for DummyProcessorFactory {
 
     fn copy_handler(&self) -> Arc<Self::CopyHandler> {
         Arc::new(NoopCopyHandler)
+    }
+
+    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
+        Arc::new(NoopErrorHandler)
     }
 }
 

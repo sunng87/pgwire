@@ -14,6 +14,7 @@ use pgwire::api::results::{
     Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
+use pgwire::api::NoopErrorHandler;
 use pgwire::api::PgWireHandlerFactory;
 use pgwire::api::{ClientInfo, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
@@ -291,6 +292,7 @@ impl PgWireHandlerFactory for SqliteBackendFactory {
     type SimpleQueryHandler = SqliteBackend;
     type ExtendedQueryHandler = SqliteBackend;
     type CopyHandler = NoopCopyHandler;
+    type ErrorHandler = NoopErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
         self.handler.clone()
@@ -312,6 +314,10 @@ impl PgWireHandlerFactory for SqliteBackendFactory {
 
     fn copy_handler(&self) -> Arc<Self::CopyHandler> {
         Arc::new(NoopCopyHandler)
+    }
+
+    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
+        Arc::new(NoopErrorHandler)
     }
 }
 
