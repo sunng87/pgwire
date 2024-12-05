@@ -9,6 +9,7 @@ pub use postgres_types::Type;
 use crate::messages::response::TransactionStatus;
 
 pub mod auth;
+pub mod client;
 pub mod copy;
 pub mod portal;
 pub mod query;
