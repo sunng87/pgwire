@@ -16,7 +16,7 @@ use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{Response, Tag};
 
-use pgwire::api::{ClientInfo, PgWireHandlerFactory};
+use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireHandlerFactory};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 
@@ -83,6 +83,7 @@ impl PgWireHandlerFactory for DummyProcessorFactory {
     type SimpleQueryHandler = DummyProcessor;
     type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
     type CopyHandler = NoopCopyHandler;
+    type ErrorHandler = NoopErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
         self.handler.clone()
@@ -107,6 +108,10 @@ impl PgWireHandlerFactory for DummyProcessorFactory {
 
     fn copy_handler(&self) -> Arc<Self::CopyHandler> {
         Arc::new(NoopCopyHandler)
+    }
+
+    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
+        Arc::new(NoopErrorHandler)
     }
 }
 

@@ -14,7 +14,8 @@ use crate::api::copy::CopyHandler;
 use crate::api::query::SimpleQueryHandler;
 use crate::api::query::{send_ready_for_query, ExtendedQueryHandler};
 use crate::api::{
-    ClientInfo, ClientPortalStore, DefaultClient, PgWireConnectionState, PgWireHandlerFactory,
+    ClientInfo, ClientPortalStore, DefaultClient, ErrorHandler, PgWireConnectionState,
+    PgWireHandlerFactory,
 };
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::response::ReadyForQuery;
@@ -318,12 +319,13 @@ async fn peek_for_sslrequest<ST>(
     }
 }
 
-async fn do_process_socket<S, A, Q, EQ, C>(
+async fn do_process_socket<S, A, Q, EQ, C, E>(
     socket: &mut Framed<S, PgWireMessageServerCodec<EQ::Statement>>,
     startup_handler: Arc<A>,
     simple_query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
     copy_handler: Arc<C>,
+    error_handler: Arc<E>,
 ) -> Result<(), IOError>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
@@ -331,13 +333,14 @@ where
     Q: SimpleQueryHandler,
     EQ: ExtendedQueryHandler,
     C: CopyHandler,
+    E: ErrorHandler,
 {
     while let Some(Ok(msg)) = socket.next().await {
         let is_extended_query = match socket.state() {
             PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
             _ => msg.is_extended_query(),
         };
-        if let Err(e) = process_message(
+        if let Err(mut e) = process_message(
             msg,
             socket,
             startup_handler.clone(),
@@ -347,6 +350,7 @@ where
         )
         .await
         {
+            error_handler.on_error(socket, &mut e);
             process_error(socket, e, is_extended_query).await?;
         }
     }
@@ -398,6 +402,7 @@ where
     let simple_query_handler = handlers.simple_query_handler();
     let extended_query_handler = handlers.extended_query_handler();
     let copy_handler = handlers.copy_handler();
+    let error_handler = handlers.error_handler();
 
     if ssl == SslNegotiationType::None {
         // use an already configured socket.
@@ -409,6 +414,7 @@ where
             simple_query_handler,
             extended_query_handler,
             copy_handler,
+            error_handler,
         )
         .await
     } else {
@@ -435,6 +441,7 @@ where
                 simple_query_handler,
                 extended_query_handler,
                 copy_handler,
+                error_handler,
             )
             .await
         }
