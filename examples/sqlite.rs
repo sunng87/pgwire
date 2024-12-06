@@ -15,7 +15,7 @@ use pgwire::api::results::{
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::NoopErrorHandler;
-use pgwire::api::PgWireHandlerFactory;
+use pgwire::api::PgWireServerHandlers;
 use pgwire::api::{ClientInfo, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::data::DataRow;
@@ -286,7 +286,7 @@ struct SqliteBackendFactory {
     handler: Arc<SqliteBackend>,
 }
 
-impl PgWireHandlerFactory for SqliteBackendFactory {
+impl PgWireServerHandlers for SqliteBackendFactory {
     type StartupHandler =
         Md5PasswordAuthStartupHandler<DummyAuthSource, DefaultServerParameterProvider>;
     type SimpleQueryHandler = SqliteBackend;
