@@ -9,7 +9,7 @@ use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
-use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireHandlerFactory, Type};
+use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type};
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
 
@@ -165,7 +165,7 @@ struct GluesqlHandlerFactory {
     processor: Arc<GluesqlProcessor>,
 }
 
-impl PgWireHandlerFactory for GluesqlHandlerFactory {
+impl PgWireServerHandlers for GluesqlHandlerFactory {
     type StartupHandler = GluesqlProcessor;
     type SimpleQueryHandler = GluesqlProcessor;
     type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;

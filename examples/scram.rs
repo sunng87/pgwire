@@ -16,7 +16,7 @@ use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{Response, Tag};
 
-use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireHandlerFactory};
+use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireServerHandlers};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 
@@ -78,7 +78,7 @@ struct DummyProcessorFactory {
     cert: Vec<u8>,
 }
 
-impl PgWireHandlerFactory for DummyProcessorFactory {
+impl PgWireServerHandlers for DummyProcessorFactory {
     type StartupHandler = SASLScramAuthStartupHandler<DummyAuthDB, DefaultServerParameterProvider>;
     type SimpleQueryHandler = DummyProcessor;
     type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;

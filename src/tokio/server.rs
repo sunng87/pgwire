@@ -15,7 +15,7 @@ use crate::api::query::SimpleQueryHandler;
 use crate::api::query::{send_ready_for_query, ExtendedQueryHandler};
 use crate::api::{
     ClientInfo, ClientPortalStore, DefaultClient, ErrorHandler, PgWireConnectionState,
-    PgWireHandlerFactory,
+    PgWireServerHandlers,
 };
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::response::ReadyForQuery;
@@ -385,7 +385,7 @@ pub async fn process_socket<H>(
     handlers: H,
 ) -> Result<(), IOError>
 where
-    H: PgWireHandlerFactory,
+    H: PgWireServerHandlers,
 {
     let addr = tcp_socket.peer_addr()?;
     tcp_socket.set_nodelay(true)?;

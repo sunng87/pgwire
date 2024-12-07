@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use futures::stream;
 use futures::StreamExt;
 use pgwire::api::NoopErrorHandler;
-use pgwire::api::PgWireHandlerFactory;
+use pgwire::api::PgWireServerHandlers;
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::noop::NoopStartupHandler;
@@ -74,7 +74,7 @@ struct DummyProcessorFactory {
     handler: Arc<DummyProcessor>,
 }
 
-impl PgWireHandlerFactory for DummyProcessorFactory {
+impl PgWireServerHandlers for DummyProcessorFactory {
     type StartupHandler = DummyProcessor;
     type SimpleQueryHandler = DummyProcessor;
     type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;

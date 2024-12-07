@@ -145,7 +145,7 @@ pub struct NoopErrorHandler;
 
 impl ErrorHandler for NoopErrorHandler {}
 
-pub trait PgWireHandlerFactory {
+pub trait PgWireServerHandlers {
     type StartupHandler: auth::StartupHandler;
     type SimpleQueryHandler: query::SimpleQueryHandler;
     type ExtendedQueryHandler: query::ExtendedQueryHandler;
@@ -163,9 +163,9 @@ pub trait PgWireHandlerFactory {
     fn error_handler(&self) -> Arc<Self::ErrorHandler>;
 }
 
-impl<T> PgWireHandlerFactory for Arc<T>
+impl<T> PgWireServerHandlers for Arc<T>
 where
-    T: PgWireHandlerFactory,
+    T: PgWireServerHandlers,
 {
     type StartupHandler = T::StartupHandler;
     type SimpleQueryHandler = T::SimpleQueryHandler;

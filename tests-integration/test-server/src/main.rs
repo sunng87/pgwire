@@ -21,7 +21,7 @@ use pgwire::api::results::{
     Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
-use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireHandlerFactory, Type};
+use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 use tokio::net::TcpListener;
@@ -217,7 +217,7 @@ impl ExtendedQueryHandler for DummyDatabase {
 
 struct DummyDatabaseFactory(Arc<DummyDatabase>);
 
-impl PgWireHandlerFactory for DummyDatabaseFactory {
+impl PgWireServerHandlers for DummyDatabaseFactory {
     type StartupHandler =
         SASLScramAuthStartupHandler<DummyAuthSource, DefaultServerParameterProvider>;
     type SimpleQueryHandler = DummyDatabase;
