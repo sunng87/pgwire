@@ -127,6 +127,11 @@ impl<S> ClientPortalStore for DefaultClient<S> {
     }
 }
 
+/// A centralized handler for all errors
+///
+/// This handler captures all errors produces by authentication, query and
+/// copy. You can do logging, filtering or masking the error before it sent to
+/// client.
 pub trait ErrorHandler: Send + Sync {
     fn on_error<C>(&self, _client: &C, _error: &mut PgWireError)
     where
