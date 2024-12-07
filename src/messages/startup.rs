@@ -212,7 +212,7 @@ pub const MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY: u8 = b'p';
 /// * GSSResponse
 ///
 /// We cannot decode these messages without a context. So here we define this
-/// `PasswordMessageFamily` to include all of theme and provide methods to
+/// `PasswordMessageFamily` to include all of them and provide methods to
 /// coerce it into particular concrete type.
 ///
 /// When using this message in startup handlers, call
