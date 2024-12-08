@@ -1,5 +1,6 @@
 use std::fmt::Display;
 use std::io::{Error as IOError, ErrorKind};
+use std::str::Utf8Error;
 use thiserror::Error;
 
 use crate::messages::response::{ErrorResponse, NoticeResponse};
@@ -38,6 +39,15 @@ pub enum PgWireError {
     UserNameRequired,
     #[error("Connection is not ready for query")]
     NotReadyForQuery,
+    #[cfg(feature = "client-api")]
+    #[error("Failed to parse connection config, invalid value for: {0}")]
+    InvalidConfig(String),
+    #[cfg(feature = "client-api")]
+    #[error("Failed to parse connection config, unknown config: {0}")]
+    UnknownConfig(String),
+    #[cfg(feature = "client-api")]
+    #[error("Failed to parse utf8 value")]
+    InvalidUtf8ConfigValue(#[source] Utf8Error),
 
     #[error(transparent)]
     ApiError(#[from] Box<dyn std::error::Error + 'static + Send + Sync>),
