@@ -382,7 +382,7 @@ fn check_alpn_for_direct_ssl<IO>(tls_socket: &TlsStream<IO>) -> Result<(), io::E
 
 pub async fn process_socket<H>(
     tcp_socket: TcpStream,
-    tls_acceptor: Option<Arc<crate::tokio::TlsAcceptor>>,
+    tls_acceptor: Option<crate::tokio::TlsAcceptor>,
     handlers: H,
 ) -> Result<(), io::Error>
 where

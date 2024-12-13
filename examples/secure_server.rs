@@ -120,7 +120,7 @@ pub async fn main() {
     });
 
     let server_addr = "127.0.0.1:5433";
-    let tls_acceptor = Arc::new(setup_tls().unwrap());
+    let tls_acceptor = setup_tls().unwrap();
     let listener = TcpListener::bind(server_addr).await.unwrap();
 
     println!("Listening to {}", server_addr);
