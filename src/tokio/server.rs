@@ -44,7 +44,6 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
                         return Ok(Some(PgWireFrontendMessage::SslRequest(Some(request))));
                     } else {
                         // this is not a real message, but to indicate that
-                        //  E
                         //  client will not init ssl handshake
                         return Ok(Some(PgWireFrontendMessage::SslRequest(None)));
                     }
