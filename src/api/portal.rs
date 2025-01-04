@@ -5,7 +5,7 @@ use postgres_types::FromSqlOwned;
 
 use crate::{
     api::Type,
-    error::{PgWireError, PgWireResult},
+    error::{PgWireError, PgWireResult, ErrorInfo},
     messages::{data::FORMAT_CODE_BINARY, extendedquery::Bind},
 };
 
@@ -117,11 +117,21 @@ impl<S: Clone> Portal<S> {
             .get(idx)
             .ok_or_else(|| PgWireError::ParameterIndexOutOfBound(idx))?;
 
-        let _format = self.parameter_format.format_for(idx);
+        let format = self.parameter_format.format_for(idx);
+        if format == FieldFormat::Text {
+            // TODO: from_sql only works with BINARY format - fail right
+            //  away if the client sent parameters in TEXT format. Attempting
+            //  to decode values encoded in TEXT format will fail anyway.
+            //
+            // here we need to support TEXT format
+            return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                "ERROR".to_owned(),
+                "0A000".to_owned(),
+                "Passing parameter values encoded in TEXT format is not supported.".to_owned(),
+            ))))
+        }
 
         if let Some(ref param) = param {
-            // TODO: from_sql only works with binary format
-            // here we need to check format code first and seek to support text
             T::from_sql(pg_type, param)
                 .map(|v| Some(v))
                 .map_err(PgWireError::FailedToParseParameter)
