@@ -2,6 +2,9 @@ use std::io::{Error as IOError, ErrorKind};
 use std::sync::Arc;
 
 use bytes::Buf;
+use futures::stream::SplitSink;
+use futures::{SinkExt, StreamExt};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use tokio_rustls::TlsConnector;
@@ -10,7 +13,7 @@ use tokio_util::codec::{Decoder, Encoder, Framed};
 
 use crate::api::client::config::Host;
 use crate::api::client::Config;
-use crate::error::PgWireError;
+use crate::error::{PgWireError, PgWireResult};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 #[non_exhaustive]
@@ -39,13 +42,42 @@ impl Encoder<PgWireFrontendMessage> for PgWireMessageClientCodec {
 }
 
 pub struct PgWireClient<S> {
-    transport: Framed<S, PgWireMessageClientCodec>,
+    transport: SplitSink<Framed<S, PgWireMessageClientCodec>, PgWireFrontendMessage>,
 }
 
 impl PgWireClient<TcpStream> {
-    pub fn from_socket(socket: TcpStream) -> Self {
+    pub fn process_socket(socket: TcpStream) -> Arc<Self> {
         let socket = Framed::new(socket, PgWireMessageClientCodec);
-        Self { transport: socket }
+        let (sender, mut receiver) = socket.split();
+        let client = Arc::new(PgWireClient { transport: sender });
+        let handle_client = client.clone();
+
+        let handle = async move {
+            while let Some(msg) = receiver.next().await {
+                if let Ok(msg) = msg {
+                    if let Err(e) = handle_client.process_message(msg).await {
+                        if let Err(_e) = handle_client.process_error(e).await {
+                            break;
+                        }
+                    }
+                } else {
+                    break;
+                }
+            }
+        };
+
+        tokio::spawn(handle);
+
+        client
+    }
+
+    async fn process_message(&self, message: PgWireBackendMessage) -> PgWireResult<()> {
+        todo!();
+        Ok(())
+    }
+
+    async fn process_error(&self, error: PgWireError) -> Result<(), IOError> {
+        todo!()
     }
 }
 
@@ -84,8 +116,6 @@ fn get_addr(config: &Config) -> Result<String, IOError> {
     Err(IOError::new(ErrorKind::InvalidData, "Invalid host"))
 }
 
-pub async fn connect(config: Config) -> Result<(), IOError> {
-    let mut stream = TcpStream::connect(get_addr(&config)?).await?;
-
-    Ok(())
+pub async fn connect(config: Config) -> Result<TcpStream, IOError> {
+    TcpStream::connect(get_addr(&config)?).await
 }
