@@ -79,7 +79,7 @@ rustls-pemfile = "2.0"
 rustls-pki-types = "1.0"
 ## webpki-roots has mozilla's set of roots
 ## rustls-native-certs loads roots from current system
-gluesql = { version = "0.15", default-features = false, features = ["memory-storage"] }
+gluesql = { version = "0.16", default-features = false, features = ["gluesql_memory_storage"] }
 
 [workspace]
 members = [
