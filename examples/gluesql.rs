@@ -149,7 +149,7 @@ impl SimpleQueryHandler for GluesqlProcessor {
                         }
                         Payload::Create => Ok(Response::Execution(Tag::new("CREATE TABLE"))),
                         Payload::AlterTable => Ok(Response::Execution(Tag::new("ALTER TABLE"))),
-                        Payload::DropTable => Ok(Response::Execution(Tag::new("DROP TABLE"))),
+                        Payload::DropTable(_) => Ok(Response::Execution(Tag::new("DROP TABLE"))),
                         Payload::CreateIndex => Ok(Response::Execution(Tag::new("CREATE INDEX"))),
                         Payload::DropIndex => Ok(Response::Execution(Tag::new("DROP INDEX"))),
                         _ => {
