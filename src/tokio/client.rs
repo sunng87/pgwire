@@ -2,17 +2,15 @@ use std::io::{Error as IOError, ErrorKind};
 use std::pin::Pin;
 use std::sync::Arc;
 
-use bytes::Buf;
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use pin_project::pin_project;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
-#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
-use tokio_rustls::TlsConnector;
-use tokio_rustls::TlsStream;
+use tokio_rustls::client::TlsStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
+use super::TlsConnector;
 use crate::api::client::config::Host;
 use crate::api::client::{Config, PgWireClientHandlers};
 use crate::error::{PgWireError, PgWireResult};
@@ -56,6 +54,7 @@ impl<H: PgWireClientHandlers + Send + Sync + 'static> PgWireClient<ClientSocket,
     pub async fn connect(
         config: Config,
         handlers: H,
+        tls_connector: Option<TlsConnector>,
     ) -> Result<Arc<PgWireClient<ClientSocket, H>>, IOError> {
         // tcp connect
         let socket = TcpStream::connect(get_addr(&config)?).await?;
@@ -63,7 +62,7 @@ impl<H: PgWireClientHandlers + Send + Sync + 'static> PgWireClient<ClientSocket,
         // perform ssl handshake based on postgres configuration
         // if tls is not enabled, just return the socket and perform startup
         // directly
-        let socket = ssl_handshake(socket, &config).await?;
+        let socket = ssl_handshake(socket, &config, tls_connector).await?;
         let socket = Framed::new(socket, PgWireMessageClientCodec);
 
         let (sender, mut receiver) = socket.split();
@@ -156,9 +155,26 @@ impl AsyncWrite for ClientSocket {
 }
 
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+async fn connect_tls(
+    socket: TcpStream,
+    config: &Config,
+    tls_connector: TlsConnector,
+) -> Result<ClientSocket, IOError> {
+    // TODO: set ALPN correctly
+    use rustls_pki_types::ServerName;
+
+    let hostname = config.host[0].get_hostname().unwrap_or("".to_owned());
+    let server_name =
+        ServerName::try_from(hostname).map_err(|e| IOError::new(ErrorKind::InvalidInput, e))?;
+    let tls_stream = tls_connector.connect(server_name, socket).await?;
+    Ok(ClientSocket::Secure(tls_stream))
+}
+
+#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 pub(crate) async fn ssl_handshake(
     mut socket: Framed<TcpStream, PgWireMessageClientCodec>,
     config: &Config,
+    tls_connector: Option<TlsConnector>,
 ) -> Result<ClientSocket, IOError> {
     use crate::{
         api::client::config::{SslMode, SslNegotiation},
@@ -170,38 +186,53 @@ pub(crate) async fn ssl_handshake(
         return Ok(ClientSocket::Plain(socket.into_inner()));
     }
 
-    if config.ssl_negotiation == SslNegotiation::Direct {
-        // TODO: more tls configuration
-        // let tls_stream = TlsConnector::connect(socket.into_inner(), )
-        todo!();
-    } else {
-        // postgres ssl handshake
-        socket
-            .send(PgWireFrontendMessage::SslRequest(Some(
-                crate::messages::startup::SslRequest,
-            )))
-            .await?;
-
-        if let Some(Ok(PgWireBackendMessage::SslResponse(ssl_resp))) = socket.next().await {
-            match ssl_resp {
-                SslResponse::Accept => {
-                    todo!();
-                }
-                SslResponse::Refuse => Ok(ClientSocket::Plain(socket.into_inner())),
-            }
+    if let Some(tls_connector) = tls_connector {
+        if config.ssl_negotiation == SslNegotiation::Direct {
+            connect_tls(socket.into_inner(), config, tls_connector).await
         } else {
-            // connection closed
-            Err(IOError::new(
-                ErrorKind::ConnectionAborted,
-                "Expect SslResponse",
-            ))
+            // postgres ssl handshake
+            socket
+                .send(PgWireFrontendMessage::SslRequest(Some(
+                    crate::messages::startup::SslRequest,
+                )))
+                .await?;
+
+            if let Some(Ok(PgWireBackendMessage::SslResponse(ssl_resp))) = socket.next().await {
+                match ssl_resp {
+                    SslResponse::Accept => {
+                        connect_tls(socket.into_inner(), config, tls_connector).await
+                    }
+                    SslResponse::Refuse => {
+                        if config.ssl_mode == SslMode::Require {
+                            Err(IOError::new(
+                                ErrorKind::ConnectionAborted,
+                                "TLS is not enabled on server ",
+                            ))
+                        } else {
+                            Ok(ClientSocket::Plain(socket.into_inner()))
+                        }
+                    }
+                }
+            } else {
+                // connection closed
+                Err(IOError::new(
+                    ErrorKind::ConnectionAborted,
+                    "Expect SslResponse",
+                ))
+            }
         }
+    } else {
+        return Ok(ClientSocket::Plain(socket.into_inner()));
     }
 }
 
 #[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]
-pub(crate) async fn ssl_handshake(socket: TcpStream) -> Result<ClientSocket, IOError> {
-    Ok(socket)
+pub(crate) async fn ssl_handshake(
+    socket: TcpStream,
+    _config: &Config,
+    _tls_connector: Option<TlsConnector>,
+) -> Result<ClientSocket, IOError> {
+    Ok(ClientSocket::Plain(socket))
 }
 
 fn get_addr(config: &Config) -> Result<String, IOError> {

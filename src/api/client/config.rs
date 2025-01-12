@@ -87,6 +87,15 @@ pub(crate) enum Host {
     Unix(PathBuf),
 }
 
+impl Host {
+    pub(crate) fn get_hostname(&self) -> Option<String> {
+        match self {
+            Host::Tcp(host) => Some(host.clone()),
+            Host::Unix(_) => None,
+        }
+    }
+}
+
 /// Connection configuration.
 ///
 /// Configuration can be parsed from libpq-style connection strings. These strings come in two formats:
