@@ -57,9 +57,12 @@ impl<H: PgWireClientHandlers + Send + Sync + 'static> PgWireClient<ClientSocket,
         config: Config,
         handlers: H,
     ) -> Result<Arc<PgWireClient<ClientSocket, H>>, IOError> {
+        // tcp connect
         let socket = TcpStream::connect(get_addr(&config)?).await?;
-
-        let socket = ssl_handshake(socket).await?;
+        // perform ssl handshake based on postgres configuration
+        // if tls is not enabled, just return the socket and perform startup
+        // directly
+        let socket = ssl_handshake(socket, &config).await?;
 
         let socket = Framed::new(socket, PgWireMessageClientCodec);
         let (sender, mut receiver) = socket.split();
@@ -151,17 +154,18 @@ impl AsyncWrite for ClientSocket {
     }
 }
 
-pub(crate) async fn ssl_handshake(socket: TcpStream) -> Result<ClientSocket, IOError> {
+#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+pub(crate) async fn ssl_handshake(
+    socket: TcpStream,
+    config: &Config,
+) -> Result<ClientSocket, IOError> {
     todo!()
 }
 
-// #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
-// impl PgWireClient<TlsStream<TcpStream>> {
-//     pub fn from_socket(socket: TcpStream, tls_connector: TlsConnector) -> Self {
-//         let socket = Framed::new(socket, PgWireMessageClientCodec);
-//         todo!()
-//     }
-// }
+#[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]
+pub(crate) async fn ssl_handshake(socket: TcpStream) -> Result<ClientSocket, IOError> {
+    Ok(socket)
+}
 
 fn get_addr(config: &Config) -> Result<String, IOError> {
     if config.get_hostaddrs().len() > 0 {
