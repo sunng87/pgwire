@@ -1,9 +1,11 @@
 use std::io::{Error as IOError, ErrorKind};
+use std::pin::Pin;
 use std::sync::Arc;
 
 use bytes::Buf;
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
+use pin_project::pin_project;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
@@ -12,7 +14,7 @@ use tokio_rustls::TlsStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
 use crate::api::client::config::Host;
-use crate::api::client::Config;
+use crate::api::client::{Config, PgWireClientHandlers};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
@@ -41,15 +43,31 @@ impl Encoder<PgWireFrontendMessage> for PgWireMessageClientCodec {
     }
 }
 
-pub struct PgWireClient<S> {
+pub struct PgWireClient<
+    S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
+    H: PgWireClientHandlers + Send + Sync,
+> {
     transport: SplitSink<Framed<S, PgWireMessageClientCodec>, PgWireFrontendMessage>,
+    handlers: H,
+    config: Config,
 }
 
-impl PgWireClient<TcpStream> {
-    pub fn process_socket(socket: TcpStream) -> Arc<Self> {
+impl<H: PgWireClientHandlers + Send + Sync + 'static> PgWireClient<ClientSocket, H> {
+    pub async fn connect(
+        config: Config,
+        handlers: H,
+    ) -> Result<Arc<PgWireClient<ClientSocket, H>>, IOError> {
+        let socket = TcpStream::connect(get_addr(&config)?).await?;
+
+        let socket = ssl_handshake(socket).await?;
+
         let socket = Framed::new(socket, PgWireMessageClientCodec);
         let (sender, mut receiver) = socket.split();
-        let client = Arc::new(PgWireClient { transport: sender });
+        let client = Arc::new(PgWireClient {
+            transport: sender,
+            handlers,
+            config,
+        });
         let handle_client = client.clone();
 
         let handle = async move {
@@ -68,7 +86,7 @@ impl PgWireClient<TcpStream> {
 
         tokio::spawn(handle);
 
-        client
+        Ok(client)
     }
 
     async fn process_message(&self, message: PgWireBackendMessage) -> PgWireResult<()> {
@@ -81,13 +99,69 @@ impl PgWireClient<TcpStream> {
     }
 }
 
-#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
-impl PgWireClient<TlsStream<TcpStream>> {
-    pub fn from_socket(socket: TcpStream, tls_connector: TlsConnector) -> Self {
-        let socket = Framed::new(socket, PgWireMessageClientCodec);
-        todo!()
+#[pin_project(project = ClientSocketProj)]
+pub enum ClientSocket {
+    Plain(#[pin] TcpStream),
+    Secure(#[pin] TlsStream<TcpStream>),
+}
+
+impl AsyncRead for ClientSocket {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        match self.project() {
+            ClientSocketProj::Plain(socket) => socket.poll_read(cx, buf),
+            ClientSocketProj::Secure(tls_socket) => tls_socket.poll_read(cx, buf),
+        }
     }
 }
+
+impl AsyncWrite for ClientSocket {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<Result<usize, std::io::Error>> {
+        match self.project() {
+            ClientSocketProj::Plain(socket) => socket.poll_write(cx, buf),
+            ClientSocketProj::Secure(tls_socket) => tls_socket.poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), std::io::Error>> {
+        match self.project() {
+            ClientSocketProj::Plain(socket) => socket.poll_flush(cx),
+            ClientSocketProj::Secure(tls_socket) => tls_socket.poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), std::io::Error>> {
+        match self.project() {
+            ClientSocketProj::Plain(socket) => socket.poll_shutdown(cx),
+            ClientSocketProj::Secure(tls_socket) => tls_socket.poll_shutdown(cx),
+        }
+    }
+}
+
+pub(crate) async fn ssl_handshake(socket: TcpStream) -> Result<ClientSocket, IOError> {
+    todo!()
+}
+
+// #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+// impl PgWireClient<TlsStream<TcpStream>> {
+//     pub fn from_socket(socket: TcpStream, tls_connector: TlsConnector) -> Self {
+//         let socket = Framed::new(socket, PgWireMessageClientCodec);
+//         todo!()
+//     }
+// }
 
 fn get_addr(config: &Config) -> Result<String, IOError> {
     if config.get_hostaddrs().len() > 0 {
@@ -114,8 +188,4 @@ fn get_addr(config: &Config) -> Result<String, IOError> {
     }
 
     Err(IOError::new(ErrorKind::InvalidData, "Invalid host"))
-}
-
-pub async fn connect(config: Config) -> Result<TcpStream, IOError> {
-    TcpStream::connect(get_addr(&config)?).await
 }
