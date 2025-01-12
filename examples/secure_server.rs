@@ -14,7 +14,7 @@ use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
-use pgwire::api::{ClientInfo, PgWireHandlerFactory, Type};
+use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 
@@ -85,11 +85,12 @@ struct DummyProcessorFactory {
     handler: Arc<DummyProcessor>,
 }
 
-impl PgWireHandlerFactory for DummyProcessorFactory {
+impl PgWireServerHandlers for DummyProcessorFactory {
     type StartupHandler = DummyProcessor;
     type SimpleQueryHandler = DummyProcessor;
     type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
     type CopyHandler = NoopCopyHandler;
+    type ErrorHandler = NoopErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
         self.handler.clone()
@@ -106,6 +107,10 @@ impl PgWireHandlerFactory for DummyProcessorFactory {
     fn copy_handler(&self) -> Arc<Self::CopyHandler> {
         Arc::new(NoopCopyHandler)
     }
+
+    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
+        Arc::new(NoopErrorHandler)
+    }
 }
 
 #[tokio::main]
@@ -115,7 +120,7 @@ pub async fn main() {
     });
 
     let server_addr = "127.0.0.1:5433";
-    let tls_acceptor = Arc::new(setup_tls().unwrap());
+    let tls_acceptor = setup_tls().unwrap();
     let listener = TcpListener::bind(server_addr).await.unwrap();
 
     println!("Listening to {}", server_addr);

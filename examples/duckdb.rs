@@ -16,7 +16,7 @@ use pgwire::api::results::{
     Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
-use pgwire::api::{ClientInfo, PgWireHandlerFactory, Type};
+use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::data::DataRow;
 use pgwire::tokio::process_socket;
@@ -328,12 +328,13 @@ struct DuckDBBackendFactory {
     handler: Arc<DuckDBBackend>,
 }
 
-impl PgWireHandlerFactory for DuckDBBackendFactory {
+impl PgWireServerHandlers for DuckDBBackendFactory {
     type StartupHandler =
         Md5PasswordAuthStartupHandler<DummyAuthSource, DefaultServerParameterProvider>;
     type SimpleQueryHandler = DuckDBBackend;
     type ExtendedQueryHandler = DuckDBBackend;
     type CopyHandler = NoopCopyHandler;
+    type ErrorHandler = NoopErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
         self.handler.clone()
@@ -352,6 +353,10 @@ impl PgWireHandlerFactory for DuckDBBackendFactory {
 
     fn copy_handler(&self) -> Arc<Self::CopyHandler> {
         Arc::new(NoopCopyHandler)
+    }
+
+    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
+        Arc::new(NoopErrorHandler)
     }
 }
 

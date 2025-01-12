@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 pub use postgres_types::Type;
 
+use crate::error::PgWireError;
 use crate::messages::response::TransactionStatus;
 
 pub mod auth;
@@ -127,11 +128,30 @@ impl<S> ClientPortalStore for DefaultClient<S> {
     }
 }
 
-pub trait PgWireHandlerFactory {
+/// A centralized handler for all errors
+///
+/// This handler captures all errors produces by authentication, query and
+/// copy. You can do logging, filtering or masking the error before it sent to
+/// client.
+pub trait ErrorHandler: Send + Sync {
+    fn on_error<C>(&self, _client: &C, _error: &mut PgWireError)
+    where
+        C: ClientInfo,
+    {
+    }
+}
+
+/// A noop implementation for `ErrorHandler`.
+pub struct NoopErrorHandler;
+
+impl ErrorHandler for NoopErrorHandler {}
+
+pub trait PgWireServerHandlers {
     type StartupHandler: auth::StartupHandler;
     type SimpleQueryHandler: query::SimpleQueryHandler;
     type ExtendedQueryHandler: query::ExtendedQueryHandler;
     type CopyHandler: copy::CopyHandler;
+    type ErrorHandler: ErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler>;
 
@@ -140,16 +160,19 @@ pub trait PgWireHandlerFactory {
     fn startup_handler(&self) -> Arc<Self::StartupHandler>;
 
     fn copy_handler(&self) -> Arc<Self::CopyHandler>;
+
+    fn error_handler(&self) -> Arc<Self::ErrorHandler>;
 }
 
-impl<T> PgWireHandlerFactory for Arc<T>
+impl<T> PgWireServerHandlers for Arc<T>
 where
-    T: PgWireHandlerFactory,
+    T: PgWireServerHandlers,
 {
     type StartupHandler = T::StartupHandler;
     type SimpleQueryHandler = T::SimpleQueryHandler;
     type ExtendedQueryHandler = T::ExtendedQueryHandler;
     type CopyHandler = T::CopyHandler;
+    type ErrorHandler = T::ErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
         (**self).simple_query_handler()
@@ -165,5 +188,9 @@ where
 
     fn copy_handler(&self) -> Arc<Self::CopyHandler> {
         (**self).copy_handler()
+    }
+
+    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
+        (**self).error_handler()
     }
 }

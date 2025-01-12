@@ -21,7 +21,7 @@ use pgwire::api::results::{
     Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
-use pgwire::api::{ClientInfo, PgWireHandlerFactory, Type};
+use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 use tokio::net::TcpListener;
@@ -71,7 +71,8 @@ impl DummyDatabase {
             Type::BOOL,
             format.format_for(3),
         );
-        vec![f1, f2, f3, f4]
+        let f5 = FieldInfo::new("data".into(), None, None, Type::BYTEA, format.format_for(4));
+        vec![f1, f2, f3, f4, f5]
     }
 }
 
@@ -95,14 +96,16 @@ impl SimpleQueryHandler for DummyDatabase {
                     Some("Tom"),
                     Some("2023-02-01 22:27:25.042674"),
                     Some(true),
+                    Some("tomcat".as_bytes()),
                 ),
                 (
                     Some(1),
                     Some("Jerry"),
                     Some("2023-02-01 22:27:42.165585"),
                     Some(false),
+                    Some("".as_bytes()),
                 ),
-                (Some(2), None, None, None),
+                (Some(2), None, None, None, None),
             ];
             let data_row_stream = stream::iter(data.into_iter()).map(move |r| {
                 let mut encoder = DataRowEncoder::new(schema_ref.clone());
@@ -111,6 +114,7 @@ impl SimpleQueryHandler for DummyDatabase {
                 encoder.encode_field(&r.1)?;
                 encoder.encode_field(&r.2)?;
                 encoder.encode_field(&r.3)?;
+                encoder.encode_field(&r.4)?;
 
                 encoder.finish()
             });
@@ -147,14 +151,21 @@ impl ExtendedQueryHandler for DummyDatabase {
         println!("extended query: {:?}", query);
         if query.starts_with("SELECT") {
             let data = vec![
-                (Some(0), Some("Tom"), Some(SystemTime::now()), Some(true)),
+                (
+                    Some(0),
+                    Some("Tom"),
+                    Some(SystemTime::now()),
+                    Some(true),
+                    Some("tomcat".as_bytes()),
+                ),
                 (
                     Some(1),
                     Some("Jerry"),
                     Some(SystemTime::UNIX_EPOCH + Duration::from_secs(86400 * 5000)),
                     Some(false),
+                    Some("".as_bytes()),
                 ),
-                (Some(2), None, None, None),
+                (Some(2), None, None, None, None),
             ];
             let schema = Arc::new(self.schema(&portal.result_column_format));
             let schema_ref = schema.clone();
@@ -165,6 +176,7 @@ impl ExtendedQueryHandler for DummyDatabase {
                 encoder.encode_field(&r.1)?;
                 encoder.encode_field(&r.2)?;
                 encoder.encode_field(&r.3)?;
+                encoder.encode_field(&r.4)?;
 
                 encoder.finish()
             });
@@ -205,12 +217,13 @@ impl ExtendedQueryHandler for DummyDatabase {
 
 struct DummyDatabaseFactory(Arc<DummyDatabase>);
 
-impl PgWireHandlerFactory for DummyDatabaseFactory {
+impl PgWireServerHandlers for DummyDatabaseFactory {
     type StartupHandler =
         SASLScramAuthStartupHandler<DummyAuthSource, DefaultServerParameterProvider>;
     type SimpleQueryHandler = DummyDatabase;
     type ExtendedQueryHandler = DummyDatabase;
     type CopyHandler = NoopCopyHandler;
+    type ErrorHandler = NoopErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
         self.0.clone()
@@ -232,6 +245,10 @@ impl PgWireHandlerFactory for DummyDatabaseFactory {
 
     fn copy_handler(&self) -> Arc<Self::CopyHandler> {
         Arc::new(NoopCopyHandler)
+    }
+
+    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
+        Arc::new(NoopErrorHandler)
     }
 }
 
@@ -263,7 +280,7 @@ pub async fn main() {
     let factory = Arc::new(DummyDatabaseFactory(Arc::new(DummyDatabase::default())));
 
     let server_addr = "127.0.0.1:5432";
-    let tls_acceptor = Arc::new(setup_tls().unwrap());
+    let tls_acceptor = setup_tls().unwrap();
     let listener = TcpListener::bind(server_addr).await.unwrap();
     println!("Listening to {}", server_addr);
     loop {

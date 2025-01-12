@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] - 2024-12-07
+
+### Added
+
+- `ErrorHandler` for centralized error processing [#222]
+
+### Changed
+
+- `PgWireHandlerFactory` is renamed to `PgWireServerHandlers` to avoid
+  confusion. This trait doesn't require generating new instance for each
+  call. [#226]
+
+### Fixed
+
+- Text encoding for bytea type [#224]
+
 ## [0.27.0] - 2024-11-30
 
 ### Added

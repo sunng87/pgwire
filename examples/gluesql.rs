@@ -9,7 +9,7 @@ use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
-use pgwire::api::{ClientInfo, PgWireHandlerFactory, Type};
+use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type};
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
 
@@ -149,7 +149,7 @@ impl SimpleQueryHandler for GluesqlProcessor {
                         }
                         Payload::Create => Ok(Response::Execution(Tag::new("CREATE TABLE"))),
                         Payload::AlterTable => Ok(Response::Execution(Tag::new("ALTER TABLE"))),
-                        Payload::DropTable => Ok(Response::Execution(Tag::new("DROP TABLE"))),
+                        Payload::DropTable(_) => Ok(Response::Execution(Tag::new("DROP TABLE"))),
                         Payload::CreateIndex => Ok(Response::Execution(Tag::new("CREATE INDEX"))),
                         Payload::DropIndex => Ok(Response::Execution(Tag::new("DROP INDEX"))),
                         _ => {
@@ -165,11 +165,12 @@ struct GluesqlHandlerFactory {
     processor: Arc<GluesqlProcessor>,
 }
 
-impl PgWireHandlerFactory for GluesqlHandlerFactory {
+impl PgWireServerHandlers for GluesqlHandlerFactory {
     type StartupHandler = GluesqlProcessor;
     type SimpleQueryHandler = GluesqlProcessor;
     type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
     type CopyHandler = NoopCopyHandler;
+    type ErrorHandler = NoopErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
         self.processor.clone()
@@ -185,6 +186,10 @@ impl PgWireHandlerFactory for GluesqlHandlerFactory {
 
     fn copy_handler(&self) -> Arc<Self::CopyHandler> {
         Arc::new(NoopCopyHandler)
+    }
+
+    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
+        Arc::new(NoopErrorHandler)
     }
 }
 

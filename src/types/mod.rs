@@ -126,6 +126,7 @@ impl ToSqlText for &[u8] {
         _ty: &Type,
         out: &mut BytesMut,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        out.put_slice(b"\\x");
         out.put_slice(hex::encode(self).as_bytes());
         Ok(IsNull::No)
     }

@@ -14,7 +14,8 @@ use pgwire::api::results::{
     Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
-use pgwire::api::PgWireHandlerFactory;
+use pgwire::api::NoopErrorHandler;
+use pgwire::api::PgWireServerHandlers;
 use pgwire::api::{ClientInfo, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::data::DataRow;
@@ -285,12 +286,13 @@ struct SqliteBackendFactory {
     handler: Arc<SqliteBackend>,
 }
 
-impl PgWireHandlerFactory for SqliteBackendFactory {
+impl PgWireServerHandlers for SqliteBackendFactory {
     type StartupHandler =
         Md5PasswordAuthStartupHandler<DummyAuthSource, DefaultServerParameterProvider>;
     type SimpleQueryHandler = SqliteBackend;
     type ExtendedQueryHandler = SqliteBackend;
     type CopyHandler = NoopCopyHandler;
+    type ErrorHandler = NoopErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
         self.handler.clone()
@@ -312,6 +314,10 @@ impl PgWireHandlerFactory for SqliteBackendFactory {
 
     fn copy_handler(&self) -> Arc<Self::CopyHandler> {
         Arc::new(NoopCopyHandler)
+    }
+
+    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
+        Arc::new(NoopErrorHandler)
     }
 }
 

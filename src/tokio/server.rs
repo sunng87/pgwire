@@ -1,4 +1,4 @@
-use std::io::Error as IOError;
+use std::io;
 use std::sync::Arc;
 
 use bytes::Buf;
@@ -6,7 +6,7 @@ use futures::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
-use tokio_rustls::{server::TlsStream, TlsAcceptor};
+use tokio_rustls::server::TlsStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
 use crate::api::auth::StartupHandler;
@@ -14,7 +14,8 @@ use crate::api::copy::CopyHandler;
 use crate::api::query::SimpleQueryHandler;
 use crate::api::query::{send_ready_for_query, ExtendedQueryHandler};
 use crate::api::{
-    ClientInfo, ClientPortalStore, DefaultClient, PgWireConnectionState, PgWireHandlerFactory,
+    ClientInfo, ClientPortalStore, DefaultClient, ErrorHandler, PgWireConnectionState,
+    PgWireServerHandlers,
 };
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::response::ReadyForQuery;
@@ -65,7 +66,7 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
 }
 
 impl<S> Encoder<PgWireBackendMessage> for PgWireMessageServerCodec<S> {
-    type Error = IOError;
+    type Error = io::Error;
 
     fn encode(
         &mut self,
@@ -236,7 +237,7 @@ async fn process_error<S, ST>(
     socket: &mut Framed<S, PgWireMessageServerCodec<ST>>,
     error: PgWireError,
     wait_for_sync: bool,
-) -> Result<(), IOError>
+) -> Result<(), io::Error>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
 {
@@ -288,7 +289,7 @@ enum SslNegotiationType {
     None,
 }
 
-async fn check_ssl_direct_negotiation(tcp_socket: &TcpStream) -> Result<bool, IOError> {
+async fn check_ssl_direct_negotiation(tcp_socket: &TcpStream) -> Result<bool, io::Error> {
     let mut buf = [0u8; 1];
     let n = tcp_socket.peek(&mut buf).await?;
 
@@ -298,7 +299,7 @@ async fn check_ssl_direct_negotiation(tcp_socket: &TcpStream) -> Result<bool, IO
 async fn peek_for_sslrequest<ST>(
     socket: &mut Framed<TcpStream, PgWireMessageServerCodec<ST>>,
     ssl_supported: bool,
-) -> Result<SslNegotiationType, IOError> {
+) -> Result<SslNegotiationType, io::Error> {
     if check_ssl_direct_negotiation(socket.get_ref()).await? {
         Ok(SslNegotiationType::Direct)
     } else if let Some(Ok(PgWireFrontendMessage::SslRequest(Some(_)))) = socket.next().await {
@@ -318,26 +319,28 @@ async fn peek_for_sslrequest<ST>(
     }
 }
 
-async fn do_process_socket<S, A, Q, EQ, C>(
+async fn do_process_socket<S, A, Q, EQ, C, E>(
     socket: &mut Framed<S, PgWireMessageServerCodec<EQ::Statement>>,
     startup_handler: Arc<A>,
     simple_query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
     copy_handler: Arc<C>,
-) -> Result<(), IOError>
+    error_handler: Arc<E>,
+) -> Result<(), io::Error>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
     A: StartupHandler,
     Q: SimpleQueryHandler,
     EQ: ExtendedQueryHandler,
     C: CopyHandler,
+    E: ErrorHandler,
 {
     while let Some(Ok(msg)) = socket.next().await {
         let is_extended_query = match socket.state() {
             PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
             _ => msg.is_extended_query(),
         };
-        if let Err(e) = process_message(
+        if let Err(mut e) = process_message(
             msg,
             socket,
             startup_handler.clone(),
@@ -347,6 +350,7 @@ where
         )
         .await
         {
+            error_handler.on_error(socket, &mut e);
             process_error(socket, e, is_extended_query).await?;
         }
     }
@@ -355,7 +359,7 @@ where
 }
 
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
-fn check_alpn_for_direct_ssl<IO>(tls_socket: &TlsStream<IO>) -> Result<(), IOError> {
+fn check_alpn_for_direct_ssl<IO>(tls_socket: &TlsStream<IO>) -> Result<(), io::Error> {
     let (_, the_conn) = tls_socket.get_ref();
     let mut accept = false;
 
@@ -366,8 +370,8 @@ fn check_alpn_for_direct_ssl<IO>(tls_socket: &TlsStream<IO>) -> Result<(), IOErr
     }
 
     if !accept {
-        Err(IOError::new(
-            std::io::ErrorKind::InvalidData,
+        Err(io::Error::new(
+            io::ErrorKind::InvalidData,
             "received direct SSL connection request without ALPN protocol negotiation extension",
         ))
     } else {
@@ -377,11 +381,11 @@ fn check_alpn_for_direct_ssl<IO>(tls_socket: &TlsStream<IO>) -> Result<(), IOErr
 
 pub async fn process_socket<H>(
     tcp_socket: TcpStream,
-    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))] tls_acceptor: Option<Arc<TlsAcceptor>>,
+    tls_acceptor: Option<crate::tokio::TlsAcceptor>,
     handlers: H,
-) -> Result<(), IOError>
+) -> Result<(), io::Error>
 where
-    H: PgWireHandlerFactory,
+    H: PgWireServerHandlers,
 {
     let addr = tcp_socket.peer_addr()?;
     tcp_socket.set_nodelay(true)?;
@@ -389,15 +393,13 @@ where
     let client_info = DefaultClient::new(addr, false);
     let mut tcp_socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
 
-    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     let ssl = peek_for_sslrequest(&mut tcp_socket, tls_acceptor.is_some()).await?;
-    #[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]
-    let ssl = peek_for_sslrequest(&mut tcp_socket, false).await?;
 
     let startup_handler = handlers.startup_handler();
     let simple_query_handler = handlers.simple_query_handler();
     let extended_query_handler = handlers.extended_query_handler();
     let copy_handler = handlers.copy_handler();
+    let error_handler = handlers.error_handler();
 
     if ssl == SslNegotiationType::None {
         // use an already configured socket.
@@ -409,6 +411,7 @@ where
             simple_query_handler,
             extended_query_handler,
             copy_handler,
+            error_handler,
         )
         .await
     } else {
@@ -435,6 +438,7 @@ where
                 simple_query_handler,
                 extended_query_handler,
                 copy_handler,
+                error_handler,
             )
             .await
         }
