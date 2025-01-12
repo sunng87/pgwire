@@ -59,12 +59,13 @@ impl<H: PgWireClientHandlers + Send + Sync + 'static> PgWireClient<ClientSocket,
     ) -> Result<Arc<PgWireClient<ClientSocket, H>>, IOError> {
         // tcp connect
         let socket = TcpStream::connect(get_addr(&config)?).await?;
+        let socket = Framed::new(socket, PgWireMessageClientCodec);
         // perform ssl handshake based on postgres configuration
         // if tls is not enabled, just return the socket and perform startup
         // directly
         let socket = ssl_handshake(socket, &config).await?;
-
         let socket = Framed::new(socket, PgWireMessageClientCodec);
+
         let (sender, mut receiver) = socket.split();
         let client = Arc::new(PgWireClient {
             transport: sender,
@@ -156,10 +157,46 @@ impl AsyncWrite for ClientSocket {
 
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 pub(crate) async fn ssl_handshake(
-    socket: TcpStream,
+    mut socket: Framed<TcpStream, PgWireMessageClientCodec>,
     config: &Config,
 ) -> Result<ClientSocket, IOError> {
-    todo!()
+    use crate::{
+        api::client::config::{SslMode, SslNegotiation},
+        messages::response::SslResponse,
+    };
+
+    // ssl is disabled on client side
+    if config.ssl_mode == SslMode::Disable {
+        return Ok(ClientSocket::Plain(socket.into_inner()));
+    }
+
+    if config.ssl_negotiation == SslNegotiation::Direct {
+        // TODO: more tls configuration
+        // let tls_stream = TlsConnector::connect(socket.into_inner(), )
+        todo!();
+    } else {
+        // postgres ssl handshake
+        socket
+            .send(PgWireFrontendMessage::SslRequest(Some(
+                crate::messages::startup::SslRequest,
+            )))
+            .await?;
+
+        if let Some(Ok(PgWireBackendMessage::SslResponse(ssl_resp))) = socket.next().await {
+            match ssl_resp {
+                SslResponse::Accept => {
+                    todo!();
+                }
+                SslResponse::Refuse => Ok(ClientSocket::Plain(socket.into_inner())),
+            }
+        } else {
+            // connection closed
+            Err(IOError::new(
+                ErrorKind::ConnectionAborted,
+                "Expect SslResponse",
+            ))
+        }
+    }
 }
 
 #[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]

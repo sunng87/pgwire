@@ -43,6 +43,16 @@ pub enum SslMode {
     Require,
 }
 
+/// TLS negotiation configuration
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SslNegotiation {
+    /// Use PostgreSQL SslRequest for Ssl negotiation
+    Postgres,
+    /// Start Ssl handshake without negotiation, only works for PostgreSQL 17+
+    Direct,
+}
+
 /// Channel binding configuration.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -191,6 +201,7 @@ pub struct Config {
     pub(crate) options: Option<String>,
     pub(crate) application_name: Option<String>,
     pub(crate) ssl_mode: SslMode,
+    pub(crate) ssl_negotiation: SslNegotiation,
     pub(crate) host: Vec<Host>,
     pub(crate) hostaddr: Vec<IpAddr>,
     pub(crate) port: Vec<u16>,
@@ -220,6 +231,7 @@ impl Config {
             options: None,
             application_name: None,
             ssl_mode: SslMode::Prefer,
+            ssl_negotiation: SslNegotiation::Postgres,
             host: vec![],
             hostaddr: vec![],
             port: vec![],
@@ -316,6 +328,19 @@ impl Config {
     /// Gets the SSL configuration.
     pub fn get_ssl_mode(&self) -> SslMode {
         self.ssl_mode
+    }
+
+    /// Sets the SSL negotiation method.
+    ///
+    /// Defaults to `postgres`.
+    pub fn ssl_negotiation(&mut self, ssl_negotiation: SslNegotiation) -> &mut Config {
+        self.ssl_negotiation = ssl_negotiation;
+        self
+    }
+
+    /// Gets the SSL negotiation method.
+    pub fn get_ssl_negotiation(&self) -> SslNegotiation {
+        self.ssl_negotiation
     }
 
     /// Adds a host to the configuration.
@@ -542,6 +567,14 @@ impl Config {
                     _ => return Err(PgWireError::InvalidConfig("sslmode".into())),
                 };
                 self.ssl_mode(mode);
+            }
+            "sslnegotiation" => {
+                let mode = match value {
+                    "postgres" => SslNegotiation::Postgres,
+                    "direct" => SslNegotiation::Direct,
+                    _ => return Err(PgWireError::InvalidConfig("sslnegotiation".into())),
+                };
+                self.ssl_negotiation(mode);
             }
             "host" => {
                 for host in value.split(',') {

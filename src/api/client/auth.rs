@@ -8,6 +8,8 @@ use super::Config;
 
 #[async_trait]
 pub trait StartupHandler: Send + Sync {
+    async fn startup(&self, config: &Config) -> PgWireResult<()>;
+
     async fn on_authentication(&self, message: Authentication) -> PgWireResult<()>;
 
     async fn on_parameter_status(&self, message: ParameterStatus) -> PgWireResult<()>;
