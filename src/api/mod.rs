@@ -10,6 +10,8 @@ use crate::error::PgWireError;
 use crate::messages::response::TransactionStatus;
 
 pub mod auth;
+#[cfg(feature = "client-api")]
+pub mod client;
 pub mod copy;
 pub mod portal;
 pub mod query;

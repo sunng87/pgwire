@@ -25,8 +25,10 @@ tokio = { version = "1.19", features = [
 ], optional = true }
 tokio-util = { version = "0.7.3", features = ["codec", "io"], optional = true }
 tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["logging", "tls12"]}
+rustls-pki-types = { version = "1.10", optional = true }
 futures = { version = "0.3", optional = true }
 async-trait = { version = "0.1", optional = true }
+pin-project = { version = "1.1", optional = true }
 rand = { version = "0.8", optional = true }
 md5 = { version = "0.7", optional = true }
 hex = { version = "0.4", optional = true }
@@ -44,6 +46,8 @@ postgres-types = { version = "0.2", features = [
 chrono = { version = "0.4", features = ["std"], optional = true }
 rust_decimal = { version = "1.35", features = ["db-postgres"], optional = true }
 lazy-regex = {version = "3.3", default-features = false, features = ["lite"]}
+## config
+percent-encoding = { version = "2.0", optional = true }
 
 [features]
 default = ["server-api-aws-lc-rs"]
@@ -63,6 +67,16 @@ server-api = [
 ]
 server-api-ring = ["server-api", "_ring"]
 server-api-aws-lc-rs = ["server-api", "_aws-lc-rs"]
+client-api = [
+  "dep:percent-encoding",
+  "dep:pin-project",
+  "dep:tokio",
+  "dep:tokio-util",
+  "dep:futures",
+  "dep:async-trait",
+]
+client-api-ring = ["client-api", "_ring", "dep:rustls-pki-types"]
+client-api-aws-lc-rs = ["client-api", "_aws-lc-rs", "dep:rustls-pki-types"]
 scram = ["dep:base64", "dep:stringprep", "dep:x509-certificate"]
 _duckdb = []
 _sqlite = []
