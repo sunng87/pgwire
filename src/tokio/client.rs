@@ -11,8 +11,9 @@ use tokio_rustls::client::TlsStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
 use super::TlsConnector;
+use crate::api::client::auth::StartupHandler;
 use crate::api::client::config::Host;
-use crate::api::client::{Config, PgWireClientHandlers};
+use crate::api::client::{ClientInfo, Config, PgWireClientHandlers};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
@@ -41,16 +42,22 @@ impl Encoder<PgWireFrontendMessage> for PgWireMessageClientCodec {
     }
 }
 
-pub struct PgWireClient<
-    S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
-    H: PgWireClientHandlers + Send + Sync,
-> {
+pub struct PgWireClient<S, H> {
     transport: SplitSink<Framed<S, PgWireMessageClientCodec>, PgWireFrontendMessage>,
     handlers: H,
     config: Config,
 }
 
-impl<H: PgWireClientHandlers + Send + Sync + 'static> PgWireClient<ClientSocket, H> {
+impl<S, H> ClientInfo for PgWireClient<S, H> {
+    fn config(&self) -> &Config {
+        &self.config
+    }
+}
+
+impl<H> PgWireClient<ClientSocket, H>
+where
+    H: PgWireClientHandlers + Send + Sync + 'static,
+{
     pub async fn connect(
         config: Config,
         handlers: H,
@@ -71,8 +78,8 @@ impl<H: PgWireClientHandlers + Send + Sync + 'static> PgWireClient<ClientSocket,
             handlers,
             config,
         });
-        let handle_client = client.clone();
 
+        let handle_client = client.clone();
         let handle = async move {
             while let Some(msg) = receiver.next().await {
                 if let Ok(msg) = msg {
@@ -89,15 +96,19 @@ impl<H: PgWireClientHandlers + Send + Sync + 'static> PgWireClient<ClientSocket,
 
         tokio::spawn(handle);
 
+        // startup
+        let startup_handler = client.handlers.startup_handler();
+        startup_handler.startup(&mut client).await?;
+
         Ok(client)
     }
 
-    async fn process_message(&self, message: PgWireBackendMessage) -> PgWireResult<()> {
+    async fn process_message(&mut self, message: PgWireBackendMessage) -> PgWireResult<()> {
         todo!();
         Ok(())
     }
 
-    async fn process_error(&self, error: PgWireError) -> Result<(), IOError> {
+    async fn process_error(&mut self, error: PgWireError) -> Result<(), IOError> {
         todo!()
     }
 }

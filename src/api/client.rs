@@ -1,4 +1,4 @@
-mod auth;
+pub(crate) mod auth;
 pub(crate) mod config;
 
 use std::sync::Arc;
@@ -21,4 +21,10 @@ where
     fn startup_handler(&self) -> Arc<Self::StartupHandler> {
         (**self).startup_handler()
     }
+}
+
+/// A trait for fetching necessary information from Client
+pub trait ClientInfo {
+    /// Returns configuration of this client
+    fn config(&self) -> &Config;
 }
