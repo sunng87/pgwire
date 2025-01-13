@@ -1,6 +1,5 @@
 use std::fmt::Display;
 use std::io::{Error as IOError, ErrorKind};
-use std::str::Utf8Error;
 use thiserror::Error;
 
 use crate::messages::response::{ErrorResponse, NoticeResponse};
@@ -47,7 +46,7 @@ pub enum PgWireError {
     UnknownConfig(String),
     #[cfg(feature = "client-api")]
     #[error("Failed to parse utf8 value")]
-    InvalidUtf8ConfigValue(#[source] Utf8Error),
+    InvalidUtf8ConfigValue(#[source] Utf8std::str::Utf8Error),
 
     #[error(transparent)]
     ApiError(#[from] Box<dyn std::error::Error + 'static + Send + Sync>),
