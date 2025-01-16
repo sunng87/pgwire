@@ -7,6 +7,7 @@ use futures::{SinkExt, StreamExt};
 use pin_project::pin_project;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio_rustls::client::TlsStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
@@ -42,19 +43,25 @@ impl Encoder<PgWireFrontendMessage> for PgWireMessageClientCodec {
     }
 }
 
-pub struct PgWireClient<S, H> {
-    transport: SplitSink<Framed<S, PgWireMessageClientCodec>, PgWireFrontendMessage>,
+#[derive(Debug)]
+struct PgWireClientInner<H> {
+    sender: UnboundedSender<PgWireFrontendMessage>,
     handlers: H,
     config: Config,
 }
 
-impl<S, H> ClientInfo for PgWireClient<S, H> {
+#[derive(Debug, Clone)]
+pub struct PgWireClient<H> {
+    inner: Arc<PgWireClientInner<H>>,
+}
+
+impl<H> ClientInfo for PgWireClient<H> {
     fn config(&self) -> &Config {
-        &self.config
+        &self.inner.config
     }
 }
 
-impl<H> PgWireClient<ClientSocket, H>
+impl<H> PgWireClient<H>
 where
     H: PgWireClientHandlers + Send + Sync + 'static,
 {
@@ -62,7 +69,7 @@ where
         config: Config,
         handlers: H,
         tls_connector: Option<TlsConnector>,
-    ) -> Result<Arc<PgWireClient<ClientSocket, H>>, IOError> {
+    ) -> Result<PgWireClient<H>, IOError> {
         // tcp connect
         let socket = TcpStream::connect(get_addr(&config)?).await?;
         let socket = Framed::new(socket, PgWireMessageClientCodec);
@@ -71,20 +78,22 @@ where
         // directly
         let socket = ssl_handshake(socket, &config, tls_connector).await?;
         let socket = Framed::new(socket, PgWireMessageClientCodec);
+        let (socket_sender, socket_receiver) = socket.split();
 
-        let (sender, mut receiver) = socket.split();
-        let client = Arc::new(PgWireClient {
-            transport: sender,
-            handlers,
-            config,
-        });
+        let (tx, rx) = unbounded_channel();
+        let client = PgWireClient {
+            inner: Arc::new(PgWireClientInner {
+                sender: tx,
+                handlers,
+                config,
+            }),
+        };
 
-        let handle_client = client.clone();
-        let handle = async move {
-            while let Some(msg) = receiver.next().await {
+        let recv_handle = async move {
+            while let Some(msg) = socket_receiver.next().await {
                 if let Ok(msg) = msg {
-                    if let Err(e) = handle_client.process_message(msg).await {
-                        if let Err(_e) = handle_client.process_error(e).await {
+                    if let Err(e) = client.process_message(msg).await {
+                        if let Err(_e) = client.process_error(e).await {
                             break;
                         }
                     }
@@ -93,12 +102,17 @@ where
                 }
             }
         };
-
-        tokio::spawn(handle);
+        tokio::spawn(recv_handle);
+        let send_handle = async move {
+            while let Some(msg) = rx.recv().await {
+                socket_sender.send(msg).await;
+            }
+        };
+        tokio::spawn(send_handle);
 
         // startup
-        let startup_handler = client.handlers.startup_handler();
-        startup_handler.startup(&mut client).await?;
+        let startup_handler = client.inner.handlers.startup_handler();
+        startup_handler.startup(&client).await?;
 
         Ok(client)
     }
