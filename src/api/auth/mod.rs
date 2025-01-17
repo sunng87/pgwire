@@ -55,7 +55,7 @@ pub struct DefaultServerParameterProvider {
 impl Default for DefaultServerParameterProvider {
     fn default() -> Self {
         Self {
-            server_version: env!("CARGO_PKG_VERSION").to_owned(),
+            server_version: format!("16.6-pgwire-{}", env!("CARGO_PKG_VERSION").to_owned()),
             server_encoding: "UTF8".to_owned(),
             client_encoding: "UTF8".to_owned(),
             date_style: "ISO YMD".to_owned(),
