@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::Sink;
@@ -7,46 +8,45 @@ use crate::error::{PgWireError, PgWireResult};
 use crate::messages::response::ReadyForQuery;
 use crate::messages::startup::{Authentication, BackendKeyData, ParameterStatus};
 use crate::messages::PgWireFrontendMessage;
+use crate::tokio::client::PgWireClient;
 
-use super::ClientInfo;
+use super::{ClientInfo, PgWireClientHandlers};
 
 #[async_trait]
 pub trait StartupHandler: Send + Sync {
-    async fn startup<C>(&self, client: &mut C) -> PgWireResult<()>
+    async fn startup<H>(&self, client: &PgWireClient<H>) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
-        C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+        H: PgWireClientHandlers + Send + Sync + 'static;
 
-    async fn on_authentication<C>(
+    async fn on_authentication<H>(
         &self,
-        client: &mut C,
+        client: &PgWireClient<H>,
         message: Authentication,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
-        C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+        H: PgWireClientHandlers + Send + Sync + 'static;
 
-    async fn on_parameter_status<C>(
+    async fn on_parameter_status<H>(
         &self,
-        client: &mut C,
+        client: &PgWireClient<H>,
         message: ParameterStatus,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
-        C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+        H: PgWireClientHandlers + Send + Sync + 'static;
 
-    async fn on_backend_key<C>(&self, client: &mut C, message: BackendKeyData) -> PgWireResult<()>;
-
-    async fn on_ready_for_query<C>(
+    async fn on_backend_key<H>(
         &self,
-        client: &mut C,
+        client: &PgWireClient<H>,
+        message: BackendKeyData,
+    ) -> PgWireResult<()>
+    where
+        H: PgWireClientHandlers + Send + Sync + 'static;
+
+    async fn on_ready_for_query<H>(
+        &self,
+        client: &PgWireClient<H>,
         message: ReadyForQuery,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
-        C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+        H: PgWireClientHandlers + Send + Sync + 'static;
 }

@@ -1,8 +1,8 @@
+use std::collections::BTreeMap;
 use std::io::{Error as IOError, ErrorKind};
 use std::pin::Pin;
 use std::sync::Arc;
 
-use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use pin_project::pin_project;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -43,21 +43,24 @@ impl Encoder<PgWireFrontendMessage> for PgWireMessageClientCodec {
     }
 }
 
-#[derive(Debug)]
-struct PgWireClientInner<H> {
-    sender: UnboundedSender<PgWireFrontendMessage>,
-    handlers: H,
-    config: Config,
-}
-
 #[derive(Debug, Clone)]
 pub struct PgWireClient<H> {
-    inner: Arc<PgWireClientInner<H>>,
+    sender: UnboundedSender<PgWireFrontendMessage>,
+    handlers: Arc<H>,
+    config: Arc<Config>,
 }
 
 impl<H> ClientInfo for PgWireClient<H> {
     fn config(&self) -> &Config {
-        &self.inner.config
+        &self.config
+    }
+
+    fn server_parameters(&self) -> &BTreeMap<String, String> {
+        todo!()
+    }
+
+    fn process_id(&self) -> i32 {
+        todo!()
     }
 }
 
@@ -66,10 +69,10 @@ where
     H: PgWireClientHandlers + Send + Sync + 'static,
 {
     pub async fn connect(
-        config: Config,
-        handlers: H,
+        config: Arc<Config>,
+        handlers: Arc<H>,
         tls_connector: Option<TlsConnector>,
-    ) -> Result<PgWireClient<H>, IOError> {
+    ) -> Result<Arc<PgWireClient<H>>, IOError> {
         // tcp connect
         let socket = TcpStream::connect(get_addr(&config)?).await?;
         let socket = Framed::new(socket, PgWireMessageClientCodec);
@@ -78,51 +81,60 @@ where
         // directly
         let socket = ssl_handshake(socket, &config, tls_connector).await?;
         let socket = Framed::new(socket, PgWireMessageClientCodec);
-        let (socket_sender, socket_receiver) = socket.split();
+        let (mut socket_sender, mut socket_receiver) = socket.split();
 
-        let (tx, rx) = unbounded_channel();
-        let client = PgWireClient {
-            inner: Arc::new(PgWireClientInner {
-                sender: tx,
-                handlers,
-                config,
-            }),
-        };
+        let (tx, mut rx) = unbounded_channel();
+        let client = Arc::new(PgWireClient {
+            sender: tx,
+            handlers,
+            config: config.clone(),
+        });
+        let c2 = client.clone();
 
-        let recv_handle = async move {
-            while let Some(msg) = socket_receiver.next().await {
-                if let Ok(msg) = msg {
-                    if let Err(e) = client.process_message(msg).await {
-                        if let Err(_e) = client.process_error(e).await {
+        let handle = async move {
+            loop {
+                tokio::select! {
+                    send_msg = rx.recv() => {
+                        if let Some(msg) = send_msg {
+                            socket_sender.send(msg).await;
+                        } else {
                             break;
                         }
                     }
-                } else {
-                    break;
+
+                    recv_msg = socket_receiver.next() => {
+                        if let Some(msg) = recv_msg {
+                            if let Ok(msg) = msg {
+                                if let Err(e) = c2.process_message(msg).await {
+                                    if let Err(_e) = c2.process_error(e).await {
+                                        break;
+                                    }
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         };
-        tokio::spawn(recv_handle);
-        let send_handle = async move {
-            while let Some(msg) = rx.recv().await {
-                socket_sender.send(msg).await;
-            }
-        };
-        tokio::spawn(send_handle);
+        tokio::spawn(handle);
 
-        // startup
-        let startup_handler = client.inner.handlers.startup_handler();
-        startup_handler.startup(&client).await?;
+        client
+            .handlers
+            .startup_handler()
+            .startup(client.as_ref())
+            .await?;
 
         Ok(client)
     }
 
-    async fn process_message(&mut self, message: PgWireBackendMessage) -> PgWireResult<()> {
+    async fn process_message(&self, message: PgWireBackendMessage) -> PgWireResult<()> {
         todo!();
         Ok(())
     }
 
-    async fn process_error(&mut self, error: PgWireError) -> Result<(), IOError> {
+    async fn process_error(&self, error: PgWireError) -> Result<(), IOError> {
         todo!()
     }
 }
