@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::io::{Error as IOError, ErrorKind};
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use futures::{SinkExt, StreamExt};
 use pin_project::pin_project;
@@ -43,7 +43,14 @@ impl Encoder<PgWireFrontendMessage> for PgWireMessageClientCodec {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default)]
+pub struct ServerInformation {
+    pub parameters: BTreeMap<String, String>,
+    pub process_id: i32,
+    pub finalized: bool,
+}
+
+#[derive(Debug)]
 pub struct PgWireClient<H> {
     sender: UnboundedSender<PgWireFrontendMessage>,
     handlers: Arc<H>,
@@ -88,6 +95,7 @@ where
             sender: tx,
             handlers,
             config: config.clone(),
+            server_information: Mutex::new(ServerInformation::default()),
         });
         let c2 = client.clone();
 
@@ -96,7 +104,10 @@ where
                 tokio::select! {
                     send_msg = rx.recv() => {
                         if let Some(msg) = send_msg {
-                            socket_sender.send(msg).await;
+                            let r = socket_sender.send(msg).await;
+                            if r.is_err() {
+                                break;
+                            }
                         } else {
                             break;
                         }
