@@ -44,6 +44,14 @@ impl Encoder<PgWireFrontendMessage> for PgWireMessageClientCodec {
 }
 
 #[derive(Debug, Default)]
+pub enum PgWireClientConnectionState {
+    #[default]
+    Disconnected,
+    Connected,
+    ReadyForQuery(ServerInformation),
+}
+
+#[derive(Debug, Default)]
 pub struct ServerInformation {
     pub parameters: BTreeMap<String, String>,
     pub process_id: i32,
@@ -55,6 +63,19 @@ pub struct PgWireClient<H> {
     sender: UnboundedSender<PgWireFrontendMessage>,
     handlers: Arc<H>,
     config: Arc<Config>,
+    state: Mutex<PgWireClientConnectionState>,
+}
+
+impl<H> PgWireClient<H> {
+    pub fn send(&self, msg: PgWireFrontendMessage) -> PgWireResult<()> {
+        self.sender
+            .send(msg)
+            .map_err(|e| PgWireError::ClientMessageSendError(e))
+    }
+
+    pub fn update_state(&self, state: PgWireClientConnectionState) {
+        *self.state.lock().unwrap() = state;
+    }
 }
 
 impl<H> ClientInfo for PgWireClient<H> {
@@ -62,12 +83,24 @@ impl<H> ClientInfo for PgWireClient<H> {
         &self.config
     }
 
-    fn server_parameters(&self) -> &BTreeMap<String, String> {
-        todo!()
+    fn server_parameters(&self, key: &str) -> Option<String> {
+        if let PgWireClientConnectionState::ReadyForQuery(server_info) =
+            &*self.state.lock().unwrap()
+        {
+            server_info.parameters.get(key).map(|s| s.to_string())
+        } else {
+            None
+        }
     }
 
-    fn process_id(&self) -> i32 {
-        todo!()
+    fn process_id(&self) -> Option<i32> {
+        if let PgWireClientConnectionState::ReadyForQuery(server_info) =
+            &*self.state.lock().unwrap()
+        {
+            Some(server_info.process_id)
+        } else {
+            None
+        }
     }
 }
 
@@ -95,7 +128,7 @@ where
             sender: tx,
             handlers,
             config: config.clone(),
-            server_information: Mutex::new(ServerInformation::default()),
+            state: Mutex::new(PgWireClientConnectionState::Connected),
         });
         let c2 = client.clone();
 
@@ -141,11 +174,37 @@ where
     }
 
     async fn process_message(&self, message: PgWireBackendMessage) -> PgWireResult<()> {
-        todo!();
+        match message {
+            PgWireBackendMessage::Authentication(authentication) => {
+                self.handlers
+                    .startup_handler()
+                    .on_authentication(&self, authentication)
+                    .await?;
+            }
+            PgWireBackendMessage::ParameterStatus(parameter_status) => {
+                self.handlers
+                    .startup_handler()
+                    .on_parameter_status(&self, parameter_status)
+                    .await?;
+            }
+            PgWireBackendMessage::BackendKeyData(backend_key_data) => {
+                self.handlers
+                    .startup_handler()
+                    .on_backend_key(&self, backend_key_data)
+                    .await?;
+            }
+            PgWireBackendMessage::ReadyForQuery(ready) => {
+                self.handlers
+                    .startup_handler()
+                    .on_ready_for_query(&self, ready)
+                    .await?;
+            }
+            _ => {}
+        }
         Ok(())
     }
 
-    async fn process_error(&self, error: PgWireError) -> Result<(), IOError> {
+    async fn process_error(&self, _error: PgWireError) -> Result<(), IOError> {
         todo!()
     }
 }

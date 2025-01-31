@@ -1,7 +1,7 @@
 pub(crate) mod auth;
 pub(crate) mod config;
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 pub use config::Config;
 
@@ -28,7 +28,7 @@ pub trait ClientInfo {
     /// Returns configuration of this client
     fn config(&self) -> &Config;
 
-    fn server_parameters(&self) -> &BTreeMap<String, String>;
+    fn server_parameters(&self, key: &str) -> Option<String>;
 
-    fn process_id(&self) -> i32;
+    fn process_id(&self) -> Option<i32>;
 }
