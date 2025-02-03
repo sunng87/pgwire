@@ -9,5 +9,5 @@ publish = false
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 openssl = "0.10"
-postgres = { git = "https://github.com/sunng87/rust-postgres.git", rev = "629991beed1e689bd8ec79e1fd83aed03d049eef"  }
-postgres-openssl = { git = "https://github.com/sunng87/rust-postgres.git", rev = "629991beed1e689bd8ec79e1fd83aed03d049eef" }
+postgres = { version = "0.19.10" }
+postgres-openssl = { version = "0.5.1" }
