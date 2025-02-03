@@ -59,26 +59,13 @@ pub struct ServerInformation {
 }
 
 #[derive(Debug)]
-pub struct PgWireClient<H> {
+pub struct PgWireClient {
     sender: UnboundedSender<PgWireFrontendMessage>,
-    handlers: Arc<H>,
     config: Arc<Config>,
     state: Mutex<PgWireClientConnectionState>,
 }
 
-impl<H> PgWireClient<H> {
-    pub fn send(&self, msg: PgWireFrontendMessage) -> PgWireResult<()> {
-        self.sender
-            .send(msg)
-            .map_err(|e| PgWireError::ClientMessageSendError(e))
-    }
-
-    pub fn update_state(&self, state: PgWireClientConnectionState) {
-        *self.state.lock().unwrap() = state;
-    }
-}
-
-impl<H> ClientInfo for PgWireClient<H> {
+impl ClientInfo for PgWireClient {
     fn config(&self) -> &Config {
         &self.config
     }
@@ -104,15 +91,15 @@ impl<H> ClientInfo for PgWireClient<H> {
     }
 }
 
-impl<H> PgWireClient<H>
-where
-    H: PgWireClientHandlers + Send + Sync + 'static,
-{
-    pub async fn connect(
+impl PgWireClient {
+    pub async fn connect<S>(
         config: Arc<Config>,
-        handlers: Arc<H>,
+        startup_handler: Arc<S>,
         tls_connector: Option<TlsConnector>,
-    ) -> Result<Arc<PgWireClient<H>>, IOError> {
+    ) -> Result<Arc<PgWireClient>, IOError>
+    where
+        S: StartupHandler,
+    {
         // tcp connect
         let socket = TcpStream::connect(get_addr(&config)?).await?;
         let socket = Framed::new(socket, PgWireMessageClientCodec);
@@ -126,7 +113,6 @@ where
         let (tx, mut rx) = unbounded_channel();
         let client = Arc::new(PgWireClient {
             sender: tx,
-            handlers,
             config: config.clone(),
             state: Mutex::new(PgWireClientConnectionState::Connected),
         });
@@ -164,11 +150,7 @@ where
         };
         tokio::spawn(handle);
 
-        client
-            .handlers
-            .startup_handler()
-            .startup(client.as_ref())
-            .await?;
+        startup_handler.startup(client.as_ref()).await?;
 
         Ok(client)
     }
@@ -206,6 +188,16 @@ where
 
     async fn process_error(&self, _error: PgWireError) -> Result<(), IOError> {
         todo!()
+    }
+
+    pub fn send(&self, msg: PgWireFrontendMessage) -> PgWireResult<()> {
+        self.sender
+            .send(msg)
+            .map_err(|e| PgWireError::ClientMessageSendError(e))
+    }
+
+    pub fn update_state(&self, state: PgWireClientConnectionState) {
+        *self.state.lock().unwrap() = state;
     }
 }
 

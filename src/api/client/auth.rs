@@ -14,39 +14,30 @@ use super::{ClientInfo, PgWireClientHandlers};
 
 #[async_trait]
 pub trait StartupHandler: Send + Sync {
-    async fn startup<H>(&self, client: &PgWireClient<H>) -> PgWireResult<()>
-    where
-        H: PgWireClientHandlers + Send + Sync + 'static;
+    async fn startup(&self, client: &PgWireClient) -> PgWireResult<()>;
 
-    async fn on_authentication<H>(
+    async fn on_authentication(
         &self,
-        client: &PgWireClient<H>,
+        client: &PgWireClient,
         message: Authentication,
-    ) -> PgWireResult<()>
-    where
-        H: PgWireClientHandlers + Send + Sync + 'static;
+    ) -> PgWireResult<()>;
 
-    async fn on_parameter_status<H>(
+    async fn on_parameter_status(
         &self,
-        client: &PgWireClient<H>,
+        client: &PgWireClient,
         message: ParameterStatus,
-    ) -> PgWireResult<()>
-    where
-        H: PgWireClientHandlers + Send + Sync + 'static;
+    ) -> PgWireResult<()>;
 
-    async fn on_backend_key<H>(
+    async fn on_backend_key(
         &self,
-        client: &PgWireClient<H>,
+        client: &PgWireClient,
         message: BackendKeyData,
-    ) -> PgWireResult<()>
-    where
-        H: PgWireClientHandlers + Send + Sync + 'static;
+    ) -> PgWireResult<()>;
 
-    async fn on_ready_for_query<H>(
+    async fn on_ready_for_query(
         &self,
-        client: &PgWireClient<H>,
+        client: &PgWireClient,
         message: ReadyForQuery,
-    ) -> PgWireResult<()>
-    where
-        H: PgWireClientHandlers + Send + Sync + 'static;
+    ) -> PgWireResult<()>;
 }
+q
