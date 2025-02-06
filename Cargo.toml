@@ -51,7 +51,7 @@ lazy-regex = {version = "3.3", default-features = false, features = ["lite"]}
 percent-encoding = { version = "2.0", optional = true }
 
 [features]
-default = ["server-api-aws-lc-rs", "client-api-aws-lc-rs"]
+default = ["server-api-aws-lc-rs"]
 _ring = ["dep:ring", "tokio-rustls/ring"]
 _aws-lc-rs = ["dep:aws-lc-rs", "tokio-rustls/aws-lc-rs"]
 server-api = [
