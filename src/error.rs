@@ -46,7 +46,12 @@ pub enum PgWireError {
     UnknownConfig(String),
     #[cfg(feature = "client-api")]
     #[error("Failed to parse utf8 value")]
-    InvalidUtf8ConfigValue(#[source] Utf8std::str::Utf8Error),
+    InvalidUtf8ConfigValue(#[source] std::str::Utf8Error),
+    #[cfg(feature = "client-api")]
+    #[error("Failed to send front message")]
+    ClientMessageSendError(
+        #[source] tokio::sync::mpsc::error::SendError<crate::messages::PgWireFrontendMessage>,
+    ),
 
     #[error(transparent)]
     ApiError(#[from] Box<dyn std::error::Error + 'static + Send + Sync>),
