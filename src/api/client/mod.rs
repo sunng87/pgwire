@@ -1,27 +1,9 @@
 pub(crate) mod auth;
 pub(crate) mod config;
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 pub use config::Config;
-
-/// The collection of all client handlers
-pub trait PgWireClientHandlers {
-    type StartupHandler: auth::StartupHandler;
-
-    fn startup_handler(&self) -> Arc<Self::StartupHandler>;
-}
-
-impl<T> PgWireClientHandlers for Arc<T>
-where
-    T: PgWireClientHandlers,
-{
-    type StartupHandler = T::StartupHandler;
-
-    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
-        (**self).startup_handler()
-    }
-}
 
 /// A trait for fetching necessary information from Client
 pub trait ClientInfo {
@@ -31,4 +13,17 @@ pub trait ClientInfo {
     fn server_parameters(&self, key: &str) -> Option<String>;
 
     fn process_id(&self) -> Option<i32>;
+}
+
+/// Carries server provided information for current connection
+#[derive(Debug, Default)]
+pub struct ServerInformation {
+    pub parameters: BTreeMap<String, String>,
+    pub process_id: i32,
+}
+
+/// Indicate the result of current request
+pub enum ReadyState<D> {
+    Pending,
+    Ready(D),
 }
