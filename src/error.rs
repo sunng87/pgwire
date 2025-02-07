@@ -201,13 +201,13 @@ impl From<PgWireError> for ErrorInfo {
                 ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
             }
             PgWireError::InvalidAuthenticationMessageCode(_) => {
-                ErrorInfo::new("FATAL".to_owned(), "28P01".to_owned(), error.to_string())
+                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
             }
             PgWireError::IoError(_) => {
                 ErrorInfo::new("FATAL".to_owned(), "58030".to_owned(), error.to_string())
             }
             PgWireError::PortalNotFound(_) => {
-                ErrorInfo::new("ERROR".to_owned(), "42P03".to_owned(), error.to_string())
+                ErrorInfo::new("ERROR".to_owned(), "26000".to_owned(), error.to_string())
             }
             PgWireError::StatementNotFound(_) => {
                 ErrorInfo::new("ERROR".to_owned(), "26000".to_owned(), error.to_string())
@@ -222,7 +222,7 @@ impl From<PgWireError> for ErrorInfo {
                 ErrorInfo::new("ERROR".to_owned(), "22P02".to_owned(), error.to_string())
             }
             PgWireError::InvalidScramMessage(_) => {
-                ErrorInfo::new("FATAL".to_owned(), "28P01".to_owned(), error.to_string())
+                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
             }
             PgWireError::UnsupportedCertificateSignatureAlgorithm => {
                 ErrorInfo::new("FATAL".to_owned(), "0A000".to_owned(), error.to_string())
@@ -231,7 +231,7 @@ impl From<PgWireError> for ErrorInfo {
                 ErrorInfo::new("FATAL".to_owned(), "28000".to_owned(), error.to_string())
             }
             PgWireError::NotReadyForQuery => {
-                ErrorInfo::new("FATAL".to_owned(), "57014".to_owned(), error.to_string())
+                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
             }
             #[cfg(feature = "client-api")]
             PgWireError::InvalidConfig(_) => {
