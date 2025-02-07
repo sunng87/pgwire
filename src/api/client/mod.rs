@@ -1,7 +1,7 @@
-pub(crate) mod auth;
+pub mod auth;
 pub(crate) mod config;
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
 
 pub use config::Config;
 

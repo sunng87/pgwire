@@ -138,3 +138,7 @@ required-features = ["server-api-aws-lc-rs", "scram"]
 [[example]]
 name = "transaction"
 required-features = ["server-api-aws-lc-rs"]
+
+[[example]]
+  name = "client"
+required-features = ["client-api"]

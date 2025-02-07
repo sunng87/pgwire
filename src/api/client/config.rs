@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::str;
 use std::str::FromStr;
 use std::time::Duration;
-use std::{error, fmt, iter, mem};
+use std::{fmt, iter, mem};
 
 use crate::error::PgWireError;
 
@@ -372,7 +372,7 @@ impl Config {
     }
 
     /// Gets the hosts that have been added to the configuration with `host`.
-    pub fn get_hosts(&self) -> &[Host] {
+    pub(crate) fn get_hosts(&self) -> &[Host] {
         &self.host
     }
 
@@ -748,28 +748,6 @@ impl fmt::Debug for Config {
             .finish()
     }
 }
-
-#[derive(Debug)]
-struct UnknownOption(String);
-
-impl fmt::Display for UnknownOption {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "unknown option `{}`", self.0)
-    }
-}
-
-impl error::Error for UnknownOption {}
-
-#[derive(Debug)]
-struct InvalidValue(&'static str);
-
-impl fmt::Display for InvalidValue {
-    fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(fmt, "invalid value for option `{}`", self.0)
-    }
-}
-
-impl error::Error for InvalidValue {}
 
 struct Parser<'a> {
     s: &'a str,
