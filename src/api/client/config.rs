@@ -17,7 +17,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::{fmt, iter, mem};
 
-use crate::error::PgWireError;
+use crate::error::PgWireClientError;
 
 /// Properties required of a session.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -551,7 +551,7 @@ impl Config {
         self.load_balance_hosts
     }
 
-    fn param(&mut self, key: &str, value: &str) -> Result<(), PgWireError> {
+    fn param(&mut self, key: &str, value: &str) -> Result<(), PgWireClientError> {
         match key {
             "user" => {
                 self.user(value);
@@ -573,7 +573,7 @@ impl Config {
                     "disable" => SslMode::Disable,
                     "prefer" => SslMode::Prefer,
                     "require" => SslMode::Require,
-                    _ => return Err(PgWireError::InvalidConfig("sslmode".into())),
+                    _ => return Err(PgWireClientError::InvalidConfig("sslmode".into())),
                 };
                 self.ssl_mode(mode);
             }
@@ -581,7 +581,7 @@ impl Config {
                 let mode = match value {
                     "postgres" => SslNegotiation::Postgres,
                     "direct" => SslNegotiation::Direct,
-                    _ => return Err(PgWireError::InvalidConfig("sslnegotiation".into())),
+                    _ => return Err(PgWireClientError::InvalidConfig("sslnegotiation".into())),
                 };
                 self.ssl_negotiation(mode);
             }
@@ -594,7 +594,7 @@ impl Config {
                 for hostaddr in value.split(',') {
                     let addr = hostaddr
                         .parse()
-                        .map_err(|_| PgWireError::InvalidConfig("hostaddr".into()))?;
+                        .map_err(|_| PgWireClientError::InvalidConfig("hostaddr".into()))?;
                     self.hostaddr(addr);
                 }
             }
@@ -604,7 +604,7 @@ impl Config {
                         5432
                     } else {
                         port.parse()
-                            .map_err(|_| PgWireError::InvalidConfig("port".into()))?
+                            .map_err(|_| PgWireClientError::InvalidConfig("port".into()))?
                     };
                     self.port(port);
                 }
@@ -612,7 +612,7 @@ impl Config {
             "connect_timeout" => {
                 let timeout = value
                     .parse::<i64>()
-                    .map_err(|_| PgWireError::InvalidConfig("connect_timeout".into()))?;
+                    .map_err(|_| PgWireClientError::InvalidConfig("connect_timeout".into()))?;
                 if timeout > 0 {
                     self.connect_timeout(Duration::from_secs(timeout as u64));
                 }
@@ -620,7 +620,7 @@ impl Config {
             "tcp_user_timeout" => {
                 let timeout = value
                     .parse::<i64>()
-                    .map_err(|_| PgWireError::InvalidConfig("tcp_user_timeout".into()))?;
+                    .map_err(|_| PgWireClientError::InvalidConfig("tcp_user_timeout".into()))?;
                 if timeout > 0 {
                     self.tcp_user_timeout(Duration::from_secs(timeout as u64));
                 }
@@ -629,14 +629,14 @@ impl Config {
             "keepalives" => {
                 let keepalives = value
                     .parse::<u64>()
-                    .map_err(|_| PgWireError::InvalidConfig("keepalives".into()))?;
+                    .map_err(|_| PgWireClientError::InvalidConfig("keepalives".into()))?;
                 self.keepalives(keepalives != 0);
             }
             #[cfg(not(target_arch = "wasm32"))]
             "keepalives_idle" => {
                 let keepalives_idle = value
                     .parse::<i64>()
-                    .map_err(|_| PgWireError::InvalidConfig("keepalives_idle".into()))?;
+                    .map_err(|_| PgWireClientError::InvalidConfig("keepalives_idle".into()))?;
                 if keepalives_idle > 0 {
                     self.keepalives_idle(Duration::from_secs(keepalives_idle as u64));
                 }
@@ -645,7 +645,7 @@ impl Config {
             "keepalives_interval" => {
                 let keepalives_interval = value
                     .parse::<i64>()
-                    .map_err(|_| PgWireError::InvalidConfig("keepalives_interval".into()))?;
+                    .map_err(|_| PgWireClientError::InvalidConfig("keepalives_interval".into()))?;
                 if keepalives_interval > 0 {
                     self.keepalives_interval(Duration::from_secs(keepalives_interval as u64));
                 }
@@ -654,7 +654,7 @@ impl Config {
             "keepalives_retries" => {
                 let keepalives_retries = value
                     .parse::<u32>()
-                    .map_err(|_| PgWireError::InvalidConfig("keepalives_retries".into()))?;
+                    .map_err(|_| PgWireClientError::InvalidConfig("keepalives_retries".into()))?;
                 self.keepalives_retries(keepalives_retries);
             }
             "target_session_attrs" => {
@@ -663,7 +663,9 @@ impl Config {
                     "read-write" => TargetSessionAttrs::ReadWrite,
                     "read-only" => TargetSessionAttrs::ReadOnly,
                     _ => {
-                        return Err(PgWireError::InvalidConfig("target_session_attrs".into()));
+                        return Err(PgWireClientError::InvalidConfig(
+                            "target_session_attrs".into(),
+                        ));
                     }
                 };
                 self.target_session_attrs(target_session_attrs);
@@ -674,7 +676,7 @@ impl Config {
                     "prefer" => ChannelBinding::Prefer,
                     "require" => ChannelBinding::Require,
                     _ => {
-                        return Err(PgWireError::InvalidConfig("channel_binding".into()));
+                        return Err(PgWireClientError::InvalidConfig("channel_binding".into()));
                     }
                 };
                 self.channel_binding(channel_binding);
@@ -684,13 +686,15 @@ impl Config {
                     "disable" => LoadBalanceHosts::Disable,
                     "random" => LoadBalanceHosts::Random,
                     _ => {
-                        return Err(PgWireError::InvalidConfig("load_balance_hosts".into()));
+                        return Err(PgWireClientError::InvalidConfig(
+                            "load_balance_hosts".into(),
+                        ));
                     }
                 };
                 self.load_balance_hosts(load_balance_hosts);
             }
             key => {
-                return Err(PgWireError::UnknownConfig(key.to_string()));
+                return Err(PgWireClientError::UnknownConfig(key.to_string()));
             }
         }
 
@@ -699,9 +703,9 @@ impl Config {
 }
 
 impl FromStr for Config {
-    type Err = PgWireError;
+    type Err = PgWireClientError;
 
-    fn from_str(s: &str) -> Result<Config, PgWireError> {
+    fn from_str(s: &str) -> Result<Config, PgWireClientError> {
         match UrlParser::parse(s)? {
             Some(config) => Ok(config),
             None => Parser::parse(s),
@@ -755,7 +759,7 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    fn parse(s: &'a str) -> Result<Config, PgWireError> {
+    fn parse(s: &'a str) -> Result<Config, PgWireClientError> {
         let mut parser = Parser {
             s,
             it: s.char_indices().peekable(),
@@ -794,7 +798,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn eat(&mut self, target: char) -> Result<(), PgWireError> {
+    fn eat(&mut self, target: char) -> Result<(), PgWireClientError> {
         match self.it.next() {
             Some((_, c)) if c == target => Ok(()),
             Some((i, c)) => {
@@ -802,9 +806,9 @@ impl<'a> Parser<'a> {
                     "unexpected character at byte {}: expected `{}` but got `{}`",
                     i, target, c
                 );
-                Err(PgWireError::InvalidConfig(m.into()))
+                Err(PgWireClientError::InvalidConfig(m))
             }
-            None => Err(PgWireError::InvalidConfig("unexpected EOF".into())),
+            None => Err(PgWireClientError::InvalidConfig("unexpected EOF".into())),
         }
     }
 
@@ -832,7 +836,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn value(&mut self) -> Result<String, PgWireError> {
+    fn value(&mut self) -> Result<String, PgWireClientError> {
         let value = if self.eat_if('\'') {
             let value = self.quoted_value()?;
             self.eat('\'')?;
@@ -844,7 +848,7 @@ impl<'a> Parser<'a> {
         Ok(value)
     }
 
-    fn simple_value(&mut self) -> Result<String, PgWireError> {
+    fn simple_value(&mut self) -> Result<String, PgWireClientError> {
         let mut value = String::new();
 
         while let Some(&(_, c)) = self.it.peek() {
@@ -863,13 +867,13 @@ impl<'a> Parser<'a> {
         }
 
         if value.is_empty() {
-            return Err(PgWireError::InvalidConfig("unexpected EOF".into()));
+            return Err(PgWireClientError::InvalidConfig("unexpected EOF".into()));
         }
 
         Ok(value)
     }
 
-    fn quoted_value(&mut self) -> Result<String, PgWireError> {
+    fn quoted_value(&mut self) -> Result<String, PgWireClientError> {
         let mut value = String::new();
 
         while let Some(&(_, c)) = self.it.peek() {
@@ -887,12 +891,12 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Err(PgWireError::InvalidConfig(
+        Err(PgWireClientError::InvalidConfig(
             "unterminated quoted connection parameter value".into(),
         ))
     }
 
-    fn parameter(&mut self) -> Result<Option<(&'a str, String)>, PgWireError> {
+    fn parameter(&mut self) -> Result<Option<(&'a str, String)>, PgWireClientError> {
         self.skip_ws();
         let keyword = match self.keyword() {
             Some(keyword) => keyword,
@@ -914,7 +918,7 @@ struct UrlParser<'a> {
 }
 
 impl<'a> UrlParser<'a> {
-    fn parse(s: &'a str) -> Result<Option<Config>, PgWireError> {
+    fn parse(s: &'a str) -> Result<Option<Config>, PgWireClientError> {
         let s = match Self::remove_url_prefix(s) {
             Some(s) => s,
             None => return Ok(None),
@@ -962,7 +966,7 @@ impl<'a> UrlParser<'a> {
         self.s = &self.s[1..];
     }
 
-    fn parse_credentials(&mut self) -> Result<(), PgWireError> {
+    fn parse_credentials(&mut self) -> Result<(), PgWireClientError> {
         let creds = match self.take_until(&['@']) {
             Some(creds) => creds,
             None => return Ok(()),
@@ -981,7 +985,7 @@ impl<'a> UrlParser<'a> {
         Ok(())
     }
 
-    fn parse_host(&mut self) -> Result<(), PgWireError> {
+    fn parse_host(&mut self) -> Result<(), PgWireClientError> {
         let host = match self.take_until(&['/', '?']) {
             Some(host) => host,
             None => self.take_all(),
@@ -995,7 +999,7 @@ impl<'a> UrlParser<'a> {
             let (host, port) = if chunk.starts_with('[') {
                 let idx = match chunk.find(']') {
                     Some(idx) => idx,
-                    None => return Err(PgWireError::InvalidConfig("host".into())),
+                    None => return Err(PgWireClientError::InvalidConfig("host".into())),
                 };
 
                 let host = &chunk[1..idx];
@@ -1005,7 +1009,7 @@ impl<'a> UrlParser<'a> {
                 } else if remaining.is_empty() {
                     None
                 } else {
-                    return Err(PgWireError::InvalidConfig("host".into()));
+                    return Err(PgWireClientError::InvalidConfig("host".into()));
                 };
 
                 (host, port)
@@ -1022,7 +1026,7 @@ impl<'a> UrlParser<'a> {
         Ok(())
     }
 
-    fn parse_path(&mut self) -> Result<(), PgWireError> {
+    fn parse_path(&mut self) -> Result<(), PgWireClientError> {
         if !self.s.starts_with('/') {
             return Ok(());
         }
@@ -1040,7 +1044,7 @@ impl<'a> UrlParser<'a> {
         Ok(())
     }
 
-    fn parse_params(&mut self) -> Result<(), PgWireError> {
+    fn parse_params(&mut self) -> Result<(), PgWireClientError> {
         if !self.s.starts_with('?') {
             return Ok(());
         }
@@ -1049,7 +1053,11 @@ impl<'a> UrlParser<'a> {
         while !self.s.is_empty() {
             let key = match self.take_until(&['=']) {
                 Some(key) => self.decode(key)?,
-                None => return Err(PgWireError::InvalidConfig("unterminated parameter".into())),
+                None => {
+                    return Err(PgWireClientError::InvalidConfig(
+                        "unterminated parameter".into(),
+                    ))
+                }
             };
             self.eat_byte();
 
@@ -1073,13 +1081,13 @@ impl<'a> UrlParser<'a> {
     }
 
     #[cfg(unix)]
-    fn host_param(&mut self, s: &str) -> Result<(), PgWireError> {
+    fn host_param(&mut self, s: &str) -> Result<(), PgWireClientError> {
         let decoded = Cow::from(percent_encoding::percent_decode(s.as_bytes()));
         if decoded.first() == Some(&b'/') {
             self.config.host_path(OsStr::from_bytes(&decoded));
         } else {
             let decoded =
-                str::from_utf8(&decoded).map_err(|e| PgWireError::InvalidUtf8ConfigValue(e))?;
+                str::from_utf8(&decoded).map_err(PgWireClientError::InvalidUtf8ConfigValue)?;
             self.config.host(decoded);
         }
 
@@ -1092,10 +1100,10 @@ impl<'a> UrlParser<'a> {
         self.config.param("host", &s)
     }
 
-    fn decode(&self, s: &'a str) -> Result<Cow<'a, str>, PgWireError> {
+    fn decode(&self, s: &'a str) -> Result<Cow<'a, str>, PgWireClientError> {
         percent_encoding::percent_decode(s.as_bytes())
             .decode_utf8()
-            .map_err(|e| PgWireError::InvalidUtf8ConfigValue(e))
+            .map_err(PgWireClientError::InvalidUtf8ConfigValue)
     }
 }
 

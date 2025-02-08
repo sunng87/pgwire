@@ -38,20 +38,6 @@ pub enum PgWireError {
     UserNameRequired,
     #[error("Connection is not ready for query")]
     NotReadyForQuery,
-    #[cfg(feature = "client-api")]
-    #[error("Failed to parse connection config, invalid value for: {0}")]
-    InvalidConfig(String),
-    #[cfg(feature = "client-api")]
-    #[error("Failed to parse connection config, unknown config: {0}")]
-    UnknownConfig(String),
-    #[cfg(feature = "client-api")]
-    #[error("Failed to parse utf8 value")]
-    InvalidUtf8ConfigValue(#[source] std::str::Utf8Error),
-    #[cfg(feature = "client-api")]
-    #[error("Failed to send front message")]
-    ClientMessageSendError(
-        #[source] tokio::sync::mpsc::error::SendError<crate::messages::PgWireFrontendMessage>,
-    ),
 
     #[error(transparent)]
     ApiError(#[from] Box<dyn std::error::Error + 'static + Send + Sync>),
@@ -177,6 +163,31 @@ impl From<ErrorInfo> for NoticeResponse {
         NoticeResponse::new(ei.into_fields())
     }
 }
+
+#[cfg(feature = "client-api")]
+#[derive(Error, Debug)]
+pub enum PgWireClientError {
+    #[error("Failed to parse connection config, invalid value for: {0}")]
+    InvalidConfig(String),
+
+    #[error("Failed to parse connection config, unknown config: {0}")]
+    UnknownConfig(String),
+
+    #[error("Failed to parse utf8 value")]
+    InvalidUtf8ConfigValue(#[source] std::str::Utf8Error),
+
+    #[error("Unexpected EOF")]
+    UnexpectedEOF,
+
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+
+    #[error(transparent)]
+    PgWireError(#[from] PgWireError),
+}
+
+#[cfg(feature = "client-api")]
+pub type PgWireClientResult<T> = Result<T, PgWireClientError>;
 
 #[cfg(test)]
 mod test {

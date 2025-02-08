@@ -13,7 +13,7 @@ use super::TlsConnector;
 use crate::api::client::auth::StartupHandler;
 use crate::api::client::config::Host;
 use crate::api::client::{ClientInfo, Config, ReadyState, ServerInformation};
-use crate::error::PgWireError;
+use crate::error::{PgWireClientError, PgWireError};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 #[non_exhaustive]
@@ -56,7 +56,7 @@ impl ClientInfo for PgWireClient {
     fn server_parameters(&self, key: &str) -> Option<String> {
         self.server_information
             .as_ref()
-            .and_then(|s| s.parameters.get(key).map(|v| v.clone()))
+            .and_then(|s| s.parameters.get(key).cloned())
     }
 
     fn process_id(&self) -> Option<i32> {
@@ -99,7 +99,7 @@ impl PgWireClient {
         config: Arc<Config>,
         mut startup_handler: S,
         tls_connector: Option<TlsConnector>,
-    ) -> Result<PgWireClient, IOError>
+    ) -> Result<PgWireClient, PgWireClientError>
     where
         S: StartupHandler,
     {
@@ -127,13 +127,11 @@ impl PgWireClient {
                 startup_handler.on_message(&mut client, message).await?
             {
                 client.server_information = Some(server_info);
-                break;
+                return Ok(client);
             }
         }
 
-        // TODO: deal with connection failed
-
-        Ok(client)
+        Err(PgWireClientError::UnexpectedEOF)
     }
 }
 
@@ -257,7 +255,7 @@ pub(crate) async fn ssl_handshake(
             }
         }
     } else {
-        return Ok(ClientSocket::Plain(socket.into_inner()));
+        Ok(ClientSocket::Plain(socket.into_inner()))
     }
 }
 
@@ -270,29 +268,29 @@ pub(crate) async fn ssl_handshake(
     Ok(ClientSocket::Plain(socket))
 }
 
-fn get_addr(config: &Config) -> Result<String, IOError> {
-    if config.get_hostaddrs().len() > 0 {
+fn get_addr(config: &Config) -> Result<String, PgWireClientError> {
+    if !config.get_hostaddrs().is_empty() {
         return Ok(format!(
             "{}:{}",
-            config.get_hostaddrs()[0].to_string(),
-            config.get_ports().get(0).cloned().unwrap_or(5432u16)
+            config.get_hostaddrs()[0],
+            config.get_ports().first().cloned().unwrap_or(5432u16)
         ));
     }
 
-    if config.get_hosts().len() > 0 {
+    if !config.get_hosts().is_empty() {
         match &config.get_hosts()[0] {
             Host::Tcp(host) => {
                 return Ok(format!(
                     "{}:{}",
                     host,
-                    config.get_ports().get(0).cloned().unwrap_or(5432u16)
+                    config.get_ports().first().cloned().unwrap_or(5432u16)
                 ))
             }
             _ => {
-                return Err(IOError::new(ErrorKind::InvalidData, "Invalid host"));
+                return Err(PgWireClientError::InvalidConfig("host".to_string()));
             }
         }
     }
 
-    Err(IOError::new(ErrorKind::InvalidData, "Invalid host"))
+    Err(PgWireClientError::InvalidConfig("host".to_string()))
 }

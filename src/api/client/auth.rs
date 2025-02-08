@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use async_trait::async_trait;
 use futures::{Sink, SinkExt};
 
-use crate::error::{PgWireError, PgWireResult};
+use crate::error::{PgWireClientError, PgWireClientResult};
 use crate::messages::response::ReadyForQuery;
 use crate::messages::startup::{Authentication, BackendKeyData, ParameterStatus, Startup};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
@@ -12,19 +12,19 @@ use super::{ClientInfo, ReadyState, ServerInformation};
 
 #[async_trait]
 pub trait StartupHandler: Send + Sync {
-    async fn startup<C>(&mut self, client: &mut C) -> PgWireResult<()>
+    async fn startup<C>(&mut self, client: &mut C) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
-        PgWireError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
     async fn on_message<C>(
         &mut self,
         client: &mut C,
         message: PgWireBackendMessage,
-    ) -> PgWireResult<ReadyState<ServerInformation>>
+    ) -> PgWireClientResult<ReadyState<ServerInformation>>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
-        PgWireError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
         match message {
             PgWireBackendMessage::Authentication(authentication) => {
@@ -52,37 +52,37 @@ pub trait StartupHandler: Send + Sync {
         &mut self,
         client: &mut C,
         message: Authentication,
-    ) -> PgWireResult<()>
+    ) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
-        PgWireError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
     async fn on_parameter_status<C>(
         &mut self,
         client: &mut C,
         message: ParameterStatus,
-    ) -> PgWireResult<()>
+    ) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
-        PgWireError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
     async fn on_backend_key<C>(
         &mut self,
         client: &mut C,
         message: BackendKeyData,
-    ) -> PgWireResult<()>
+    ) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
-        PgWireError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
     async fn on_ready_for_query<C>(
         &mut self,
         client: &mut C,
         message: ReadyForQuery,
-    ) -> PgWireResult<ServerInformation>
+    ) -> PgWireClientResult<ServerInformation>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
-        PgWireError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 }
 
 #[derive(new, Debug)]
@@ -95,10 +95,10 @@ pub struct DefaultStartupHandler {
 
 #[async_trait]
 impl StartupHandler for DefaultStartupHandler {
-    async fn startup<C>(&mut self, client: &mut C) -> PgWireResult<()>
+    async fn startup<C>(&mut self, client: &mut C) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
-        PgWireError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
         let mut startup = Startup::new();
 
@@ -126,7 +126,7 @@ impl StartupHandler for DefaultStartupHandler {
         &mut self,
         _client: &mut C,
         message: Authentication,
-    ) -> PgWireResult<()>
+    ) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
     {
@@ -142,7 +142,7 @@ impl StartupHandler for DefaultStartupHandler {
         &mut self,
         _client: &mut C,
         message: ParameterStatus,
-    ) -> PgWireResult<()>
+    ) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
     {
@@ -154,7 +154,7 @@ impl StartupHandler for DefaultStartupHandler {
         &mut self,
         _client: &mut C,
         message: BackendKeyData,
-    ) -> PgWireResult<()>
+    ) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
     {
@@ -166,7 +166,7 @@ impl StartupHandler for DefaultStartupHandler {
         &mut self,
         _client: &mut C,
         _message: ReadyForQuery,
-    ) -> PgWireResult<ServerInformation>
+    ) -> PgWireClientResult<ServerInformation>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
     {
