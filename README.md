@@ -7,8 +7,10 @@
 Build Postgres compatible access layer for your data service.
 
 This library implements PostgreSQL Wire Protocol, and provide essential APIs to
-write PostgreSQL compatible servers and clients. If you are interested in
-related topic, you can check [project
+write PostgreSQL compatible servers and clients. It's like
+[hyper](https://github.com/hyperium/hyper/), but for postgres wire protocol.
+
+If you are interested in related topic, you can check [project
 ideas](https://github.com/sunng87/pgwire/discussions/204) to build on top of
 this library.
 
