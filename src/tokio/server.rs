@@ -241,27 +241,14 @@ async fn process_error<S, ST>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
 {
-    match error {
-        PgWireError::UserError(error_info) => {
-            socket
-                .feed(PgWireBackendMessage::ErrorResponse((*error_info).into()))
-                .await?;
-        }
-        PgWireError::ApiError(e) => {
-            let error_info = ErrorInfo::new("ERROR".to_owned(), "XX000".to_owned(), e.to_string());
-            socket
-                .feed(PgWireBackendMessage::ErrorResponse(error_info.into()))
-                .await?;
-        }
-        _ => {
-            // Internal error
-            let error_info =
-                ErrorInfo::new("FATAL".to_owned(), "XX000".to_owned(), error.to_string());
-            socket
-                .send(PgWireBackendMessage::ErrorResponse(error_info.into()))
-                .await?;
-            return socket.close().await;
-        }
+    let error_info: ErrorInfo = error.into();
+    let is_fatal = error_info.is_fatal();
+    socket
+        .send(PgWireBackendMessage::ErrorResponse(error_info.into()))
+        .await?;
+
+    if is_fatal {
+        return socket.close().await;
     }
 
     let transaction_status = socket.transaction_status().to_error_state();
