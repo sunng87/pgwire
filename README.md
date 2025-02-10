@@ -15,13 +15,13 @@ this library.
 
 ## Status
 
-- [x] Message format
+- Message format
   - [x] Frontend-Backend protocol messages
   - [ ] Streaming replication protocol
   - [ ] Logical streaming replication protocol message
 - [x] Backend TCP/TLS server on Tokio
 - [ ] Frontend TCP/TLS client on Tokio
-- [x] Frontend-Backend interaction over TCP
+- Frontend-Backend interaction over TCP
   - [x] SSL Request and Response
     - [x] PostgreSQL 17 direct SSL negotiation
   - [x] Startup
@@ -49,8 +49,8 @@ this library.
 - [x] Data types
   - [x] Text format
   - [x] Binary format, implemented in `postgres-types`
-- [ ] APIs
-  - [x] Backend/Server
+- APIs
+  - Backend/Server
     - [x] Startup APIs
       - [x] AuthSource API, fetching and hashing passwords
       - [x] Server parameters API, ready but not very good
@@ -67,7 +67,7 @@ this library.
     - [x] Transaction state
     - [ ] Streaming replication over TCP
     - [ ] Logical streaming replication server API
-  - [x] Frontend/Client
+  - Frontend/Client
     - [x] Startup APIs
     - [ ] Simple Query API
     - [ ] Extended Query API
@@ -160,6 +160,8 @@ application development, you can use
   building, deploying and maintaining data products.
 * [restate](https://github.com/restatedev/restate) Framework for building
   resilient workflow
+
+Submit a pull request if your project isn't listed here.
 
 ## License
 
