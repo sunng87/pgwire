@@ -5,7 +5,9 @@ use futures::{Sink, SinkExt};
 
 use crate::error::{PgWireClientError, PgWireClientResult};
 use crate::messages::response::ReadyForQuery;
-use crate::messages::startup::{Authentication, BackendKeyData, ParameterStatus, Startup};
+use crate::messages::startup::{
+    Authentication, BackendKeyData, ParameterStatus, Password, PasswordMessageFamily, Startup,
+};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 use super::{ClientInfo, ReadyState, ServerInformation};
@@ -124,14 +126,29 @@ impl StartupHandler for DefaultStartupHandler {
 
     async fn on_authentication<C>(
         &mut self,
-        _client: &mut C,
+        client: &mut C,
         message: Authentication,
     ) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
         match message {
             Authentication::Ok => {}
+            Authentication::CleartextPassword => {
+                let pass = client
+                    .config()
+                    .password
+                    .as_ref()
+                    .map(|bs| String::from_utf8_lossy(bs).into_owned());
+
+                client
+                    .send(PgWireFrontendMessage::PasswordMessageFamily(
+                        PasswordMessageFamily::Password(Password::new(pass.unwrap_or_default())),
+                    ))
+                    .await?;
+            }
+            // TODO: md5 and scram
             _ => {}
         }
 
