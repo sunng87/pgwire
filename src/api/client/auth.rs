@@ -43,6 +43,9 @@ pub trait StartupHandler: Send + Sync {
                 let server_information = self.on_ready_for_query(client, ready).await?;
                 return Ok(ReadyState::Ready(server_information));
             }
+            PgWireBackendMessage::ErrorResponse(error) => {
+                // TODO
+            }
             _ => {
                 todo!("raise error on unexpected message")
             }
@@ -160,10 +163,10 @@ impl StartupHandler for DefaultStartupHandler {
                     .map(|bs| String::from_utf8_lossy(bs).into_owned())
                     .unwrap_or_default();
 
-                let hashed_pass = hash_md5_password(username, &password, &salt);
+                let hashed_password = hash_md5_password(username, &password, &salt);
                 client
                     .send(PgWireFrontendMessage::PasswordMessageFamily(
-                        PasswordMessageFamily::Password(Password::new(hashed_pass)),
+                        PasswordMessageFamily::Password(Password::new(hashed_password)),
                     ))
                     .await?;
             }

@@ -10,9 +10,13 @@ pub trait ClientInfo {
     /// Returns configuration of this client
     fn config(&self) -> &Config;
 
-    fn server_parameters(&self, key: &str) -> Option<String>;
+    /// Returns server parameters received from server
+    fn server_parameters(&self) -> &BTreeMap<String, String>;
 
-    fn process_id(&self) -> Option<i32>;
+    /// Returns process id received from server
+    fn process_id(&self) -> i32;
+
+    // TODO: transaction state
 }
 
 /// Carries server provided information for current connection

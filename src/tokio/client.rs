@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io::{Error as IOError, ErrorKind};
 use std::pin::Pin;
 use std::sync::Arc;
@@ -45,7 +46,7 @@ impl Encoder<PgWireFrontendMessage> for PgWireMessageClientCodec {
 pub struct PgWireClient {
     socket: Framed<ClientSocket, PgWireMessageClientCodec>,
     config: Arc<Config>,
-    server_information: Option<ServerInformation>,
+    server_information: ServerInformation,
 }
 
 impl ClientInfo for PgWireClient {
@@ -53,14 +54,12 @@ impl ClientInfo for PgWireClient {
         &self.config
     }
 
-    fn server_parameters(&self, key: &str) -> Option<String> {
-        self.server_information
-            .as_ref()
-            .and_then(|s| s.parameters.get(key).cloned())
+    fn server_parameters(&self) -> &BTreeMap<String, String> {
+        &self.server_information.parameters
     }
 
-    fn process_id(&self) -> Option<i32> {
-        self.server_information.as_ref().map(|s| s.process_id)
+    fn process_id(&self) -> i32 {
+        self.server_information.process_id
     }
 }
 
@@ -115,7 +114,7 @@ impl PgWireClient {
         let mut client = PgWireClient {
             socket,
             config: config.clone(),
-            server_information: None,
+            server_information: ServerInformation::default(),
         };
 
         startup_handler.startup(&mut client).await?;
@@ -126,7 +125,7 @@ impl PgWireClient {
             if let ReadyState::Ready(server_info) =
                 startup_handler.on_message(&mut client, message).await?
             {
-                client.server_information = Some(server_info);
+                client.server_information = server_info;
                 return Ok(client);
             }
         }
