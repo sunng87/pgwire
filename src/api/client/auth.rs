@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use async_trait::async_trait;
 use futures::{Sink, SinkExt};
 
+use crate::api::auth::md5pass::hash_md5_password;
 use crate::error::{PgWireClientError, PgWireClientResult};
 use crate::messages::response::ReadyForQuery;
 use crate::messages::startup::{
@@ -140,15 +141,33 @@ impl StartupHandler for DefaultStartupHandler {
                     .config()
                     .password
                     .as_ref()
-                    .map(|bs| String::from_utf8_lossy(bs).into_owned());
+                    .map(|bs| String::from_utf8_lossy(bs).into_owned())
+                    .unwrap_or_default();
 
                 client
                     .send(PgWireFrontendMessage::PasswordMessageFamily(
-                        PasswordMessageFamily::Password(Password::new(pass.unwrap_or_default())),
+                        PasswordMessageFamily::Password(Password::new(pass)),
                     ))
                     .await?;
             }
-            // TODO: md5 and scram
+            Authentication::MD5Password(salt) => {
+                let username = client.config().user.as_ref().map_or("", |s| s.as_str());
+
+                let password = client
+                    .config()
+                    .password
+                    .as_ref()
+                    .map(|bs| String::from_utf8_lossy(bs).into_owned())
+                    .unwrap_or_default();
+
+                let hashed_pass = hash_md5_password(username, &password, &salt);
+                client
+                    .send(PgWireFrontendMessage::PasswordMessageFamily(
+                        PasswordMessageFamily::Password(Password::new(hashed_pass)),
+                    ))
+                    .await?;
+            }
+            // TODO: scram
             _ => {}
         }
 
