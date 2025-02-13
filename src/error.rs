@@ -3,7 +3,6 @@ use std::io::{Error as IOError, ErrorKind};
 use thiserror::Error;
 
 use crate::messages::response::{ErrorResponse, NoticeResponse};
-use crate::messages::PgWireBackendMessage;
 
 #[derive(Error, Debug)]
 pub enum PgWireError {
@@ -293,7 +292,7 @@ pub enum PgWireClientError {
     UnexpectedEOF,
 
     #[error("Unexpected remote message")]
-    UnexpectedMessage(Box<PgWireBackendMessage>),
+    UnexpectedMessage(Box<crate::messages::PgWireBackendMessage>),
 
     #[error(transparent)]
     IoError(#[from] std::io::Error),

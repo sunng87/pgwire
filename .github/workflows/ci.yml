@@ -37,6 +37,8 @@ jobs:
       run: cargo clippy --no-default-features --features server-api -- -D warnings
     - name: Lint ring
       run: cargo clippy --no-default-features --features server-api-ring -- -D warnings
+    - name: Lint client api
+      run: cargo clippy --features client-api-aws-lc-rs -- -D warnings
     - name: Lint scram
       run: cargo clippy --features scram -- -D warnings
 
@@ -69,6 +71,8 @@ jobs:
       run: cargo test --no-default-features --features server-api-ring,scram
     - name: Run tests on additional scram+aws-lc-rs feature set
       run: cargo test --features scram
+    - name: Run tests for client api
+      run: cargo test --features client-api-aws-lc-rs
     - name: Run check on duckdb and sqlite example
       run: cargo check --all-targets --features _duckdb,_sqlite,_bundled
 
