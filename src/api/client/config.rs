@@ -113,52 +113,52 @@ impl Host {
 /// * `options` - Command line options used to configure the server.
 /// * `application_name` - Sets the `application_name` parameter on the server.
 /// * `sslmode` - Controls usage of TLS. If set to `disable`, TLS will not be used. If set to `prefer`, TLS will be used
-///     if available, but not used otherwise. If set to `require`, TLS will be forced to be used. Defaults to `prefer`.
+///   if available, but not used otherwise. If set to `require`, TLS will be forced to be used. Defaults to `prefer`.
 /// * `host` - The host to connect to. On Unix platforms, if the host starts with a `/` character it is treated as the
-///     path to the directory containing Unix domain sockets. Otherwise, it is treated as a hostname. Multiple hosts
-///     can be specified, separated by commas. Each host will be tried in turn when connecting. Required if connecting
-///     with the `connect` method.
+///   path to the directory containing Unix domain sockets. Otherwise, it is treated as a hostname. Multiple hosts
+///   can be specified, separated by commas. Each host will be tried in turn when connecting. Required if connecting
+///   with the `connect` method.
 /// * `hostaddr` - Numeric IP address of host to connect to. This should be in the standard IPv4 address format,
-///     e.g., 172.28.40.9. If your machine supports IPv6, you can also use those addresses.
-///     If this parameter is not specified, the value of `host` will be looked up to find the corresponding IP address,
-///     or if host specifies an IP address, that value will be used directly.
-///     Using `hostaddr` allows the application to avoid a host name look-up, which might be important in applications
-///     with time constraints. However, a host name is required for TLS certificate verification.
-///     Specifically:
-///         * If `hostaddr` is specified without `host`, the value for `hostaddr` gives the server network address.
-///             The connection attempt will fail if the authentication method requires a host name;
-///         * If `host` is specified without `hostaddr`, a host name lookup occurs;
-///         * If both `host` and `hostaddr` are specified, the value for `hostaddr` gives the server network address.
-///             The value for `host` is ignored unless the authentication method requires it,
-///             in which case it will be used as the host name.
+///   e.g., 172.28.40.9. If your machine supports IPv6, you can also use those addresses.
+///   If this parameter is not specified, the value of `host` will be looked up to find the corresponding IP address,
+///   or if host specifies an IP address, that value will be used directly.
+///   Using `hostaddr` allows the application to avoid a host name look-up, which might be important in applications
+///   with time constraints. However, a host name is required for TLS certificate verification.
+///   Specifically:
+///   * If `hostaddr` is specified without `host`, the value for `hostaddr` gives the server network address.
+///     The connection attempt will fail if the authentication method requires a host name;
+///   * If `host` is specified without `hostaddr`, a host name lookup occurs;
+///   * If both `host` and `hostaddr` are specified, the value for `hostaddr` gives the server network address.
+///     The value for `host` is ignored unless the authentication method requires it,
+///     in which case it will be used as the host name.
 /// * `port` - The port to connect to. Multiple ports can be specified, separated by commas. The number of ports must be
-///     either 1, in which case it will be used for all hosts, or the same as the number of hosts. Defaults to 5432 if
-///     omitted or the empty string.
+///   either 1, in which case it will be used for all hosts, or the same as the number of hosts. Defaults to 5432 if
+///   omitted or the empty string.
 /// * `connect_timeout` - The time limit in seconds applied to each socket-level connection attempt. Note that hostnames
-///     can resolve to multiple IP addresses, and this limit is applied to each address. Defaults to no timeout.
+///   can resolve to multiple IP addresses, and this limit is applied to each address. Defaults to no timeout.
 /// * `tcp_user_timeout` - The time limit that transmitted data may remain unacknowledged before a connection is forcibly closed.
-///     This is ignored for Unix domain socket connections. It is only supported on systems where TCP_USER_TIMEOUT is available
-///     and will default to the system default if omitted or set to 0; on other systems, it has no effect.
+///   This is ignored for Unix domain socket connections. It is only supported on systems where TCP_USER_TIMEOUT is available
+///   and will default to the system default if omitted or set to 0; on other systems, it has no effect.
 /// * `keepalives` - Controls the use of TCP keepalive. A value of 0 disables keepalive and nonzero integers enable it.
-///     This option is ignored when connecting with Unix sockets. Defaults to on.
+///   This option is ignored when connecting with Unix sockets. Defaults to on.
 /// * `keepalives_idle` - The number of seconds of inactivity after which a keepalive message is sent to the server.
-///     This option is ignored when connecting with Unix sockets. Defaults to 2 hours.
+///   This option is ignored when connecting with Unix sockets. Defaults to 2 hours.
 /// * `keepalives_interval` - The time interval between TCP keepalive probes.
-///     This option is ignored when connecting with Unix sockets.
+///   This option is ignored when connecting with Unix sockets.
 /// * `keepalives_retries` - The maximum number of TCP keepalive probes that will be sent before dropping a connection.
-///     This option is ignored when connecting with Unix sockets.
+///   This option is ignored when connecting with Unix sockets.
 /// * `target_session_attrs` - Specifies requirements of the session. If set to `read-write`, the client will check that
-///     the `transaction_read_write` session parameter is set to `on`. This can be used to connect to the primary server
-///     in a database cluster as opposed to the secondary read-only mirrors. Defaults to `all`.
+///   the `transaction_read_write` session parameter is set to `on`. This can be used to connect to the primary server
+///   in a database cluster as opposed to the secondary read-only mirrors. Defaults to `all`.
 /// * `channel_binding` - Controls usage of channel binding in the authentication process. If set to `disable`, channel
-///     binding will not be used. If set to `prefer`, channel binding will be used if available, but not used otherwise.
-///     If set to `require`, the authentication process will fail if channel binding is not used. Defaults to `prefer`.
+///   binding will not be used. If set to `prefer`, channel binding will be used if available, but not used otherwise.
+///   If set to `require`, the authentication process will fail if channel binding is not used. Defaults to `prefer`.
 /// * `load_balance_hosts` - Controls the order in which the client tries to connect to the available hosts and
-///     addresses. Once a connection attempt is successful no other hosts and addresses will be tried. This parameter
-///     is typically used in combination with multiple host names or a DNS record that returns multiple IPs. If set to
-///     `disable`, hosts and addresses will be tried in the order provided. If set to `random`, hosts will be tried
-///     in a random order, and the IP addresses resolved from a hostname will also be tried in a random order. Defaults
-///     to `disable`.
+///   addresses. Once a connection attempt is successful no other hosts and addresses will be tried. This parameter
+///   is typically used in combination with multiple host names or a DNS record that returns multiple IPs. If set to
+///   `disable`, hosts and addresses will be tried in the order provided. If set to `random`, hosts will be tried
+///   in a random order, and the IP addresses resolved from a hostname will also be tried in a random order. Defaults
+///   to `disable`.
 ///
 /// ## Examples
 ///
