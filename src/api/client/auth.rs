@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use futures::{Sink, SinkExt};
 
 use crate::api::auth::md5pass::hash_md5_password;
-use crate::error::{PgWireClientError, PgWireClientResult};
+use crate::error::{ErrorInfo, PgWireClientError, PgWireClientResult};
 use crate::messages::response::ReadyForQuery;
 use crate::messages::startup::{
     Authentication, BackendKeyData, ParameterStatus, Password, PasswordMessageFamily, Startup,
@@ -44,11 +44,10 @@ pub trait StartupHandler: Send + Sync {
                 return Ok(ReadyState::Ready(server_information));
             }
             PgWireBackendMessage::ErrorResponse(error) => {
-                // TODO
+                let error_info = ErrorInfo::from(error);
+                return Err(error_info.into());
             }
-            _ => {
-                todo!("raise error on unexpected message")
-            }
+            _ => return Err(PgWireClientError::UnexpectedMessage(Box::new(message))),
         }
 
         Ok(ReadyState::Pending)

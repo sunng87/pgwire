@@ -3,6 +3,7 @@ use std::io::{Error as IOError, ErrorKind};
 use thiserror::Error;
 
 use crate::messages::response::{ErrorResponse, NoticeResponse};
+use crate::messages::PgWireBackendMessage;
 
 #[derive(Error, Debug)]
 pub enum PgWireError {
@@ -58,7 +59,7 @@ pub type PgWireResult<T> = Result<T, PgWireError>;
 // This part of protocol is defined in
 // https://www.postgresql.org/docs/8.2/protocol-error-fields.html
 #[non_exhaustive]
-#[derive(new, Debug)]
+#[derive(new, Debug, Default)]
 pub struct ErrorInfo {
     // severity can be one of `ERROR`, `FATAL`, or `PANIC` (in an error
     // message), or `WARNING`, `NOTICE`, `DEBUG`, `INFO`, or `LOG` (in a notice
@@ -158,6 +159,55 @@ impl From<ErrorInfo> for ErrorResponse {
     }
 }
 
+impl From<ErrorResponse> for ErrorInfo {
+    fn from(value: ErrorResponse) -> Self {
+        let mut error_info = ErrorInfo::default();
+        for field in value.fields {
+            let (key, value) = field;
+            match key {
+                b'S' => {
+                    error_info.severity = value;
+                }
+                b'C' => {
+                    error_info.code = value;
+                }
+                b'M' => {
+                    error_info.message = value;
+                }
+                b'D' => {
+                    error_info.detail = Some(value);
+                }
+                b'H' => {
+                    error_info.hint = Some(value);
+                }
+                b'P' => {
+                    error_info.position = Some(value);
+                }
+                b'p' => {
+                    error_info.internal_position = Some(value);
+                }
+                b'q' => {
+                    error_info.internal_query = Some(value);
+                }
+                b'W' => {
+                    error_info.where_context = Some(value);
+                }
+                b'F' => {
+                    error_info.file_name = Some(value);
+                }
+                b'L' => {
+                    error_info.line = Some(value.parse().unwrap_or(0));
+                }
+                b'R' => {
+                    error_info.routine = Some(value);
+                }
+                _ => {}
+            }
+        }
+        error_info
+    }
+}
+
 impl From<ErrorInfo> for NoticeResponse {
     fn from(ei: ErrorInfo) -> NoticeResponse {
         NoticeResponse::new(ei.into_fields())
@@ -179,11 +229,24 @@ pub enum PgWireClientError {
     #[error("Unexpected EOF")]
     UnexpectedEOF,
 
+    #[error("Unexpected remote message")]
+    UnexpectedMessage(Box<PgWireBackendMessage>),
+
     #[error(transparent)]
     IoError(#[from] std::io::Error),
 
     #[error(transparent)]
     PgWireError(#[from] PgWireError),
+
+    #[error("Error received from remote server: {0}")]
+    RemoteError(Box<ErrorInfo>),
+}
+
+#[cfg(feature = "client-api")]
+impl From<ErrorInfo> for PgWireClientError {
+    fn from(ei: ErrorInfo) -> PgWireClientError {
+        PgWireClientError::RemoteError(Box::new(ei))
+    }
 }
 
 #[cfg(feature = "client-api")]
