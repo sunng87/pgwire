@@ -7,20 +7,23 @@
 Build Postgres compatible access layer for your data service.
 
 This library implements PostgreSQL Wire Protocol, and provide essential APIs to
-write PostgreSQL compatible servers and clients. If you are interested in
-related topic, you can check [project
+write PostgreSQL compatible servers and clients. It's like
+[hyper](https://github.com/hyperium/hyper/), but for postgres wire protocol.
+
+If you are interested in related topic, you can check [project
 ideas](https://github.com/sunng87/pgwire/discussions/204) to build on top of
 this library.
 
 
 ## Status
 
-- [x] Message format
+- Message format
   - [x] Frontend-Backend protocol messages
   - [ ] Streaming replication protocol
   - [ ] Logical streaming replication protocol message
 - [x] Backend TCP/TLS server on Tokio
-- [x] Frontend-Backend interaction over TCP
+- [ ] Frontend TCP/TLS client on Tokio
+- Frontend-Backend interaction over TCP
   - [x] SSL Request and Response
     - [x] PostgreSQL 17 direct SSL negotiation
   - [x] Startup
@@ -48,23 +51,34 @@ this library.
 - [x] Data types
   - [x] Text format
   - [x] Binary format, implemented in `postgres-types`
-- [ ] APIs
-  - [x] Startup APIs
-    - [x] AuthSource API, fetching and hashing passwords
-    - [x] Server parameters API, ready but not very good
-  - [x] Simple Query API
-  - [x] Extended Query API
-    - [x] QueryParser API, for transforming prepared statement
-  - [x] ResultSet builder/encoder API
-  - [ ] Query Cancellation API
-  - [x] Error and Notice API
-  - [x] Copy API
-    - [x] Copy-in
-    - [x] Copy-out
-    - [x] Copy-both
-  - [x] Transaction state
-  - [ ] Streaming replication over TCP
-  - [ ] Logical streaming replication server API
+- APIs
+  - Backend/Server
+    - [x] Startup APIs
+      - [x] AuthSource API, fetching and hashing passwords
+      - [x] Server parameters API, ready but not very good
+    - [x] Simple Query API
+    - [x] Extended Query API
+      - [x] QueryParser API, for transforming prepared statement
+    - [x] ResultSet builder/encoder API
+    - [ ] Query Cancellation API
+    - [x] Error and Notice API
+    - [x] Copy API
+      - [x] Copy-in
+      - [x] Copy-out
+      - [x] Copy-both
+    - [x] Transaction state
+    - [ ] Streaming replication over TCP
+    - [ ] Logical streaming replication server API
+  - Frontend/Client
+    - [x] Startup APIs
+    - [ ] Simple Query API
+    - [ ] Extended Query API
+    - [ ] Query Cancellation API
+    - [ ] Error and Notice API
+    - [ ] Copy API
+    - [ ] Transaction state
+    - [ ] Streaming replication over TCP
+    - [ ] Logical streaming replication server API
 
 ## About Postgres Wire Protocol
 
@@ -128,10 +142,11 @@ Examples are provided to demo the very basic usage of `pgwire` on server side:
 
 ### Client/Frontend
 
-I think in most case you do not need pgwire to build a postgresql client,
-existing postgresql client like
-[rust-postgres](https://github.com/sfackler/rust-postgres) should fit your
-scenarios. Please rise an issue if there is a scenario.
+The client/frontend API is progress of development. This API will focus on
+providing full access of postgres wire protocol. It's designed to build
+components like postgres proxy. For general purpose postgres driver for
+application development, you can use
+[rust-postgres](https://github.com/sfackler/rust-postgres).
 
 ## Projects using pgwire
 
@@ -147,6 +162,8 @@ scenarios. Please rise an issue if there is a scenario.
   building, deploying and maintaining data products.
 * [restate](https://github.com/restatedev/restate) Framework for building
   resilient workflow
+
+Submit a pull request if your project isn't listed here.
 
 ## License
 

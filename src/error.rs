@@ -151,6 +151,10 @@ impl ErrorInfo {
 
         fields
     }
+
+    pub fn is_fatal(&self) -> bool {
+        self.severity == "FATAL"
+    }
 }
 
 impl From<ErrorInfo> for ErrorResponse {
@@ -211,6 +215,65 @@ impl From<ErrorResponse> for ErrorInfo {
 impl From<ErrorInfo> for NoticeResponse {
     fn from(ei: ErrorInfo) -> NoticeResponse {
         NoticeResponse::new(ei.into_fields())
+    }
+}
+
+impl From<PgWireError> for ErrorInfo {
+    fn from(error: PgWireError) -> Self {
+        match error {
+            PgWireError::InvalidProtocolVersion(_) => {
+                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
+            }
+            PgWireError::InvalidMessageType(_) => {
+                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
+            }
+            PgWireError::InvalidTargetType(_) => {
+                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
+            }
+            PgWireError::InvalidTransactionStatus(_) => {
+                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
+            }
+            PgWireError::InvalidStartupMessage => {
+                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
+            }
+            PgWireError::InvalidAuthenticationMessageCode(_) => {
+                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
+            }
+            PgWireError::IoError(_) => {
+                ErrorInfo::new("FATAL".to_owned(), "58030".to_owned(), error.to_string())
+            }
+            PgWireError::PortalNotFound(_) => {
+                ErrorInfo::new("ERROR".to_owned(), "26000".to_owned(), error.to_string())
+            }
+            PgWireError::StatementNotFound(_) => {
+                ErrorInfo::new("ERROR".to_owned(), "26000".to_owned(), error.to_string())
+            }
+            PgWireError::ParameterIndexOutOfBound(_) => {
+                ErrorInfo::new("ERROR".to_owned(), "22023".to_owned(), error.to_string())
+            }
+            PgWireError::InvalidRustTypeForParameter(_) => {
+                ErrorInfo::new("ERROR".to_owned(), "22023".to_owned(), error.to_string())
+            }
+            PgWireError::FailedToParseParameter(_) => {
+                ErrorInfo::new("ERROR".to_owned(), "22P02".to_owned(), error.to_string())
+            }
+            PgWireError::InvalidScramMessage(_) => {
+                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
+            }
+            PgWireError::UnsupportedCertificateSignatureAlgorithm => {
+                ErrorInfo::new("FATAL".to_owned(), "0A000".to_owned(), error.to_string())
+            }
+            PgWireError::UserNameRequired => {
+                ErrorInfo::new("FATAL".to_owned(), "28000".to_owned(), error.to_string())
+            }
+            PgWireError::NotReadyForQuery => {
+                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
+            }
+            PgWireError::ApiError(_) => {
+                ErrorInfo::new("FATAL".to_owned(), "XX000".to_owned(), error.to_string())
+            }
+            PgWireError::UserError(info) => *info,
+        }
     }
 }
 

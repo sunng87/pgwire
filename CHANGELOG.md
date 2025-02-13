@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Changed
+
+- Reverted API change for optional TLS feature introduced in 0.27. Now the API
+  signature stays unchanged when TLS disabled, you will still need to pass
+  `None` as `TlsAcceptor` in `process_socket`. [#228]
+- Previously we treat all error as fatal internal error but some of them are due
+  to client invalid input. This version corrected this and return `ERROR` for
+  these type of errors. [#240]
+
 ## [0.28.0] - 2024-12-07
 
 ### Added
