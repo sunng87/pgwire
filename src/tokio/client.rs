@@ -1,11 +1,15 @@
+use std::collections::BTreeMap;
 use std::io::{Error as IOError, ErrorKind};
 use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::{Sink, SinkExt, StreamExt};
 use pin_project::pin_project;
+#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+use rustls_pki_types::ServerName;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
+#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use tokio_rustls::client::TlsStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
@@ -13,7 +17,7 @@ use super::TlsConnector;
 use crate::api::client::auth::StartupHandler;
 use crate::api::client::config::Host;
 use crate::api::client::{ClientInfo, Config, ReadyState, ServerInformation};
-use crate::error::PgWireError;
+use crate::error::{PgWireClientError, PgWireError};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 #[non_exhaustive]
@@ -45,7 +49,7 @@ impl Encoder<PgWireFrontendMessage> for PgWireMessageClientCodec {
 pub struct PgWireClient {
     socket: Framed<ClientSocket, PgWireMessageClientCodec>,
     config: Arc<Config>,
-    server_information: Option<ServerInformation>,
+    server_information: ServerInformation,
 }
 
 impl ClientInfo for PgWireClient {
@@ -53,14 +57,12 @@ impl ClientInfo for PgWireClient {
         &self.config
     }
 
-    fn server_parameters(&self, key: &str) -> Option<String> {
-        self.server_information
-            .as_ref()
-            .and_then(|s| s.parameters.get(key).map(|v| v.clone()))
+    fn server_parameters(&self) -> &BTreeMap<String, String> {
+        &self.server_information.parameters
     }
 
-    fn process_id(&self) -> Option<i32> {
-        self.server_information.as_ref().map(|s| s.process_id)
+    fn process_id(&self) -> i32 {
+        self.server_information.process_id
     }
 }
 
@@ -99,7 +101,7 @@ impl PgWireClient {
         config: Arc<Config>,
         mut startup_handler: S,
         tls_connector: Option<TlsConnector>,
-    ) -> Result<PgWireClient, IOError>
+    ) -> Result<PgWireClient, PgWireClientError>
     where
         S: StartupHandler,
     {
@@ -115,7 +117,7 @@ impl PgWireClient {
         let mut client = PgWireClient {
             socket,
             config: config.clone(),
-            server_information: None,
+            server_information: ServerInformation::default(),
         };
 
         startup_handler.startup(&mut client).await?;
@@ -126,20 +128,19 @@ impl PgWireClient {
             if let ReadyState::Ready(server_info) =
                 startup_handler.on_message(&mut client, message).await?
             {
-                client.server_information = Some(server_info);
-                break;
+                client.server_information = server_info;
+                return Ok(client);
             }
         }
 
-        // TODO: deal with connection failed
-
-        Ok(client)
+        Err(PgWireClientError::UnexpectedEOF)
     }
 }
 
 #[pin_project(project = ClientSocketProj)]
 pub enum ClientSocket {
     Plain(#[pin] TcpStream),
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     Secure(#[pin] TlsStream<TcpStream>),
 }
 
@@ -151,6 +152,7 @@ impl AsyncRead for ClientSocket {
     ) -> std::task::Poll<std::io::Result<()>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_read(cx, buf),
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_read(cx, buf),
         }
     }
@@ -164,6 +166,7 @@ impl AsyncWrite for ClientSocket {
     ) -> std::task::Poll<Result<usize, std::io::Error>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_write(cx, buf),
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_write(cx, buf),
         }
     }
@@ -174,6 +177,7 @@ impl AsyncWrite for ClientSocket {
     ) -> std::task::Poll<Result<(), std::io::Error>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_flush(cx),
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_flush(cx),
         }
     }
@@ -184,6 +188,7 @@ impl AsyncWrite for ClientSocket {
     ) -> std::task::Poll<Result<(), std::io::Error>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_shutdown(cx),
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_shutdown(cx),
         }
     }
@@ -196,7 +201,6 @@ async fn connect_tls(
     tls_connector: TlsConnector,
 ) -> Result<ClientSocket, IOError> {
     // TODO: set ALPN correctly
-    use rustls_pki_types::ServerName;
 
     let hostname = config.host[0].get_hostname().unwrap_or("".to_owned());
     let server_name =
@@ -257,42 +261,42 @@ pub(crate) async fn ssl_handshake(
             }
         }
     } else {
-        return Ok(ClientSocket::Plain(socket.into_inner()));
+        Ok(ClientSocket::Plain(socket.into_inner()))
     }
 }
 
 #[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]
 pub(crate) async fn ssl_handshake(
-    socket: TcpStream,
+    socket: Framed<TcpStream, PgWireMessageClientCodec>,
     _config: &Config,
     _tls_connector: Option<TlsConnector>,
 ) -> Result<ClientSocket, IOError> {
-    Ok(ClientSocket::Plain(socket))
+    Ok(ClientSocket::Plain(socket.into_inner()))
 }
 
-fn get_addr(config: &Config) -> Result<String, IOError> {
-    if config.get_hostaddrs().len() > 0 {
+fn get_addr(config: &Config) -> Result<String, PgWireClientError> {
+    if !config.get_hostaddrs().is_empty() {
         return Ok(format!(
             "{}:{}",
-            config.get_hostaddrs()[0].to_string(),
-            config.get_ports().get(0).cloned().unwrap_or(5432u16)
+            config.get_hostaddrs()[0],
+            config.get_ports().first().cloned().unwrap_or(5432u16)
         ));
     }
 
-    if config.get_hosts().len() > 0 {
+    if !config.get_hosts().is_empty() {
         match &config.get_hosts()[0] {
             Host::Tcp(host) => {
                 return Ok(format!(
                     "{}:{}",
                     host,
-                    config.get_ports().get(0).cloned().unwrap_or(5432u16)
+                    config.get_ports().first().cloned().unwrap_or(5432u16)
                 ))
             }
             _ => {
-                return Err(IOError::new(ErrorKind::InvalidData, "Invalid host"));
+                return Err(PgWireClientError::InvalidConfig("host".to_string()));
             }
         }
     }
 
-    Err(IOError::new(ErrorKind::InvalidData, "Invalid host"))
+    Err(PgWireClientError::InvalidConfig("host".to_string()))
 }

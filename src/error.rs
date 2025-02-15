@@ -38,20 +38,6 @@ pub enum PgWireError {
     UserNameRequired,
     #[error("Connection is not ready for query")]
     NotReadyForQuery,
-    #[cfg(feature = "client-api")]
-    #[error("Failed to parse connection config, invalid value for: {0}")]
-    InvalidConfig(String),
-    #[cfg(feature = "client-api")]
-    #[error("Failed to parse connection config, unknown config: {0}")]
-    UnknownConfig(String),
-    #[cfg(feature = "client-api")]
-    #[error("Failed to parse utf8 value")]
-    InvalidUtf8ConfigValue(#[source] std::str::Utf8Error),
-    #[cfg(feature = "client-api")]
-    #[error("Failed to send front message")]
-    ClientMessageSendError(
-        #[source] tokio::sync::mpsc::error::SendError<crate::messages::PgWireFrontendMessage>,
-    ),
 
     #[error(transparent)]
     ApiError(#[from] Box<dyn std::error::Error + 'static + Send + Sync>),
@@ -72,7 +58,7 @@ pub type PgWireResult<T> = Result<T, PgWireError>;
 // This part of protocol is defined in
 // https://www.postgresql.org/docs/8.2/protocol-error-fields.html
 #[non_exhaustive]
-#[derive(new, Debug)]
+#[derive(new, Debug, Default)]
 pub struct ErrorInfo {
     // severity can be one of `ERROR`, `FATAL`, or `PANIC` (in an error
     // message), or `WARNING`, `NOTICE`, `DEBUG`, `INFO`, or `LOG` (in a notice
@@ -176,6 +162,55 @@ impl From<ErrorInfo> for ErrorResponse {
     }
 }
 
+impl From<ErrorResponse> for ErrorInfo {
+    fn from(value: ErrorResponse) -> Self {
+        let mut error_info = ErrorInfo::default();
+        for field in value.fields {
+            let (key, value) = field;
+            match key {
+                b'S' => {
+                    error_info.severity = value;
+                }
+                b'C' => {
+                    error_info.code = value;
+                }
+                b'M' => {
+                    error_info.message = value;
+                }
+                b'D' => {
+                    error_info.detail = Some(value);
+                }
+                b'H' => {
+                    error_info.hint = Some(value);
+                }
+                b'P' => {
+                    error_info.position = Some(value);
+                }
+                b'p' => {
+                    error_info.internal_position = Some(value);
+                }
+                b'q' => {
+                    error_info.internal_query = Some(value);
+                }
+                b'W' => {
+                    error_info.where_context = Some(value);
+                }
+                b'F' => {
+                    error_info.file_name = Some(value);
+                }
+                b'L' => {
+                    error_info.line = Some(value.parse().unwrap_or(0));
+                }
+                b'R' => {
+                    error_info.routine = Some(value);
+                }
+                _ => {}
+            }
+        }
+        error_info
+    }
+}
+
 impl From<ErrorInfo> for NoticeResponse {
     fn from(ei: ErrorInfo) -> NoticeResponse {
         NoticeResponse::new(ei.into_fields())
@@ -233,22 +268,6 @@ impl From<PgWireError> for ErrorInfo {
             PgWireError::NotReadyForQuery => {
                 ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
             }
-            #[cfg(feature = "client-api")]
-            PgWireError::InvalidConfig(_) => {
-                ErrorInfo::new("FATAL".to_owned(), "22023".to_owned(), error.to_string())
-            }
-            #[cfg(feature = "client-api")]
-            PgWireError::UnknownConfig(_) => {
-                ErrorInfo::new("FATAL".to_owned(), "22023".to_owned(), error.to_string())
-            }
-            #[cfg(feature = "client-api")]
-            PgWireError::InvalidUtf8ConfigValue(_) => {
-                ErrorInfo::new("FATAL".to_owned(), "22021".to_owned(), error.to_string())
-            }
-            #[cfg(feature = "client-api")]
-            PgWireError::ClientMessageSendError(_) => {
-                ErrorInfo::new("FATAL".to_owned(), "58000".to_owned(), error.to_string())
-            }
             PgWireError::ApiError(_) => {
                 ErrorInfo::new("FATAL".to_owned(), "XX000".to_owned(), error.to_string())
             }
@@ -256,6 +275,44 @@ impl From<PgWireError> for ErrorInfo {
         }
     }
 }
+
+#[cfg(feature = "client-api")]
+#[derive(Error, Debug)]
+pub enum PgWireClientError {
+    #[error("Failed to parse connection config, invalid value for: {0}")]
+    InvalidConfig(String),
+
+    #[error("Failed to parse connection config, unknown config: {0}")]
+    UnknownConfig(String),
+
+    #[error("Failed to parse utf8 value")]
+    InvalidUtf8ConfigValue(#[source] std::str::Utf8Error),
+
+    #[error("Unexpected EOF")]
+    UnexpectedEOF,
+
+    #[error("Unexpected remote message")]
+    UnexpectedMessage(Box<crate::messages::PgWireBackendMessage>),
+
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
+
+    #[error(transparent)]
+    PgWireError(#[from] PgWireError),
+
+    #[error("Error received from remote server: {0}")]
+    RemoteError(Box<ErrorInfo>),
+}
+
+#[cfg(feature = "client-api")]
+impl From<ErrorInfo> for PgWireClientError {
+    fn from(ei: ErrorInfo) -> PgWireClientError {
+        PgWireClientError::RemoteError(Box::new(ei))
+    }
+}
+
+#[cfg(feature = "client-api")]
+pub type PgWireClientResult<T> = Result<T, PgWireClientError>;
 
 #[cfg(test)]
 mod test {
