@@ -140,6 +140,7 @@ impl PgWireClient {
 #[pin_project(project = ClientSocketProj)]
 pub enum ClientSocket {
     Plain(#[pin] TcpStream),
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     Secure(#[pin] TlsStream<TcpStream>),
 }
 
@@ -151,6 +152,7 @@ impl AsyncRead for ClientSocket {
     ) -> std::task::Poll<std::io::Result<()>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_read(cx, buf),
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_read(cx, buf),
         }
     }
@@ -164,6 +166,7 @@ impl AsyncWrite for ClientSocket {
     ) -> std::task::Poll<Result<usize, std::io::Error>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_write(cx, buf),
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_write(cx, buf),
         }
     }
@@ -174,6 +177,7 @@ impl AsyncWrite for ClientSocket {
     ) -> std::task::Poll<Result<(), std::io::Error>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_flush(cx),
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_flush(cx),
         }
     }
@@ -184,6 +188,7 @@ impl AsyncWrite for ClientSocket {
     ) -> std::task::Poll<Result<(), std::io::Error>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_shutdown(cx),
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_shutdown(cx),
         }
     }
@@ -262,11 +267,11 @@ pub(crate) async fn ssl_handshake(
 
 #[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]
 pub(crate) async fn ssl_handshake(
-    socket: TcpStream,
+    socket: Framed<TcpStream, PgWireMessageClientCodec>,
     _config: &Config,
     _tls_connector: Option<TlsConnector>,
 ) -> Result<ClientSocket, IOError> {
-    Ok(ClientSocket::Plain(socket))
+    Ok(ClientSocket::Plain(socket.into_inner()))
 }
 
 fn get_addr(config: &Config) -> Result<String, PgWireClientError> {

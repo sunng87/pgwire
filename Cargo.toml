@@ -75,6 +75,7 @@ client-api = [
   "dep:tokio-util",
   "dep:futures",
   "dep:async-trait",
+  "dep:md5",
 ]
 client-api-ring = ["client-api", "_ring", "dep:rustls-pki-types"]
 client-api-aws-lc-rs = ["client-api", "_aws-lc-rs", "dep:rustls-pki-types"]
@@ -91,7 +92,6 @@ duckdb = { version = "1.0.0" }
 
 ## for loading custom cert files
 rustls-pemfile = "2.0"
-rustls-pki-types = "1.0"
 ## webpki-roots has mozilla's set of roots
 ## rustls-native-certs loads roots from current system
 gluesql = { version = "0.16", default-features = false, features = ["gluesql_memory_storage"] }
