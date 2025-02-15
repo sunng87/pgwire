@@ -5,8 +5,11 @@ use std::sync::Arc;
 
 use futures::{Sink, SinkExt, StreamExt};
 use pin_project::pin_project;
+#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+use rustls_pki_types::ServerName;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
+#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use tokio_rustls::client::TlsStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
@@ -193,7 +196,6 @@ async fn connect_tls(
     tls_connector: TlsConnector,
 ) -> Result<ClientSocket, IOError> {
     // TODO: set ALPN correctly
-    use rustls_pki_types::ServerName;
 
     let hostname = config.host[0].get_hostname().unwrap_or("".to_owned());
     let server_name =
