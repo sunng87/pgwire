@@ -132,6 +132,18 @@ impl From<&FieldInfo> for FieldDescription {
     }
 }
 
+impl From<FieldDescription> for FieldInfo {
+    fn from(value: FieldDescription) -> Self {
+        FieldInfo::new(
+            value.name,
+            Some(value.table_id),
+            Some(value.column_id),
+            Type::from_oid(value.type_id).unwrap_or(Type::UNKNOWN),
+            FieldFormat::from(value.format_code),
+        )
+    }
+}
+
 pub(crate) fn into_row_description(fields: &[FieldInfo]) -> RowDescription {
     RowDescription::new(fields.iter().map(Into::into).collect())
 }

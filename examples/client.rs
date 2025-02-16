@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use pgwire::api::client::auth::DefaultStartupHandler;
+use pgwire::api::client::query::DefaultSimpleQueryHandler;
 use pgwire::api::client::ClientInfo;
 use pgwire::tokio::client::PgWireClient;
 
@@ -11,8 +12,17 @@ pub async fn main() {
             .parse()
             .unwrap(),
     );
-    let handler = DefaultStartupHandler::new();
-    let client = PgWireClient::connect(config, handler, None).await.unwrap();
+    let startup_handler = DefaultStartupHandler::new();
+    let mut client = PgWireClient::connect(config, startup_handler, None)
+        .await
+        .unwrap();
 
     println!("{:?}", client.server_parameters());
+
+    let simple_query_handler = DefaultSimpleQueryHandler::new();
+    let result = client
+        .simple_query(simple_query_handler, "SELECT 1")
+        .await
+        .unwrap();
+    println!("{:?}", result);
 }
