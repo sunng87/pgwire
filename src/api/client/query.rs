@@ -198,7 +198,7 @@ impl SimpleQueryHandler for DefaultSimpleQueryHandler {
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
         if self.current_buffer.is_some() {
-            let current_buffer = std::mem::replace(&mut self.current_buffer, None);
+            let current_buffer = std::mem::take(&mut self.current_buffer);
             let current_buffer = current_buffer.unwrap();
             self.responses.push(Response::Query((
                 message.tag.parse::<Tag>()?,
@@ -235,7 +235,7 @@ impl SimpleQueryHandler for DefaultSimpleQueryHandler {
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
-        let responses = std::mem::replace(&mut self.responses, Vec::new());
+        let responses = std::mem::take(&mut self.responses);
         Ok(responses)
     }
 }

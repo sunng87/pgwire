@@ -98,6 +98,8 @@ impl Sink<PgWireFrontendMessage> for PgWireClient {
 }
 
 impl PgWireClient {
+    /// Connect to server via TCP, optional TLS, and performance Postgres
+    /// startup process.
     pub async fn connect<S>(
         config: Arc<Config>,
         mut startup_handler: S,
@@ -137,7 +139,8 @@ impl PgWireClient {
         Err(PgWireClientError::UnexpectedEOF)
     }
 
-    pub async fn simple_query<'a, H>(
+    /// Start a query with simple query subprotocol
+    pub async fn simple_query<H>(
         &mut self,
         mut simple_query_handler: H,
         query: &str,
