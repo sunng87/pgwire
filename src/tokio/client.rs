@@ -234,7 +234,7 @@ async fn connect_tls(
         if !config
             .alpn_protocols
             .iter()
-            .any(|alpn| alpn.as_slice() == b"postgresql")
+            .any(|alpn| alpn.as_slice() == super::POSTGRESQL_ALPN_NAME)
         {
             return Err(PgWireClientError::AlpnRequired);
         }
