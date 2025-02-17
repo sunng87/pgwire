@@ -302,6 +302,9 @@ pub enum PgWireClientError {
 
     #[error("Error received from remote server: {0}")]
     RemoteError(Box<ErrorInfo>),
+
+    #[error("Error parse command tag")]
+    InvalidTag(Box<dyn std::error::Error>),
 }
 
 #[cfg(feature = "client-api")]

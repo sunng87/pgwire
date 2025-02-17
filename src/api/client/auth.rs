@@ -47,6 +47,7 @@ pub trait StartupHandler: Send + Sync {
                 let error_info = ErrorInfo::from(error);
                 return Err(error_info.into());
             }
+            PgWireBackendMessage::NoticeResponse(_) => {}
             _ => return Err(PgWireClientError::UnexpectedMessage(Box::new(message))),
         }
 

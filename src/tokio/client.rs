@@ -16,8 +16,9 @@ use tokio_util::codec::{Decoder, Encoder, Framed};
 use super::TlsConnector;
 use crate::api::client::auth::StartupHandler;
 use crate::api::client::config::Host;
+use crate::api::client::query::{Response, SimpleQueryHandler};
 use crate::api::client::{ClientInfo, Config, ReadyState, ServerInformation};
-use crate::error::{PgWireClientError, PgWireError};
+use crate::error::{PgWireClientError, PgWireClientResult, PgWireError};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 #[non_exhaustive]
@@ -97,11 +98,13 @@ impl Sink<PgWireFrontendMessage> for PgWireClient {
 }
 
 impl PgWireClient {
+    /// Connect to server via TCP, optional TLS, and performance Postgres
+    /// startup process.
     pub async fn connect<S>(
         config: Arc<Config>,
         mut startup_handler: S,
         tls_connector: Option<TlsConnector>,
-    ) -> Result<PgWireClient, PgWireClientError>
+    ) -> PgWireClientResult<PgWireClient>
     where
         S: StartupHandler,
     {
@@ -130,6 +133,30 @@ impl PgWireClient {
             {
                 client.server_information = server_info;
                 return Ok(client);
+            }
+        }
+
+        Err(PgWireClientError::UnexpectedEOF)
+    }
+
+    /// Start a query with simple query subprotocol
+    pub async fn simple_query<H>(
+        &mut self,
+        mut simple_query_handler: H,
+        query: &str,
+    ) -> PgWireClientResult<Vec<Response>>
+    where
+        H: SimpleQueryHandler,
+    {
+        simple_query_handler.simple_query(self, query).await?;
+
+        while let Some(message_result) = self.socket.next().await {
+            let message = message_result?;
+
+            if let ReadyState::Ready(responses) =
+                simple_query_handler.on_message(self, message).await?
+            {
+                return Ok(responses);
             }
         }
 
