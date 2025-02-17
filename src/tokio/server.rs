@@ -351,7 +351,7 @@ fn check_alpn_for_direct_ssl<IO>(tls_socket: &TlsStream<IO>) -> Result<(), io::E
     let mut accept = false;
 
     if let Some(alpn) = the_conn.alpn_protocol() {
-        if alpn == b"postgresql" {
+        if alpn == super::POSTGRESQL_ALPN_NAME {
             accept = true;
         }
     }

@@ -305,6 +305,9 @@ pub enum PgWireClientError {
 
     #[error("Error parse command tag")]
     InvalidTag(Box<dyn std::error::Error>),
+
+    #[error("ALPN postgresql is required for direct connect.")]
+    AlpnRequired,
 }
 
 #[cfg(feature = "client-api")]

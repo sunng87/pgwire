@@ -14,6 +14,9 @@ pub type TlsAcceptor = tokio_rustls::TlsAcceptor;
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 pub type TlsConnector = tokio_rustls::TlsConnector;
 
+#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+pub(super) const POSTGRESQL_ALPN_NAME: &[u8] = b"postgresql";
+
 #[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]
 pub enum TlsAcceptor {}
 #[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]
