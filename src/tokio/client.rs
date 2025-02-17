@@ -226,8 +226,19 @@ async fn connect_tls(
     socket: TcpStream,
     config: &Config,
     tls_connector: TlsConnector,
-) -> Result<ClientSocket, IOError> {
-    // TODO: set ALPN correctly
+) -> PgWireClientResult<ClientSocket> {
+    use crate::api::client::config::SslNegotiation;
+    // alpn check for direct connect
+    if config.ssl_negotiation == SslNegotiation::Direct {
+        let config = tls_connector.config();
+        if !config
+            .alpn_protocols
+            .iter()
+            .any(|alpn| alpn.as_slice() == b"postgresql")
+        {
+            return Err(PgWireClientError::AlpnRequired);
+        }
+    }
 
     let hostname = config.host[0].get_hostname().unwrap_or("".to_owned());
     let server_name =
@@ -241,7 +252,7 @@ pub(crate) async fn ssl_handshake(
     mut socket: Framed<TcpStream, PgWireMessageClientCodec>,
     config: &Config,
     tls_connector: Option<TlsConnector>,
-) -> Result<ClientSocket, IOError> {
+) -> PgWireClientResult<ClientSocket> {
     use crate::{
         api::client::config::{SslMode, SslNegotiation},
         messages::response::SslResponse,
@@ -273,7 +284,8 @@ pub(crate) async fn ssl_handshake(
                             Err(IOError::new(
                                 ErrorKind::ConnectionAborted,
                                 "TLS is not enabled on server ",
-                            ))
+                            )
+                            .into())
                         } else {
                             Ok(ClientSocket::Plain(socket.into_inner()))
                         }
@@ -281,10 +293,7 @@ pub(crate) async fn ssl_handshake(
                 }
             } else {
                 // connection closed
-                Err(IOError::new(
-                    ErrorKind::ConnectionAborted,
-                    "Expect SslResponse",
-                ))
+                Err(IOError::new(ErrorKind::ConnectionAborted, "Expect SslResponse").into())
             }
         }
     } else {
@@ -297,7 +306,7 @@ pub(crate) async fn ssl_handshake(
     socket: Framed<TcpStream, PgWireMessageClientCodec>,
     _config: &Config,
     _tls_connector: Option<TlsConnector>,
-) -> Result<ClientSocket, IOError> {
+) -> PgWireClientResult<ClientSocket> {
     Ok(ClientSocket::Plain(socket.into_inner()))
 }
 
