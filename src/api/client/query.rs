@@ -15,6 +15,8 @@ use super::{ClientInfo, ReadyState};
 
 #[async_trait]
 pub trait SimpleQueryHandler: Send {
+    type QueryResponse;
+
     async fn simple_query<C>(&mut self, client: &mut C, query: &str) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
@@ -24,7 +26,7 @@ pub trait SimpleQueryHandler: Send {
         &mut self,
         client: &mut C,
         message: PgWireBackendMessage,
-    ) -> PgWireClientResult<ReadyState<Vec<Response>>>
+    ) -> PgWireClientResult<ReadyState<Vec<Self::QueryResponse>>>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
@@ -93,7 +95,7 @@ pub trait SimpleQueryHandler: Send {
         &mut self,
         client: &mut C,
         message: ReadyForQuery,
-    ) -> PgWireClientResult<Vec<Response>>
+    ) -> PgWireClientResult<Vec<Self::QueryResponse>>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
@@ -145,6 +147,8 @@ pub struct DefaultSimpleQueryHandler {
 
 #[async_trait]
 impl SimpleQueryHandler for DefaultSimpleQueryHandler {
+    type QueryResponse = Response;
+
     async fn simple_query<C>(&mut self, client: &mut C, query: &str) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
