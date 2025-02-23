@@ -92,9 +92,9 @@ impl FromSqlText for SystemTime {
         Self: Sized,
     {
         let datetime = NaiveDateTime::parse_from_str(to_str(value)?, "%Y-%m-%d %H:%M:%S.6f")?;
-        let system_time = SystemTime::from(
-            UNIX_EPOCH + Duration::from_millis(datetime.and_utc().timestamp_millis() as u64),
-        );
+        let system_time =
+            UNIX_EPOCH + Duration::from_millis(datetime.and_utc().timestamp_millis() as u64);
+
         Ok(system_time)
     }
 }
@@ -164,7 +164,7 @@ where
     where
         Self: Sized,
     {
-        if input.len() == 0 {
+        if input.is_empty() {
             Ok(None)
         } else {
             T::from_sql_text(ty, input).map(Some)

@@ -14,9 +14,9 @@ pub struct DataRowDecoder<'a> {
     read_index: usize,
 }
 
-impl<'a> DataRowDecoder<'a> {
+impl DataRowDecoder<'_> {
     /// Get value from data row
-    pub fn next<T>(&mut self) -> PgWireClientResult<Option<T>>
+    pub fn next_value<T>(&mut self) -> PgWireClientResult<Option<T>>
     where
         T: FromSqlOwned + FromSqlText,
     {
@@ -49,6 +49,10 @@ impl<'a> DataRowDecoder<'a> {
     /// Length of fields
     pub fn len(&self) -> usize {
         self.fields.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.fields.is_empty()
     }
 }
 
