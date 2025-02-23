@@ -42,7 +42,7 @@ impl Encoder<PgWireFrontendMessage> for PgWireMessageClientCodec {
         item: PgWireFrontendMessage,
         dst: &mut bytes::BytesMut,
     ) -> Result<(), Self::Error> {
-        item.encode(dst).map_err(Into::into)
+        item.encode(dst)
     }
 }
 
