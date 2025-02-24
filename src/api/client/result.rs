@@ -7,6 +7,31 @@ use crate::messages::data::DataRow;
 use crate::types::FromSqlText;
 
 #[derive(new, Debug)]
+pub struct DataRowsReader {
+    fields: Vec<FieldInfo>,
+    rows: Vec<DataRow>,
+}
+
+impl DataRowsReader {
+    pub fn empty() -> DataRowsReader {
+        Self {
+            fields: vec![],
+            rows: vec![],
+        }
+    }
+
+    /// Generate row decoder for next row
+    pub fn next_row(&mut self) -> Option<DataRowDecoder<'_>> {
+        if !self.rows.is_empty() {
+            let row = self.rows.remove(0);
+            Some(DataRowDecoder::new(self.fields.as_slice(), row))
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(new, Debug)]
 pub struct DataRowDecoder<'a> {
     fields: &'a [FieldInfo],
     row: DataRow,

@@ -11,6 +11,7 @@ use crate::messages::response::{CommandComplete, EmptyQueryResponse, ReadyForQue
 use crate::messages::simplequery::Query;
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
+use super::result::DataRowsReader;
 use super::{ClientInfo, ReadyState};
 
 #[async_trait]
@@ -106,6 +107,16 @@ pub enum Response {
     EmptyQuery,
     Query((Tag, Vec<FieldInfo>, Vec<DataRow>)),
     Execution(Tag),
+}
+
+impl Response {
+    pub fn into_data_rows_reader(self) -> DataRowsReader {
+        if let Response::Query((_, fields, rows)) = self {
+            DataRowsReader::new(fields, rows)
+        } else {
+            DataRowsReader::empty()
+        }
+    }
 }
 
 impl FromStr for Tag {
