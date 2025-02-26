@@ -11,10 +11,13 @@ use crate::messages::response::{CommandComplete, EmptyQueryResponse, ReadyForQue
 use crate::messages::simplequery::Query;
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
+use super::result::DataRowsReader;
 use super::{ClientInfo, ReadyState};
 
 #[async_trait]
 pub trait SimpleQueryHandler: Send {
+    type QueryResponse;
+
     async fn simple_query<C>(&mut self, client: &mut C, query: &str) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
@@ -24,7 +27,7 @@ pub trait SimpleQueryHandler: Send {
         &mut self,
         client: &mut C,
         message: PgWireBackendMessage,
-    ) -> PgWireClientResult<ReadyState<Vec<Response>>>
+    ) -> PgWireClientResult<ReadyState<Vec<Self::QueryResponse>>>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
@@ -93,7 +96,7 @@ pub trait SimpleQueryHandler: Send {
         &mut self,
         client: &mut C,
         message: ReadyForQuery,
-    ) -> PgWireClientResult<Vec<Response>>
+    ) -> PgWireClientResult<Vec<Self::QueryResponse>>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
@@ -104,6 +107,16 @@ pub enum Response {
     EmptyQuery,
     Query((Tag, Vec<FieldInfo>, Vec<DataRow>)),
     Execution(Tag),
+}
+
+impl Response {
+    pub fn into_data_rows_reader(self) -> DataRowsReader {
+        if let Response::Query((_, fields, rows)) = self {
+            DataRowsReader::new(fields, rows)
+        } else {
+            DataRowsReader::empty()
+        }
+    }
 }
 
 impl FromStr for Tag {
@@ -145,6 +158,8 @@ pub struct DefaultSimpleQueryHandler {
 
 #[async_trait]
 impl SimpleQueryHandler for DefaultSimpleQueryHandler {
+    type QueryResponse = Response;
+
     async fn simple_query<C>(&mut self, client: &mut C, query: &str) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,

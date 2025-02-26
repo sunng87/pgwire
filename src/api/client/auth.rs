@@ -14,7 +14,7 @@ use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 use super::{ClientInfo, ReadyState, ServerInformation};
 
 #[async_trait]
-pub trait StartupHandler: Send + Sync {
+pub trait StartupHandler: Send {
     async fn startup<C>(&mut self, client: &mut C) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
