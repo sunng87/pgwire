@@ -306,6 +306,9 @@ pub enum PgWireClientError {
     #[error("Error parse command tag: {0}")]
     InvalidTag(Box<dyn std::error::Error>),
 
+    #[error("ALPN postgresql is required for direct connect.")]
+    AlpnRequired,
+
     #[error("Failed to parse data: {0}")]
     FromSqlError(Box<dyn std::error::Error + Send + Sync>),
 
