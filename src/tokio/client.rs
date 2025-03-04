@@ -16,7 +16,7 @@ use tokio_util::codec::{Decoder, Encoder, Framed};
 use super::TlsConnector;
 use crate::api::client::auth::StartupHandler;
 use crate::api::client::config::Host;
-use crate::api::client::query::{Response, SimpleQueryHandler};
+use crate::api::client::query::SimpleQueryHandler;
 use crate::api::client::{ClientInfo, Config, ReadyState, ServerInformation};
 use crate::error::{PgWireClientError, PgWireClientResult, PgWireError};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
@@ -42,7 +42,7 @@ impl Encoder<PgWireFrontendMessage> for PgWireMessageClientCodec {
         item: PgWireFrontendMessage,
         dst: &mut bytes::BytesMut,
     ) -> Result<(), Self::Error> {
-        item.encode(dst).map_err(Into::into)
+        item.encode(dst)
     }
 }
 
@@ -144,7 +144,7 @@ impl PgWireClient {
         &mut self,
         mut simple_query_handler: H,
         query: &str,
-    ) -> PgWireClientResult<Vec<Response>>
+    ) -> PgWireClientResult<Vec<H::QueryResponse>>
     where
         H: SimpleQueryHandler,
     {

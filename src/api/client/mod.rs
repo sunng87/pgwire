@@ -1,6 +1,7 @@
 pub mod auth;
 pub(crate) mod config;
 pub mod query;
+pub mod result;
 
 use std::collections::BTreeMap;
 
