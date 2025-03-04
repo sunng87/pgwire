@@ -25,7 +25,7 @@ tokio = { version = "1.19", features = [
     "macros"
 ], optional = true }
 tokio-util = { version = "0.7.3", features = ["codec", "io"], optional = true }
-tokio-rustls = { git = "https://github.com/rustls/tokio-rustls.git", rev = "2d393fd4384cd82fba49570a613f3e3cce943eff", optional = true, default-features = false, features = ["logging", "tls12"]}
+tokio-rustls = { version = "0.26.2", optional = true, default-features = false, features = ["logging", "tls12"]}
 rustls-pki-types = { version = "1.10", optional = true }
 futures = { version = "0.3", optional = true }
 async-trait = { version = "0.1", optional = true }
