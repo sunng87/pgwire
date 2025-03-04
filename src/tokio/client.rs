@@ -231,10 +231,10 @@ async fn connect_tls(
     // alpn check for direct connect
     if config.ssl_negotiation == SslNegotiation::Direct {
         let config = tls_connector.config();
-        if !config
-            .alpn_protocols
-            .iter()
-            .any(|alpn| alpn.as_slice() == super::POSTGRESQL_ALPN_NAME)
+
+        // make sure postgresql is the only alpn protocol from client
+        if !config.alpn_protocols.len() == 1
+            || config.alpn_protocols[0] == super::POSTGRESQL_ALPN_NAME
         {
             return Err(PgWireClientError::AlpnRequired);
         }
