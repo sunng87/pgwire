@@ -12,6 +12,10 @@ use crate::error::PgWireResult;
 pub(crate) fn get_cstring(buf: &mut BytesMut) -> Option<String> {
     let mut i = 0;
 
+    if buf.remaining() == 0 {
+        return None;
+    }
+
     // with bound check to prevent invalid format
     while i < buf.remaining() && buf[i] != b'\0' {
         i += 1;
@@ -85,4 +89,27 @@ where
 
 pub(crate) fn option_string_len(s: &Option<String>) -> usize {
     1 + s.as_ref().map(|s| s.len()).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod test {
+    use super::get_cstring;
+    use bytes::{BufMut, BytesMut};
+
+    #[test]
+    fn get_cstring_valid() {
+        let mut buf = BytesMut::new();
+        buf.put(&b"a cstring\0"[..]);
+        buf.put(&b"\0"[..]);
+
+        assert_eq!(Some("a cstring".into()), get_cstring(&mut buf));
+        assert_eq!(None, get_cstring(&mut buf));
+    }
+
+    #[test]
+    fn get_cstring_empty() {
+        let mut buf = BytesMut::new();
+
+        assert_eq!(None, get_cstring(&mut buf));
+    }
 }
