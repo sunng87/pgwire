@@ -162,6 +162,26 @@ impl PgWireClient {
 
         Err(PgWireClientError::UnexpectedEOF)
     }
+
+    /// Parse a query to server side
+    pub async fn parse<H>(
+        &mut self,
+        mut extended_query_handler: H,
+        name: Option<&str>,
+        query: &str,
+    ) -> PgWireClientResult<()> {
+        todo!()
+    }
+
+    /// Execute the query
+    pub async fn execute<H>(
+        &mut self,
+        mut extended_query_handler: H,
+        name: Option<&str>,
+        parameters: Vec<String>, //TODO
+    ) -> PgWireClientResult<()> {
+        todo!()
+    }
 }
 
 #[pin_project(project = ClientSocketProj)]
