@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 pub use postgres_types::Type;
+use rustls_pki_types::CertificateDer;
 
 use crate::error::PgWireError;
 use crate::messages::response::TransactionStatus;
@@ -51,6 +52,9 @@ pub trait ClientInfo {
     fn metadata(&self) -> &HashMap<String, String>;
 
     fn metadata_mut(&mut self) -> &mut HashMap<String, String>;
+
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    fn client_certificates<'a>(&self) -> Option<&[CertificateDer<'a>]>;
 }
 
 /// Client Portal Store
@@ -105,6 +109,11 @@ impl<S> ClientInfo for DefaultClient<S> {
 
     fn set_transaction_status(&mut self, new_status: TransactionStatus) {
         self.transaction_status = new_status
+    }
+
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    fn client_certificates<'a>(&self) -> Option<&[CertificateDer<'a>]> {
+        None
     }
 }
 
