@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 pub use postgres_types::Type;
+#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use rustls_pki_types::CertificateDer;
 
 use crate::error::PgWireError;

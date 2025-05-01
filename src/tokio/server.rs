@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::io;
 use std::sync::Arc;
 
@@ -120,7 +119,8 @@ impl<T: 'static, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
         if !self.is_secure() {
             None
         } else {
-            let socket = <dyn Any>::downcast_ref::<TlsStream<TcpStream>>(self.get_ref()).unwrap();
+            let socket =
+                <dyn std::any::Any>::downcast_ref::<TlsStream<TcpStream>>(self.get_ref()).unwrap();
             let (_, tls_session) = socket.get_ref();
             tls_session.peer_certificates()
         }
