@@ -44,7 +44,7 @@ postgres-types = { version = "0.2", features = [
     "with-chrono-0_4",
     "array-impls",
 ], optional = true }
-chrono = { version = "0.4, <0.4.40", features = ["std"], optional = true }
+chrono = { version = "0.4, <0.4.42", features = ["std"], optional = true }
 rust_decimal = { version = "1.35", features = ["db-postgres"], optional = true }
 lazy-regex = {version = "3.3", default-features = false, features = ["lite"]}
 ## config
