@@ -3,6 +3,8 @@ use std::sync::Arc;
 
 use bytes::Buf;
 use futures::{SinkExt, StreamExt};
+#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+use rustls_pki_types::CertificateDer;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
@@ -77,7 +79,7 @@ impl<S> Encoder<PgWireBackendMessage> for PgWireMessageServerCodec<S> {
     }
 }
 
-impl<T, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
+impl<T: 'static, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
     fn socket_addr(&self) -> std::net::SocketAddr {
         self.codec().client_info.socket_addr
     }
@@ -111,6 +113,18 @@ impl<T, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
             .client_info
             .set_transaction_status(new_status);
     }
+
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    fn client_certificates<'a>(&self) -> Option<&[CertificateDer<'a>]> {
+        if !self.is_secure() {
+            None
+        } else {
+            let socket =
+                <dyn std::any::Any>::downcast_ref::<TlsStream<TcpStream>>(self.get_ref()).unwrap();
+            let (_, tls_session) = socket.get_ref();
+            tls_session.peer_certificates()
+        }
+    }
 }
 
 impl<T, S> ClientPortalStore for Framed<T, PgWireMessageServerCodec<S>> {
@@ -130,7 +144,7 @@ async fn process_message<S, A, Q, EQ, C>(
     copy_handler: Arc<C>,
 ) -> PgWireResult<()>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
+    S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
     A: StartupHandler,
     Q: SimpleQueryHandler,
     EQ: ExtendedQueryHandler,
@@ -239,7 +253,7 @@ async fn process_error<S, ST>(
     wait_for_sync: bool,
 ) -> Result<(), io::Error>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
+    S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
     let error_info: ErrorInfo = error.into();
     let is_fatal = error_info.is_fatal();
@@ -315,7 +329,7 @@ async fn do_process_socket<S, A, Q, EQ, C, E>(
     error_handler: Arc<E>,
 ) -> Result<(), io::Error>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
+    S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
     A: StartupHandler,
     Q: SimpleQueryHandler,
     EQ: ExtendedQueryHandler,
