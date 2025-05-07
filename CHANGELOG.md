@@ -8,6 +8,13 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased] - ReleaseDate
 
+### Added
+
+- New API `client_certificates` in `ClientInfo` for retrieving clietn
+  certificate information. [#255]
+- A few unfinished client API. These APIs are disabled with feature gate by
+  default.
+
 ### Changed
 
 - Reverted API change for optional TLS feature introduced in 0.27. Now the API
@@ -16,6 +23,13 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - Previously we treat all error as fatal internal error but some of them are due
   to client invalid input. This version corrected this and return `ERROR` for
   these type of errors. [#240]
+- For direct SSL negotiation, we now check ALPN strictly. [#243]
+- Changed default server_version format for compatibility. [#233]
+
+### Fixed
+
+- Avoid panic for `get_string` on empty buffer [#247]
+
 
 ## [0.28.0] - 2024-12-07
 
