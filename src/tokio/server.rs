@@ -261,10 +261,6 @@ where
         .send(PgWireBackendMessage::ErrorResponse(error_info.into()))
         .await?;
 
-    if is_fatal {
-        return socket.close().await;
-    }
-
     let transaction_status = socket.transaction_status().to_error_state();
     socket.set_transaction_status(transaction_status);
 
@@ -279,6 +275,10 @@ where
             .await?;
     }
     socket.flush().await?;
+
+    if is_fatal {
+        return socket.close().await;
+    }
 
     Ok(())
 }
