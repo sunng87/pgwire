@@ -262,7 +262,7 @@ impl From<PgWireError> for ErrorInfo {
                 ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
             }
             PgWireError::InvalidPassword(_) => {
-                ErrorInfo::new("ERROR".to_owned(), "28P01".to_owned(), error.to_string())
+                ErrorInfo::new("FATAL".to_owned(), "28P01".to_owned(), error.to_string())
             }
             PgWireError::UnsupportedCertificateSignatureAlgorithm => {
                 ErrorInfo::new("FATAL".to_owned(), "0A000".to_owned(), error.to_string())
