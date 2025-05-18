@@ -802,10 +802,8 @@ impl<'a> Parser<'a> {
         match self.it.next() {
             Some((_, c)) if c == target => Ok(()),
             Some((i, c)) => {
-                let m = format!(
-                    "unexpected character at byte {}: expected `{}` but got `{}`",
-                    i, target, c
-                );
+                let m =
+                    format!("unexpected character at byte {i}: expected `{target}` but got `{c}`",);
                 Err(PgWireClientError::InvalidConfig(m))
             }
             None => Err(PgWireClientError::InvalidConfig("unexpected EOF".into())),

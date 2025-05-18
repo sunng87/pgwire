@@ -168,7 +168,7 @@ impl PgWireClient {
 pub enum ClientSocket {
     Plain(#[pin] TcpStream),
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
-    Secure(#[pin] TlsStream<TcpStream>),
+    Secure(#[pin] Box<TlsStream<TcpStream>>),
 }
 
 impl AsyncRead for ClientSocket {
@@ -244,7 +244,7 @@ async fn connect_tls(
     let server_name =
         ServerName::try_from(hostname).map_err(|e| IOError::new(ErrorKind::InvalidInput, e))?;
     let tls_stream = tls_connector.connect(server_name, socket).await?;
-    Ok(ClientSocket::Secure(tls_stream))
+    Ok(ClientSocket::Secure(Box::new(tls_stream)))
 }
 
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
