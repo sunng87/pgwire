@@ -27,7 +27,7 @@ impl SimpleQueryHandler for DummyProcessor {
     async fn do_query<'a, C>(
         &self,
         _client: &mut C,
-        _query: &'a str,
+        _query: &str,
     ) -> PgWireResult<Vec<Response<'a>>>
     where
         C: ClientInfo + Unpin + Send + Sync,
