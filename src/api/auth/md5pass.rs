@@ -76,7 +76,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                 } else {
                     let login_info = LoginInfo::from_client_info(client);
                     return Err(PgWireError::InvalidPassword(
-                        login.user().map(|x| x.to_owned()).unwrap_or_default(),
+                        login_info.user().map(|x| x.to_owned()).unwrap_or_default(),
                     ));
                 }
             }
