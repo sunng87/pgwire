@@ -204,9 +204,10 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                                 success = true;
                                 Authentication::SASLFinal(Bytes::from(server_final.message()))
                             } else {
-                                let server_final =
-                                    ServerFinalError::new("invalid-proof".to_owned());
-                                Authentication::SASLFinal(Bytes::from(server_final.message()))
+                                let login_info = LoginInfo::from_client_info(client);
+                                return Err(PgWireError::InvalidPassword(
+                                    login_info.user().map(|x| x.to_owned()).unwrap_or_default(),
+                                ));
                             }
                         }
                     }
@@ -384,17 +385,6 @@ struct ServerFinalSuccess {
 impl ServerFinalSuccess {
     fn message(&self) -> String {
         format!("v={}", self.verifier)
-    }
-}
-
-#[derive(Debug, new)]
-struct ServerFinalError {
-    error: String,
-}
-
-impl ServerFinalError {
-    fn message(&self) -> String {
-        format!("e={}", self.error)
     }
 }
 

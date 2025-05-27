@@ -9,8 +9,7 @@ use super::{
     AuthSource, ClientInfo, LoginInfo, PgWireConnectionState, ServerParameterProvider,
     StartupHandler,
 };
-use crate::error::{ErrorInfo, PgWireError, PgWireResult};
-use crate::messages::response::ErrorResponse;
+use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::Authentication;
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
@@ -75,17 +74,10 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                 if pwd.password.as_bytes() == *cached_pass {
                     super::finish_authentication(client, self.parameter_provider.as_ref()).await?;
                 } else {
-                    let error_info = ErrorInfo::new(
-                        "FATAL".to_owned(),
-                        "28P01".to_owned(),
-                        "Password authentication failed".to_owned(),
-                    );
-                    let error = ErrorResponse::from(error_info);
-
-                    client
-                        .feed(PgWireBackendMessage::ErrorResponse(error))
-                        .await?;
-                    client.close().await?;
+                    let login_info = LoginInfo::from_client_info(client);
+                    return Err(PgWireError::InvalidPassword(
+                        login_info.user().map(|x| x.to_owned()).unwrap_or_default(),
+                    ));
                 }
             }
             _ => {}

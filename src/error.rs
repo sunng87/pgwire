@@ -32,6 +32,8 @@ pub enum PgWireError {
     FailedToParseParameter(Box<dyn std::error::Error + Send + Sync>),
     #[error("Failed to parse scram message: {0}")]
     InvalidScramMessage(String),
+    #[error("Password authentication failed for user \"{0}\"")]
+    InvalidPassword(String),
     #[error("Certificate algorithm is not supported")]
     UnsupportedCertificateSignatureAlgorithm,
     #[error("Username is required")]
@@ -259,6 +261,9 @@ impl From<PgWireError> for ErrorInfo {
             PgWireError::InvalidScramMessage(_) => {
                 ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
             }
+            PgWireError::InvalidPassword(_) => {
+                ErrorInfo::new("FATAL".to_owned(), "28P01".to_owned(), error.to_string())
+            }
             PgWireError::UnsupportedCertificateSignatureAlgorithm => {
                 ErrorInfo::new("FATAL".to_owned(), "0A000".to_owned(), error.to_string())
             }
@@ -269,7 +274,7 @@ impl From<PgWireError> for ErrorInfo {
                 ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
             }
             PgWireError::ApiError(_) => {
-                ErrorInfo::new("FATAL".to_owned(), "XX000".to_owned(), error.to_string())
+                ErrorInfo::new("ERROR".to_owned(), "XX000".to_owned(), error.to_string())
             }
             PgWireError::UserError(info) => *info,
         }
