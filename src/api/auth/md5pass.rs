@@ -75,7 +75,9 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                     super::finish_authentication(client, self.parameter_provider.as_ref()).await?;
                 } else {
                     let login_info = LoginInfo::from_client_info(client);
-                    return Err(PgWireError::InvalidPassword(login_info.user().map(|x|x.to_owned()).unwrap_or_default()));
+                    return Err(PgWireError::InvalidPassword(
+                        login.user().map(|x| x.to_owned()).unwrap_or_default(),
+                    ));
                 }
             }
             _ => {}

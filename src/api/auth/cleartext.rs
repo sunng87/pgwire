@@ -48,7 +48,9 @@ impl<V: AuthSource, P: ServerParameterProvider> StartupHandler
                 if pass.password == pwd.password.as_bytes() {
                     super::finish_authentication(client, &self.parameter_provider).await?;
                 } else {
-                    return Err(PgWireError::InvalidPassword(login_info.user().map(|x|x.to_owned()).unwrap_or_default()));
+                    return Err(PgWireError::InvalidPassword(
+                        login.user().map(|x| x.to_owned()).unwrap_or_default(),
+                    ));
                 }
             }
             _ => {}

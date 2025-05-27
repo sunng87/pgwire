@@ -205,7 +205,9 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                                 Authentication::SASLFinal(Bytes::from(server_final.message()))
                             } else {
                                 let login = LoginInfo::from_client_info(client);
-                                return Err(PgWireError::InvalidPassword(login.user().map(|x|x.to_owned()).unwrap_or_default()));
+                                return Err(PgWireError::InvalidPassword(
+                                    login.user().map(|x| x.to_owned()).unwrap_or_default(),
+                                ));
                             }
                         }
                     }
