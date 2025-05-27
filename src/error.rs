@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use std::io::{Error as IOError, ErrorKind};
+use std::io::Error as IOError;
 use thiserror::Error;
 
 use crate::messages::response::{ErrorResponse, NoticeResponse};
@@ -50,7 +50,7 @@ pub enum PgWireError {
 
 impl From<PgWireError> for IOError {
     fn from(e: PgWireError) -> Self {
-        IOError::new(ErrorKind::Other, e)
+        IOError::other(e)
     }
 }
 
