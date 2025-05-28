@@ -23,7 +23,7 @@ pub struct StoredStatement<S> {
 
 impl<S> StoredStatement<S> {
     pub(crate) async fn parse<C, Q>(
-        client: &mut C,
+        client: &C,
         parse: &Parse,
         parser: Q,
     ) -> PgWireResult<StoredStatement<S>>
