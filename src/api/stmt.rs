@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use futures::Sink;
 use postgres_types::Type;
 
-use crate::{error::PgWireResult, messages::PgWireBackendMessage};
 use crate::messages::extendedquery::Parse;
+use crate::{error::PgWireResult, messages::PgWireBackendMessage};
 
 use super::{ClientInfo, DEFAULT_NAME};
 
@@ -22,9 +22,13 @@ pub struct StoredStatement<S> {
 }
 
 impl<S> StoredStatement<S> {
-    pub(crate) async fn parse<C, Q>(client: &mut C, parse: &Parse, parser: Q) -> PgWireResult<StoredStatement<S>>
+    pub(crate) async fn parse<C, Q>(
+        client: &mut C,
+        parse: &Parse,
+        parser: Q,
+    ) -> PgWireResult<StoredStatement<S>>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync, 
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         Q: QueryParser<Statement = S>,
     {
         let types = parse
@@ -50,8 +54,13 @@ impl<S> StoredStatement<S> {
 pub trait QueryParser {
     type Statement;
 
-    async fn parse_sql<C>(&self, client: &mut C, sql: &str, types: &[Type]) -> PgWireResult<Self::Statement>
-    where 
+    async fn parse_sql<C>(
+        &self,
+        client: &mut C,
+        sql: &str,
+        types: &[Type],
+    ) -> PgWireResult<Self::Statement>
+    where
         C: ClientInfo + Unpin + Send + Sync;
 }
 
@@ -62,9 +71,14 @@ where
 {
     type Statement = QP::Statement;
 
-    async fn parse_sql<C>(&self, client: &mut C, sql: &str, types: &[Type]) -> PgWireResult<Self::Statement>
-    where 
-        C: ClientInfo + Unpin + Send + Sync, 
+    async fn parse_sql<C>(
+        &self,
+        client: &mut C,
+        sql: &str,
+        types: &[Type],
+    ) -> PgWireResult<Self::Statement>
+    where
+        C: ClientInfo + Unpin + Send + Sync,
     {
         (**self).parse_sql(client, sql, types).await
     }
@@ -78,9 +92,14 @@ pub struct NoopQueryParser;
 impl QueryParser for NoopQueryParser {
     type Statement = String;
 
-    async fn parse_sql<C>(&self, _client: &mut C, sql: &str, _types: &[Type]) -> PgWireResult<Self::Statement> 
-    where 
-        C: ClientInfo + Unpin + Send + Sync, 
+    async fn parse_sql<C>(
+        &self,
+        _client: &mut C,
+        sql: &str,
+        _types: &[Type],
+    ) -> PgWireResult<Self::Statement>
+    where
+        C: ClientInfo + Unpin + Send + Sync,
     {
         Ok(sql.to_owned())
     }
