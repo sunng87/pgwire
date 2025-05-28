@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Changed
+
+- Set chrono version to `0.4` as we don't require features in `0.4.40`
+
 ## [0.30.0] - 2025-05-28
 
 ### Changed
