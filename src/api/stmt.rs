@@ -56,7 +56,7 @@ pub trait QueryParser {
 
     async fn parse_sql<C>(
         &self,
-        client: &mut C,
+        client: &C,
         sql: &str,
         types: &[Type],
     ) -> PgWireResult<Self::Statement>
@@ -73,7 +73,7 @@ where
 
     async fn parse_sql<C>(
         &self,
-        client: &mut C,
+        client: &C,
         sql: &str,
         types: &[Type],
     ) -> PgWireResult<Self::Statement>
@@ -94,7 +94,7 @@ impl QueryParser for NoopQueryParser {
 
     async fn parse_sql<C>(
         &self,
-        _client: &mut C,
+        _client: &C,
         sql: &str,
         _types: &[Type],
     ) -> PgWireResult<Self::Statement>
