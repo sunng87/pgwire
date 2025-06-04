@@ -117,6 +117,8 @@ pub trait SimpleQueryHandler: Send + Sync {
             send_ready_for_query(client, transaction_status).await?;
         };
 
+        self.done_query(client).await?;
+
         Ok(())
     }
 
@@ -126,6 +128,16 @@ pub trait SimpleQueryHandler: Send + Sync {
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
+
+    /// Called after the query has been completed
+    async fn done_query<C>(&self, _client: &mut C) -> PgWireResult<()>
+    where
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -255,6 +267,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 client.set_state(super::PgWireConnectionState::ReadyForQuery);
                 client.set_transaction_status(transaction_status);
             };
+
+            self.done_query(client).await?;
 
             Ok(())
         } else {
@@ -395,6 +409,17 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C::PortalStore: PortalStore<Statement = Self::Statement>,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
+
+    /// Called after the query has been completed
+    async fn done_query<C>(&self, _client: &mut C) -> PgWireResult<()>
+    where
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        Ok(())
+    }
 }
 
 /// Helper function to send `QueryResponse` and optional `RowDescription` to client
