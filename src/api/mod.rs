@@ -42,6 +42,10 @@ pub trait ClientInfo {
 
     fn is_secure(&self) -> bool;
 
+    fn pid_and_secret_key(&self) -> (i32, i32);
+
+    fn set_pid_and_secret_key(&mut self, pid: i32, secret_key: i32);
+
     fn state(&self) -> PgWireConnectionState;
 
     fn set_state(&mut self, new_state: PgWireConnectionState);
@@ -73,6 +77,7 @@ pub const METADATA_DATABASE: &str = "database";
 pub struct DefaultClient<S> {
     pub socket_addr: SocketAddr,
     pub is_secure: bool,
+    pub pid_secret_key: (i32, i32),
     pub state: PgWireConnectionState,
     pub transaction_status: TransactionStatus,
     pub metadata: HashMap<String, String>,
@@ -86,6 +91,14 @@ impl<S> ClientInfo for DefaultClient<S> {
 
     fn is_secure(&self) -> bool {
         self.is_secure
+    }
+
+    fn pid_and_secret_key(&self) -> (i32, i32) {
+        self.pid_secret_key
+    }
+
+    fn set_pid_and_secret_key(&mut self, pid: i32, secret_key: i32) {
+        self.pid_secret_key = (pid, secret_key);
     }
 
     fn state(&self) -> PgWireConnectionState {
@@ -123,6 +136,7 @@ impl<S> DefaultClient<S> {
         DefaultClient {
             socket_addr,
             is_secure,
+            pid_secret_key: (0, 0),
             state: PgWireConnectionState::default(),
             transaction_status: TransactionStatus::Idle,
             metadata: HashMap::new(),

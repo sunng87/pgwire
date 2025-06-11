@@ -88,6 +88,16 @@ impl<T: 'static, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
         self.codec().client_info.is_secure
     }
 
+    fn pid_and_secret_key(&self) -> (i32, i32) {
+        self.codec().client_info.pid_and_secret_key()
+    }
+
+    fn set_pid_and_secret_key(&mut self, pid: i32, secret_key: i32) {
+        self.codec_mut()
+            .client_info
+            .set_pid_and_secret_key(pid, secret_key);
+    }
+
     fn state(&self) -> PgWireConnectionState {
         self.codec().client_info.state
     }
