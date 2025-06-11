@@ -183,11 +183,10 @@ where
         }
     }
 
-    // TODO: store this backend key
+    let (pid, secret_key) = client.pid_and_secret_key();
     client
         .feed(PgWireBackendMessage::BackendKeyData(BackendKeyData::new(
-            std::process::id() as i32,
-            rand::random::<i32>(),
+            pid, secret_key,
         )))
         .await?;
 
