@@ -54,6 +54,8 @@ pub trait Message: Sized {
     }
 }
 
+/// Cancel message
+pub mod cancel;
 mod codec;
 /// Copy messages
 pub mod copy;
@@ -74,6 +76,7 @@ pub mod terminate;
 #[derive(Debug)]
 pub enum PgWireFrontendMessage {
     Startup(startup::Startup),
+    CancelRequest(cancel::CancelRequest),
     // when client has no ssl configured, it skip this message.
     // our decoder will return a `SslRequest(None)` for this case.
     SslRequest(Option<startup::SslRequest>),
@@ -113,6 +116,7 @@ impl PgWireFrontendMessage {
     pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         match self {
             Self::Startup(msg) => msg.encode(buf),
+            Self::CancelRequest(msg) => msg.encode(buf),
             Self::SslRequest(msg) => {
                 if let Some(msg) = msg {
                     msg.encode(buf)
@@ -141,6 +145,8 @@ impl PgWireFrontendMessage {
     }
 
     pub fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
+        // Note that Startup and CancelRequest message have to be decoded
+        // separately because it's tied with connection state.
         if buf.remaining() > 1 {
             let first_byte = buf[0];
 
@@ -362,6 +368,7 @@ impl PgWireBackendMessage {
 
 #[cfg(test)]
 mod test {
+    use super::cancel::CancelRequest;
     use super::copy::*;
     use super::data::*;
     use super::extendedquery::*;
@@ -394,6 +401,13 @@ mod test {
         s.parameters.insert("user".to_owned(), "tomcat".to_owned());
 
         roundtrip!(s, Startup);
+    }
+
+    #[test]
+    fn test_cancel_request() {
+        let s = CancelRequest::new(100, 200);
+
+        roundtrip!(s, CancelRequest);
     }
 
     #[test]

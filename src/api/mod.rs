@@ -12,6 +12,7 @@ use crate::error::PgWireError;
 use crate::messages::response::TransactionStatus;
 
 pub mod auth;
+pub mod cancel;
 #[cfg(feature = "client-api")]
 pub mod client;
 pub mod copy;
@@ -177,6 +178,7 @@ pub trait PgWireServerHandlers {
     type ExtendedQueryHandler: query::ExtendedQueryHandler;
     type CopyHandler: copy::CopyHandler;
     type ErrorHandler: ErrorHandler;
+    type CancelHandler: cancel::CancelHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler>;
 
@@ -187,6 +189,8 @@ pub trait PgWireServerHandlers {
     fn copy_handler(&self) -> Arc<Self::CopyHandler>;
 
     fn error_handler(&self) -> Arc<Self::ErrorHandler>;
+
+    fn cancel_handler(&self) -> Arc<Self::CancelHandler>;
 }
 
 impl<T> PgWireServerHandlers for Arc<T>
@@ -198,6 +202,7 @@ where
     type ExtendedQueryHandler = T::ExtendedQueryHandler;
     type CopyHandler = T::CopyHandler;
     type ErrorHandler = T::ErrorHandler;
+    type CancelHandler = T::CancelHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
         (**self).simple_query_handler()
@@ -217,5 +222,9 @@ where
 
     fn error_handler(&self) -> Arc<Self::ErrorHandler> {
         (**self).error_handler()
+    }
+
+    fn cancel_handler(&self) -> Arc<Self::CancelHandler> {
+        (**self).cancel_handler()
     }
 }
