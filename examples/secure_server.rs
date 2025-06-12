@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::{stream, StreamExt};
-use pgwire::api::cancel::DefaultCancelHandler;
+use pgwire::api::cancel::NoopCancelHandler;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::net::TcpListener;
@@ -87,7 +87,7 @@ impl PgWireServerHandlers for DummyProcessorFactory {
     type SimpleQueryHandler = DummyProcessor;
     type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
     type CopyHandler = NoopCopyHandler;
-    type CancelHandler = DefaultCancelHandler;
+    type CancelHandler = NoopCancelHandler;
     type ErrorHandler = NoopErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
@@ -107,7 +107,7 @@ impl PgWireServerHandlers for DummyProcessorFactory {
     }
 
     fn cancel_handler(&self) -> Arc<Self::CancelHandler> {
-        Arc::new(DefaultCancelHandler)
+        Arc::new(NoopCancelHandler)
     }
 
     fn error_handler(&self) -> Arc<Self::ErrorHandler> {

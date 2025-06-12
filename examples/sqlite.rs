@@ -6,7 +6,7 @@ use futures::Stream;
 
 use pgwire::api::auth::md5pass::{hash_md5_password, Md5PasswordAuthStartupHandler};
 use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
-use pgwire::api::cancel::DefaultCancelHandler;
+use pgwire::api::cancel::NoopCancelHandler;
 use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
@@ -289,7 +289,7 @@ impl PgWireServerHandlers for SqliteBackendFactory {
     type SimpleQueryHandler = SqliteBackend;
     type ExtendedQueryHandler = SqliteBackend;
     type CopyHandler = NoopCopyHandler;
-    type CancelHandler = DefaultCancelHandler;
+    type CancelHandler = NoopCancelHandler;
     type ErrorHandler = NoopErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
@@ -315,7 +315,7 @@ impl PgWireServerHandlers for SqliteBackendFactory {
     }
 
     fn cancel_handler(&self) -> Arc<Self::CancelHandler> {
-        Arc::new(DefaultCancelHandler)
+        Arc::new(NoopCancelHandler)
     }
 
     fn error_handler(&self) -> Arc<Self::ErrorHandler> {

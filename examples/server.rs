@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::{stream, Sink, SinkExt, StreamExt};
-use pgwire::api::cancel::DefaultCancelHandler;
+use pgwire::api::cancel::NoopCancelHandler;
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::noop::NoopStartupHandler;
@@ -99,7 +99,7 @@ impl PgWireServerHandlers for DummyProcessorFactory {
     type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
     type CopyHandler = NoopCopyHandler;
     type ErrorHandler = NoopErrorHandler;
-    type CancelHandler = DefaultCancelHandler;
+    type CancelHandler = NoopCancelHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
         self.handler.clone()
@@ -118,7 +118,7 @@ impl PgWireServerHandlers for DummyProcessorFactory {
     }
 
     fn cancel_handler(&self) -> Arc<Self::CancelHandler> {
-        Arc::new(DefaultCancelHandler)
+        Arc::new(NoopCancelHandler)
     }
 
     fn error_handler(&self) -> Arc<Self::ErrorHandler> {
