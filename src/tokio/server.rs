@@ -324,12 +324,25 @@ async fn check_ssl_direct_negotiation(tcp_socket: &TcpStream) -> Result<bool, io
     Ok(n > 0 && buf[0] == 0x16)
 }
 
+async fn check_cancel_request(tcp_socket: &TcpStream) -> Result<bool, io::Error> {
+    let mut buf = [0u8; 8];
+    let n = tcp_socket.peek(&mut buf).await?;
+
+    if n == buf.len() {
+        Ok(CancelRequest::is_cancel_request_packet(&buf).unwrap_or(false))
+    } else {
+        Ok(false)
+    }
+}
+
 async fn peek_for_sslrequest<ST>(
     socket: &mut Framed<TcpStream, PgWireMessageServerCodec<ST>>,
     ssl_supported: bool,
 ) -> Result<SslNegotiationType, io::Error> {
     if check_ssl_direct_negotiation(socket.get_ref()).await? {
         Ok(SslNegotiationType::Direct)
+    } else if check_cancel_request(socket.get_ref()).await? {
+        Ok(SslNegotiationType::None)
     } else if let Some(Ok(PgWireFrontendMessage::SslRequest(Some(_)))) = socket.next().await {
         if ssl_supported {
             socket
