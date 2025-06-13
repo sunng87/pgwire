@@ -28,11 +28,8 @@ impl CancelHandler for DefaultCancelHandler {
     }
 }
 
-#[derive(Debug, new)]
-pub struct NoopCancelHandler;
-
 #[async_trait]
-impl CancelHandler for NoopCancelHandler {
+impl CancelHandler for super::NoopHandler {
     async fn on_cancel_request(&self, _cancel_request: CancelRequest) {}
 }
 
