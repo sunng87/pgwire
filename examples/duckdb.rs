@@ -245,39 +245,19 @@ struct DuckDBBackendFactory {
 }
 
 impl PgWireServerHandlers for DuckDBBackendFactory {
-    type StartupHandler =
-        Md5PasswordAuthStartupHandler<DummyAuthSource, DefaultServerParameterProvider>;
-    type SimpleQueryHandler = DuckDBBackend;
-    type ExtendedQueryHandler = DuckDBBackend;
-    type CopyHandler = NoopCopyHandler;
-    type CancelHandler = NoopCancelHandler;
-    type ErrorHandler = NoopErrorHandler;
-
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+    fn simple_query_handler(&self) -> Arc<impl SimpleQueryHandler> {
         self.handler.clone()
     }
 
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+    fn extended_query_handler(&self) -> Arc<impl ExtendedQueryHandler> {
         self.handler.clone()
     }
 
-    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+    fn startup_handler(&self) -> Arc<impl StartupHandler> {
         Arc::new(Md5PasswordAuthStartupHandler::new(
             Arc::new(DummyAuthSource),
             Arc::new(DefaultServerParameterProvider::default()),
         ))
-    }
-
-    fn cancel_handler(&self) -> Arc<Self::CancelHandler> {
-        Arc::new(NoopCancelHandler)
-    }
-
-    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
-        Arc::new(NoopCopyHandler)
-    }
-
-    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
-        Arc::new(NoopErrorHandler)
     }
 }
 

@@ -3,14 +3,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::{stream, Sink, SinkExt};
-use pgwire::api::cancel::NoopCancelHandler;
+use pgwire::api::auth::StartupHandler;
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::noop::NoopStartupHandler;
-use pgwire::api::copy::NoopCopyHandler;
-use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
+use pgwire::api::query::SimpleQueryHandler;
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
-use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type};
+use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
 use pgwire::error::ErrorInfo;
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::messages::response::NoticeResponse;
@@ -89,35 +88,12 @@ struct DummyProcessorFactory {
 }
 
 impl PgWireServerHandlers for DummyProcessorFactory {
-    type StartupHandler = DummyProcessor;
-    type SimpleQueryHandler = DummyProcessor;
-    type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
-    type CopyHandler = NoopCopyHandler;
-    type CancelHandler = NoopCancelHandler;
-    type ErrorHandler = NoopErrorHandler;
-
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+    fn simple_query_handler(&self) -> Arc<impl SimpleQueryHandler> {
         self.handler.clone()
     }
 
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
-        Arc::new(PlaceholderExtendedQueryHandler)
-    }
-
-    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+    fn startup_handler(&self) -> Arc<impl StartupHandler> {
         self.handler.clone()
-    }
-
-    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
-        Arc::new(NoopCopyHandler)
-    }
-
-    fn cancel_handler(&self) -> Arc<Self::CancelHandler> {
-        Arc::new(NoopCancelHandler)
-    }
-
-    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
-        Arc::new(NoopErrorHandler)
     }
 }
 

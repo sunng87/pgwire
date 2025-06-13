@@ -503,19 +503,13 @@ where
     Ok(())
 }
 
-/// A placeholder extended query handler. It panics when extended query messages
-/// received. This handler is for demo only, never use it in serious
-/// application.
-#[derive(Debug, Clone)]
-pub struct PlaceholderExtendedQueryHandler;
-
 #[async_trait]
-impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
+impl ExtendedQueryHandler for super::NoopHandler {
     type Statement = String;
     type QueryParser = NoopQueryParser;
 
     fn query_parser(&self) -> Arc<Self::QueryParser> {
-        unimplemented!("Extended Query is not implemented on this server.")
+        Arc::new(NoopQueryParser)
     }
 
     async fn do_query<'a, C>(
@@ -527,7 +521,7 @@ impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        unimplemented!("Extended Query is not implemented on this server.")
+        Ok(Response::Execution(Tag::new("OK")))
     }
 
     async fn do_describe_statement<C>(
@@ -538,7 +532,7 @@ impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        unimplemented!("Extended Query is not implemented on this server.")
+        Ok(DescribeStatementResponse::no_data())
     }
 
     async fn do_describe_portal<C>(
@@ -549,6 +543,22 @@ impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        unimplemented!("Extended Query is not implemented on this server.")
+        Ok(DescribePortalResponse::no_data())
+    }
+}
+
+#[async_trait]
+impl SimpleQueryHandler for super::NoopHandler {
+    async fn do_query<'a, C>(
+        &self,
+        _client: &mut C,
+        _query: &str,
+    ) -> PgWireResult<Vec<Response<'a>>>
+    where
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        Ok(vec![Response::Execution(Tag::new("OK"))])
     }
 }

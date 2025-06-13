@@ -174,9 +174,13 @@ pub struct NoopHandler;
 impl ErrorHandler for NoopHandler {}
 
 pub trait PgWireServerHandlers {
-    fn simple_query_handler(&self) -> Arc<impl query::SimpleQueryHandler>;
+    fn simple_query_handler(&self) -> Arc<impl query::SimpleQueryHandler> {
+        Arc::new(NoopHandler)
+    }
 
-    fn extended_query_handler(&self) -> Arc<impl query::ExtendedQueryHandler>;
+    fn extended_query_handler(&self) -> Arc<impl query::ExtendedQueryHandler> {
+        Arc::new(NoopHandler)
+    }
 
     fn startup_handler(&self) -> Arc<impl auth::StartupHandler> {
         Arc::new(NoopHandler)
