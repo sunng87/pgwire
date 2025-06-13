@@ -6,15 +6,16 @@ use std::time::{Duration, SystemTime};
 use async_trait::async_trait;
 use futures::stream;
 use futures::StreamExt;
-use pgwire::api::cancel::NoopCancelHandler;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
+use tokio::net::TcpListener;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 
 use pgwire::api::auth::scram::{gen_salted_password, SASLScramAuthStartupHandler};
-use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
-use pgwire::api::copy::NoopCopyHandler;
+use pgwire::api::auth::{
+    AuthSource, DefaultServerParameterProvider, LoginInfo, Password, StartupHandler,
+};
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
@@ -22,10 +23,9 @@ use pgwire::api::results::{
     Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
-use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type};
+use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
-use tokio::net::TcpListener;
 
 const ITERATIONS: usize = 4096;
 struct DummyAuthSource;
@@ -215,23 +215,15 @@ impl ExtendedQueryHandler for DummyDatabase {
 struct DummyDatabaseFactory(Arc<DummyDatabase>);
 
 impl PgWireServerHandlers for DummyDatabaseFactory {
-    type StartupHandler =
-        SASLScramAuthStartupHandler<DummyAuthSource, DefaultServerParameterProvider>;
-    type SimpleQueryHandler = DummyDatabase;
-    type ExtendedQueryHandler = DummyDatabase;
-    type CopyHandler = NoopCopyHandler;
-    type CancelHandler = NoopCancelHandler;
-    type ErrorHandler = NoopErrorHandler;
-
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+    fn simple_query_handler(&self) -> Arc<impl SimpleQueryHandler> {
         self.0.clone()
     }
 
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+    fn extended_query_handler(&self) -> Arc<impl ExtendedQueryHandler> {
         self.0.clone()
     }
 
-    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+    fn startup_handler(&self) -> Arc<impl StartupHandler> {
         let mut authenticator = SASLScramAuthStartupHandler::new(
             Arc::new(DummyAuthSource),
             Arc::new(DefaultServerParameterProvider::default()),
@@ -239,18 +231,6 @@ impl PgWireServerHandlers for DummyDatabaseFactory {
         authenticator.set_iterations(ITERATIONS);
 
         Arc::new(authenticator)
-    }
-
-    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
-        Arc::new(NoopCopyHandler)
-    }
-
-    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
-        Arc::new(NoopErrorHandler)
-    }
-
-    fn cancel_handler(&self) -> Arc<Self::CancelHandler> {
-        Arc::new(NoopCancelHandler)
     }
 }
 
