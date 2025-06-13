@@ -18,19 +18,13 @@ pub trait CopyHandler: Send + Sync {
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
-    {
-        Ok(())
-    }
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
     async fn on_copy_done<C>(&self, _client: &mut C, _done: CopyDone) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
-    {
-        Ok(())
-    }
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
     async fn on_copy_fail<C>(&self, _client: &mut C, fail: CopyFail) -> PgWireError
     where
@@ -85,7 +79,23 @@ where
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct NoopCopyHandler;
+#[async_trait]
+impl CopyHandler for super::NoopHandler {
+    async fn on_copy_data<C>(&self, _client: &mut C, _copy_data: CopyData) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        Ok(())
+    }
 
-impl CopyHandler for NoopCopyHandler {}
+    async fn on_copy_done<C>(&self, _client: &mut C, _done: CopyDone) -> PgWireResult<()>
+    where
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        Ok(())
+    }
+}
