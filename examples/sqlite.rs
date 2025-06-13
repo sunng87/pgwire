@@ -3,6 +3,9 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use futures::stream;
 use futures::Stream;
+use rusqlite::Rows;
+use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
+use tokio::net::TcpListener;
 
 use pgwire::api::auth::md5pass::{hash_md5_password, Md5PasswordAuthStartupHandler};
 use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
@@ -21,9 +24,6 @@ use pgwire::api::{ClientInfo, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::data::DataRow;
 use pgwire::tokio::process_socket;
-use rusqlite::Rows;
-use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
-use tokio::net::TcpListener;
 
 pub struct SqliteBackend {
     conn: Arc<Mutex<Connection>>,
@@ -284,23 +284,15 @@ struct SqliteBackendFactory {
 }
 
 impl PgWireServerHandlers for SqliteBackendFactory {
-    type StartupHandler =
-        Md5PasswordAuthStartupHandler<DummyAuthSource, DefaultServerParameterProvider>;
-    type SimpleQueryHandler = SqliteBackend;
-    type ExtendedQueryHandler = SqliteBackend;
-    type CopyHandler = NoopCopyHandler;
-    type CancelHandler = NoopCancelHandler;
-    type ErrorHandler = NoopErrorHandler;
-
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+    fn simple_query_handler(&self) -> Arc<impl SimpleQueryHandler> {
         self.handler.clone()
     }
 
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+    fn extended_query_handler(&self) -> Arc<impl ExtendedQueryHandler> {
         self.handler.clone()
     }
 
-    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+    fn startup_handler(&self) -> Arc<impl StartupHandler> {
         let mut parameters = DefaultServerParameterProvider::default();
         parameters.server_version = rusqlite::version().to_owned();
 
@@ -308,18 +300,6 @@ impl PgWireServerHandlers for SqliteBackendFactory {
             Arc::new(DummyAuthSource),
             Arc::new(parameters),
         ))
-    }
-
-    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
-        Arc::new(NoopCopyHandler)
-    }
-
-    fn cancel_handler(&self) -> Arc<Self::CancelHandler> {
-        Arc::new(NoopCancelHandler)
-    }
-
-    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
-        Arc::new(NoopErrorHandler)
     }
 }
 
