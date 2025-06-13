@@ -12,6 +12,7 @@ use tokio_rustls::server::TlsStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
 use crate::api::auth::StartupHandler;
+use crate::api::cancel::CancelHandler;
 use crate::api::copy::CopyHandler;
 use crate::api::query::SimpleQueryHandler;
 use crate::api::query::{send_ready_for_query, ExtendedQueryHandler};
@@ -20,6 +21,7 @@ use crate::api::{
     PgWireServerHandlers,
 };
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
+use crate::messages::cancel::CancelRequest;
 use crate::messages::response::ReadyForQuery;
 use crate::messages::response::{SslResponse, TransactionStatus};
 use crate::messages::startup::{SslRequest, Startup};
@@ -38,6 +40,12 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         match self.client_info.state() {
             PgWireConnectionState::AwaitingSslRequest => {
+                // first try to decode it as CancelRequest
+                if let Some(true) = CancelRequest::is_cancel_request_packet(src) {
+                    return CancelRequest::decode(src)
+                        .map(|opt| opt.map(PgWireFrontendMessage::CancelRequest));
+                }
+
                 if src.remaining() >= SslRequest::BODY_SIZE {
                     self.client_info
                         .set_state(PgWireConnectionState::AwaitingStartup);
@@ -145,13 +153,14 @@ impl<T, S> ClientPortalStore for Framed<T, PgWireMessageServerCodec<S>> {
     }
 }
 
-async fn process_message<S, A, Q, EQ, C>(
+async fn process_message<S, A, Q, EQ, C, CR>(
     message: PgWireFrontendMessage,
     socket: &mut Framed<S, PgWireMessageServerCodec<EQ::Statement>>,
     authenticator: Arc<A>,
     query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
     copy_handler: Arc<C>,
+    cancel_handler: Arc<CR>,
 ) -> PgWireResult<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
@@ -159,7 +168,15 @@ where
     Q: SimpleQueryHandler,
     EQ: ExtendedQueryHandler,
     C: CopyHandler,
+    CR: CancelHandler,
 {
+    // CancelRequest is from a dedicated connection, process it and close it.
+    if let PgWireFrontendMessage::CancelRequest(cancel) = message {
+        cancel_handler.on_cancel_request(cancel).await;
+        socket.close().await?;
+        return Ok(());
+    }
+
     match socket.state() {
         PgWireConnectionState::AwaitingStartup
         | PgWireConnectionState::AuthenticationInProgress => {
@@ -307,12 +324,25 @@ async fn check_ssl_direct_negotiation(tcp_socket: &TcpStream) -> Result<bool, io
     Ok(n > 0 && buf[0] == 0x16)
 }
 
+async fn check_cancel_request(tcp_socket: &TcpStream) -> Result<bool, io::Error> {
+    let mut buf = [0u8; 8];
+    let n = tcp_socket.peek(&mut buf).await?;
+
+    if n == buf.len() {
+        Ok(CancelRequest::is_cancel_request_packet(&buf).unwrap_or(false))
+    } else {
+        Ok(false)
+    }
+}
+
 async fn peek_for_sslrequest<ST>(
     socket: &mut Framed<TcpStream, PgWireMessageServerCodec<ST>>,
     ssl_supported: bool,
 ) -> Result<SslNegotiationType, io::Error> {
     if check_ssl_direct_negotiation(socket.get_ref()).await? {
         Ok(SslNegotiationType::Direct)
+    } else if check_cancel_request(socket.get_ref()).await? {
+        Ok(SslNegotiationType::None)
     } else if let Some(Ok(PgWireFrontendMessage::SslRequest(Some(_)))) = socket.next().await {
         if ssl_supported {
             socket
@@ -330,12 +360,13 @@ async fn peek_for_sslrequest<ST>(
     }
 }
 
-async fn do_process_socket<S, A, Q, EQ, C, E>(
+async fn do_process_socket<S, A, Q, EQ, C, CR, E>(
     socket: &mut Framed<S, PgWireMessageServerCodec<EQ::Statement>>,
     startup_handler: Arc<A>,
     simple_query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
     copy_handler: Arc<C>,
+    cancel_handler: Arc<CR>,
     error_handler: Arc<E>,
 ) -> Result<(), io::Error>
 where
@@ -344,6 +375,7 @@ where
     Q: SimpleQueryHandler,
     EQ: ExtendedQueryHandler,
     C: CopyHandler,
+    CR: CancelHandler,
     E: ErrorHandler,
 {
     while let Some(Ok(msg)) = socket.next().await {
@@ -358,6 +390,7 @@ where
             simple_query_handler.clone(),
             extended_query_handler.clone(),
             copy_handler.clone(),
+            cancel_handler.clone(),
         )
         .await
         {
@@ -410,6 +443,7 @@ where
     let simple_query_handler = handlers.simple_query_handler();
     let extended_query_handler = handlers.extended_query_handler();
     let copy_handler = handlers.copy_handler();
+    let cancel_handler = handlers.cancel_handler();
     let error_handler = handlers.error_handler();
 
     if ssl == SslNegotiationType::None {
@@ -422,6 +456,7 @@ where
             simple_query_handler,
             extended_query_handler,
             copy_handler,
+            cancel_handler,
             error_handler,
         )
         .await
@@ -449,6 +484,7 @@ where
                 simple_query_handler,
                 extended_query_handler,
                 copy_handler,
+                cancel_handler,
                 error_handler,
             )
             .await

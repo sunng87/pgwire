@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use futures::stream;
+use pgwire::api::cancel::NoopCancelHandler;
 use tokio::net::TcpListener;
 
 use gluesql::prelude::*;
@@ -166,6 +167,7 @@ impl PgWireServerHandlers for GluesqlHandlerFactory {
     type SimpleQueryHandler = GluesqlProcessor;
     type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
     type CopyHandler = NoopCopyHandler;
+    type CancelHandler = NoopCancelHandler;
     type ErrorHandler = NoopErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
@@ -182,6 +184,10 @@ impl PgWireServerHandlers for GluesqlHandlerFactory {
 
     fn copy_handler(&self) -> Arc<Self::CopyHandler> {
         Arc::new(NoopCopyHandler)
+    }
+
+    fn cancel_handler(&self) -> Arc<Self::CancelHandler> {
+        Arc::new(NoopCancelHandler)
     }
 
     fn error_handler(&self) -> Arc<Self::ErrorHandler> {

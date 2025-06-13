@@ -6,6 +6,7 @@ use std::time::{Duration, SystemTime};
 use async_trait::async_trait;
 use futures::stream;
 use futures::StreamExt;
+use pgwire::api::cancel::NoopCancelHandler;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio_rustls::rustls::ServerConfig;
@@ -219,6 +220,7 @@ impl PgWireServerHandlers for DummyDatabaseFactory {
     type SimpleQueryHandler = DummyDatabase;
     type ExtendedQueryHandler = DummyDatabase;
     type CopyHandler = NoopCopyHandler;
+    type CancelHandler = NoopCancelHandler;
     type ErrorHandler = NoopErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
@@ -245,6 +247,10 @@ impl PgWireServerHandlers for DummyDatabaseFactory {
 
     fn error_handler(&self) -> Arc<Self::ErrorHandler> {
         Arc::new(NoopErrorHandler)
+    }
+
+    fn cancel_handler(&self) -> Arc<Self::CancelHandler> {
+        Arc::new(NoopCancelHandler)
     }
 }
 

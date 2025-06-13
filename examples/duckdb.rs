@@ -8,6 +8,7 @@ use futures::stream;
 use futures::Stream;
 use pgwire::api::auth::md5pass::{hash_md5_password, Md5PasswordAuthStartupHandler};
 use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
+use pgwire::api::cancel::NoopCancelHandler;
 use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
@@ -330,6 +331,7 @@ impl PgWireServerHandlers for DuckDBBackendFactory {
     type SimpleQueryHandler = DuckDBBackend;
     type ExtendedQueryHandler = DuckDBBackend;
     type CopyHandler = NoopCopyHandler;
+    type CancelHandler = NoopCancelHandler;
     type ErrorHandler = NoopErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
@@ -345,6 +347,10 @@ impl PgWireServerHandlers for DuckDBBackendFactory {
             Arc::new(DummyAuthSource),
             Arc::new(DefaultServerParameterProvider::default()),
         ))
+    }
+
+    fn cancel_handler(&self) -> Arc<Self::CancelHandler> {
+        Arc::new(NoopCancelHandler)
     }
 
     fn copy_handler(&self) -> Arc<Self::CopyHandler> {

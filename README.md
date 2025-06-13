@@ -60,7 +60,7 @@ this library.
     - [x] Extended Query API
       - [x] QueryParser API, for transforming prepared statement
     - [x] ResultSet builder/encoder API
-    - [ ] Query Cancellation API
+    - [x] Query Cancellation API
     - [x] Error and Notice API
     - [x] Copy API
       - [x] Copy-in

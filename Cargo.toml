@@ -85,7 +85,7 @@ _sqlite = []
 _bundled = ["duckdb/bundled", "rusqlite/bundled"]
 
 [dev-dependencies]
-tokio = { version = "1.19", features = ["rt-multi-thread", "net", "macros"]}
+tokio = { version = "1.19", features = ["rt-multi-thread", "net", "macros", "time"]}
 rustls-pki-types = { version = "1.10" }
 rusqlite = { version = "0.36.0", features = ["column_decltype"] }
 ## for duckdb example

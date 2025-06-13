@@ -119,7 +119,7 @@ impl LoginInfo<'_> {
         &self.host
     }
 
-    pub fn from_client_info<C>(client: &C) -> LoginInfo
+    pub fn from_client_info<C>(client: &C) -> LoginInfo<'_>
     where
         C: ClientInfo,
     {
