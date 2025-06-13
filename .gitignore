@@ -4,3 +4,5 @@ tests-integration/test-server/target
 tests-integration/rust-client/target
 node_modules
 .DS_Store
+.direnv
+.envrc
