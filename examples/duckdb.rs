@@ -55,13 +55,13 @@ impl SimpleQueryHandler for DuckDBBackend {
             let mut stmt = conn
                 .prepare(query)
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-            let header = Arc::new(row_desc_from_stmt(&stmt, &Format::UnifiedText)?);
-            stmt.query(params![])
-                .map(|rows| {
-                    let s = encode_row_data(rows, header.clone());
-                    vec![Response::Query(QueryResponse::new(header, s))]
-                })
-                .map_err(|e| PgWireError::ApiError(Box::new(e)))
+            let rows = stmt
+                .query(params![])
+                .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+            let row_stmt = rows.as_ref().unwrap();
+            let header = Arc::new(row_desc_from_stmt(row_stmt, &Format::UnifiedText)?);
+            let s = encode_row_data(rows, header.clone());
+            Ok(vec![Response::Query(QueryResponse::new(header, s))])
         } else {
             conn.execute(query, params![])
                 .map(|affected_rows| {
@@ -262,13 +262,13 @@ impl ExtendedQueryHandler for DuckDBBackend {
             .collect::<Vec<&dyn duckdb::ToSql>>();
 
         if query.to_uppercase().starts_with("SELECT") {
-            let header = Arc::new(row_desc_from_stmt(&stmt, &portal.result_column_format)?);
-            stmt.query::<&[&dyn duckdb::ToSql]>(params_ref.as_ref())
-                .map(|rows| {
-                    let s = encode_row_data(rows, header.clone());
-                    Response::Query(QueryResponse::new(header, s))
-                })
-                .map_err(|e| PgWireError::ApiError(Box::new(e)))
+            let rows: Rows<'_> = stmt
+                .query::<&[&dyn duckdb::ToSql]>(params_ref.as_ref())
+                .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+            let row_stmt = rows.as_ref().unwrap();
+            let header = Arc::new(row_desc_from_stmt(row_stmt, &portal.result_column_format)?);
+            let s = encode_row_data(rows, header.clone());
+            Ok(Response::Query(QueryResponse::new(header, s)))
         } else {
             stmt.execute::<&[&dyn duckdb::ToSql]>(params_ref.as_ref())
                 .map(|affected_rows| {
