@@ -168,63 +168,62 @@ pub trait ErrorHandler: Send + Sync {
 }
 
 /// A noop implementation for `ErrorHandler`.
-pub struct NoopErrorHandler;
+#[derive(Debug)]
+pub struct NoopHandler;
 
-impl ErrorHandler for NoopErrorHandler {}
+impl ErrorHandler for NoopHandler {}
 
 pub trait PgWireServerHandlers {
-    type StartupHandler: auth::StartupHandler;
-    type SimpleQueryHandler: query::SimpleQueryHandler;
-    type ExtendedQueryHandler: query::ExtendedQueryHandler;
-    type CopyHandler: copy::CopyHandler;
-    type ErrorHandler: ErrorHandler;
-    type CancelHandler: cancel::CancelHandler;
+    fn simple_query_handler(&self) -> Arc<impl query::SimpleQueryHandler> {
+        Arc::new(NoopHandler)
+    }
 
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler>;
+    fn extended_query_handler(&self) -> Arc<impl query::ExtendedQueryHandler> {
+        Arc::new(NoopHandler)
+    }
 
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler>;
+    fn startup_handler(&self) -> Arc<impl auth::StartupHandler> {
+        Arc::new(NoopHandler)
+    }
 
-    fn startup_handler(&self) -> Arc<Self::StartupHandler>;
+    fn copy_handler(&self) -> Arc<impl copy::CopyHandler> {
+        Arc::new(NoopHandler)
+    }
 
-    fn copy_handler(&self) -> Arc<Self::CopyHandler>;
+    fn error_handler(&self) -> Arc<impl ErrorHandler> {
+        Arc::new(NoopHandler)
+    }
 
-    fn error_handler(&self) -> Arc<Self::ErrorHandler>;
-
-    fn cancel_handler(&self) -> Arc<Self::CancelHandler>;
+    fn cancel_handler(&self) -> Arc<impl cancel::CancelHandler> {
+        Arc::new(NoopHandler)
+    }
 }
 
 impl<T> PgWireServerHandlers for Arc<T>
 where
     T: PgWireServerHandlers,
 {
-    type StartupHandler = T::StartupHandler;
-    type SimpleQueryHandler = T::SimpleQueryHandler;
-    type ExtendedQueryHandler = T::ExtendedQueryHandler;
-    type CopyHandler = T::CopyHandler;
-    type ErrorHandler = T::ErrorHandler;
-    type CancelHandler = T::CancelHandler;
-
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+    fn simple_query_handler(&self) -> Arc<impl query::SimpleQueryHandler> {
         (**self).simple_query_handler()
     }
 
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+    fn extended_query_handler(&self) -> Arc<impl query::ExtendedQueryHandler> {
         (**self).extended_query_handler()
     }
 
-    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+    fn startup_handler(&self) -> Arc<impl auth::StartupHandler> {
         (**self).startup_handler()
     }
 
-    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
+    fn copy_handler(&self) -> Arc<impl copy::CopyHandler> {
         (**self).copy_handler()
     }
 
-    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
+    fn error_handler(&self) -> Arc<impl ErrorHandler> {
         (**self).error_handler()
     }
 
-    fn cancel_handler(&self) -> Arc<Self::CancelHandler> {
+    fn cancel_handler(&self) -> Arc<impl cancel::CancelHandler> {
         (**self).cancel_handler()
     }
 }

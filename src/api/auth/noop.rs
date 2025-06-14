@@ -58,3 +58,5 @@ where
         Ok(())
     }
 }
+
+impl NoopStartupHandler for crate::api::NoopHandler {}

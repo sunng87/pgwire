@@ -14,13 +14,15 @@ use crate::api::results::{
     DescribePortalResponse, DescribeResponse, DescribeStatementResponse, QueryResponse, Response,
 };
 use crate::api::PgWireConnectionState;
-use crate::error::{PgWireError, PgWireResult};
+use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::data::{NoData, ParameterDescription};
 use crate::messages::extendedquery::{
     Bind, BindComplete, Close, CloseComplete, Describe, Execute, Flush, Parse, ParseComplete,
     Sync as PgSync, TARGET_TYPE_BYTE_PORTAL, TARGET_TYPE_BYTE_STATEMENT,
 };
-use crate::messages::response::{EmptyQueryResponse, ReadyForQuery, TransactionStatus};
+use crate::messages::response::{
+    EmptyQueryResponse, NoticeResponse, ReadyForQuery, TransactionStatus,
+};
 use crate::messages::simplequery::Query;
 use crate::messages::PgWireBackendMessage;
 
@@ -503,31 +505,36 @@ where
     Ok(())
 }
 
-/// A placeholder extended query handler. It panics when extended query messages
-/// received. This handler is for demo only, never use it in serious
-/// application.
-#[derive(Debug, Clone)]
-pub struct PlaceholderExtendedQueryHandler;
-
 #[async_trait]
-impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
+impl ExtendedQueryHandler for super::NoopHandler {
     type Statement = String;
     type QueryParser = NoopQueryParser;
 
     fn query_parser(&self) -> Arc<Self::QueryParser> {
-        unimplemented!("Extended Query is not implemented on this server.")
+        Arc::new(NoopQueryParser)
     }
 
     async fn do_query<'a, C>(
         &self,
-        _client: &mut C,
+        client: &mut C,
         _portal: &Portal<Self::Statement>,
         _max_rows: usize,
     ) -> PgWireResult<Response<'a>>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        unimplemented!("Extended Query is not implemented on this server.")
+        client
+            .send(PgWireBackendMessage::NoticeResponse(NoticeResponse::from(
+                ErrorInfo::new(
+                    "NOTICE".to_owned(),
+                    "01000".to_owned(),
+                    "This is a demo handler for extended query.".to_string(),
+                ),
+            )))
+            .await?;
+        Ok(Response::Execution(Tag::new("OK")))
     }
 
     async fn do_describe_statement<C>(
@@ -538,7 +545,7 @@ impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        unimplemented!("Extended Query is not implemented on this server.")
+        Ok(DescribeStatementResponse::no_data())
     }
 
     async fn do_describe_portal<C>(
@@ -549,6 +556,27 @@ impl ExtendedQueryHandler for PlaceholderExtendedQueryHandler {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        unimplemented!("Extended Query is not implemented on this server.")
+        Ok(DescribePortalResponse::no_data())
+    }
+}
+
+#[async_trait]
+impl SimpleQueryHandler for super::NoopHandler {
+    async fn do_query<'a, C>(&self, client: &mut C, _query: &str) -> PgWireResult<Vec<Response<'a>>>
+    where
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        client
+            .send(PgWireBackendMessage::NoticeResponse(NoticeResponse::from(
+                ErrorInfo::new(
+                    "NOTICE".to_owned(),
+                    "01000".to_owned(),
+                    "This is a demo handler for simple query.".to_string(),
+                ),
+            )))
+            .await?;
+        Ok(vec![Response::Execution(Tag::new("OK"))])
     }
 }
