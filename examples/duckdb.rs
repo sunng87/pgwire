@@ -51,7 +51,7 @@ impl SimpleQueryHandler for DuckDBBackend {
         C: ClientInfo + Unpin + Send + Sync,
     {
         let conn = self.conn.lock().unwrap();
-        if query.to_uppercase().starts_with("SELECT") {
+        if is_result_query(query) {
             let mut stmt = conn
                 .prepare(query)
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
@@ -72,6 +72,15 @@ impl SimpleQueryHandler for DuckDBBackend {
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         }
     }
+}
+
+fn is_result_query(query: &str) -> bool {
+    let query_upper = query.trim().to_uppercase();
+    query_upper.starts_with("SELECT")
+        || query_upper.starts_with("WITH")
+        || query_upper.starts_with("EXPLAIN")
+        || query_upper.starts_with("DESCRIBE")
+        || query_upper.starts_with("FROM")
 }
 
 fn into_pg_type(df_type: &DataType) -> PgWireResult<Type> {
@@ -261,7 +270,7 @@ impl ExtendedQueryHandler for DuckDBBackend {
             .map(|f| f.as_ref())
             .collect::<Vec<&dyn duckdb::ToSql>>();
 
-        if query.to_uppercase().starts_with("SELECT") {
+        if is_result_query(query) {
             let rows: Rows<'_> = stmt
                 .query::<&[&dyn duckdb::ToSql]>(params_ref.as_ref())
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
@@ -288,9 +297,21 @@ impl ExtendedQueryHandler for DuckDBBackend {
     {
         let conn = self.conn.lock().unwrap();
         let param_types = stmt.parameter_types.clone();
-        let stmt = conn
-            .prepare_cached(&stmt.statement)
+        let stmt_sql = &stmt.statement;
+        let mut stmt = conn
+            .prepare_cached(stmt_sql)
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+
+        if is_result_query(stmt_sql) {
+            let _ = stmt
+                .query([])
+                .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+        } else {
+            let _ = stmt
+                .execute([])
+                .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+        }
+
         row_desc_from_stmt(&stmt, &Format::UnifiedBinary)
             .map(|fields| DescribeStatementResponse::new(param_types, fields))
     }
@@ -304,9 +325,26 @@ impl ExtendedQueryHandler for DuckDBBackend {
         C: ClientInfo + Unpin + Send + Sync,
     {
         let conn = self.conn.lock().unwrap();
-        let stmt = conn
+        let mut stmt = conn
             .prepare_cached(&portal.statement.statement)
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+
+        let params = get_params(portal);
+        let params_ref = params
+            .iter()
+            .map(|f| f.as_ref())
+            .collect::<Vec<&dyn duckdb::ToSql>>();
+
+        if is_result_query(&portal.statement.statement) {
+            let _ = stmt
+                .query::<&[&dyn duckdb::ToSql]>(params_ref.as_ref())
+                .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+        } else {
+            let _ = stmt
+                .execute::<&[&dyn duckdb::ToSql]>(params_ref.as_ref())
+                .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+        }
+
         row_desc_from_stmt(&stmt, &portal.result_column_format)
             .map(|fields| DescribePortalResponse::new(fields))
     }
