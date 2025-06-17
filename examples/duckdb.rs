@@ -1,11 +1,11 @@
 use std::sync::{Arc, Mutex};
 
+use arrow_pg::datatypes::arrow_schema_to_pg_fields;
+use arrow_pg::datatypes::encode_recordbatch;
+use arrow_pg::datatypes::into_pg_type;
 use async_trait::async_trait;
-use duckdb::arrow::datatypes::DataType;
-use duckdb::Rows;
-use duckdb::{params, types::ValueRef, Connection, Statement, ToSql};
+use duckdb::{params, Connection, Statement, ToSql};
 use futures::stream;
-use futures::Stream;
 use pgwire::api::auth::md5pass::{hash_md5_password, Md5PasswordAuthStartupHandler};
 use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
 use pgwire::api::cancel::NoopCancelHandler;
@@ -13,13 +13,11 @@ use pgwire::api::copy::NoopCopyHandler;
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
-    DataRowEncoder, DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse,
-    Response, Tag,
+    DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse, Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type};
-use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
-use pgwire::messages::data::DataRow;
+use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
 use tokio::net::TcpListener;
 
@@ -55,138 +53,32 @@ impl SimpleQueryHandler for DuckDBBackend {
             let mut stmt = conn
                 .prepare(query)
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-            let rows = stmt
-                .query(params![])
+
+            let ret = stmt
+                .query_arrow(params![])
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-            let row_stmt = rows.as_ref().unwrap();
-            let header = Arc::new(row_desc_from_stmt(row_stmt, &Format::UnifiedText)?);
-            let s = encode_row_data(rows, header.clone());
-            Ok(vec![Response::Query(QueryResponse::new(header, s))])
+            let schema = ret.get_schema();
+            let header = Arc::new(arrow_schema_to_pg_fields(
+                schema.as_ref(),
+                &Format::UnifiedText,
+            )?);
+
+            let header_ref = header.clone();
+            let data = ret
+                .flat_map(move |rb| encode_recordbatch(header_ref.clone(), rb))
+                .collect::<Vec<_>>();
+            Ok(vec![Response::Query(QueryResponse::new(
+                header,
+                stream::iter(data.into_iter()),
+            ))])
         } else {
             conn.execute(query, params![])
                 .map(|affected_rows| {
-                    vec![Response::Execution(
-                        Tag::new("OK").with_rows(affected_rows).into(),
-                    )]
+                    vec![Response::Execution(Tag::new("OK").with_rows(affected_rows))]
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         }
     }
-}
-
-fn into_pg_type(df_type: &DataType) -> PgWireResult<Type> {
-    Ok(match df_type {
-        DataType::Null => Type::UNKNOWN,
-        DataType::Boolean => Type::BOOL,
-        DataType::Int8 | DataType::UInt8 => Type::CHAR,
-        DataType::Int16 | DataType::UInt16 => Type::INT2,
-        DataType::Int32 | DataType::UInt32 => Type::INT4,
-        DataType::Int64 | DataType::UInt64 => Type::INT8,
-        DataType::Timestamp(_, _) => Type::TIMESTAMP,
-        DataType::Time32(_) | DataType::Time64(_) => Type::TIME,
-        DataType::Date32 | DataType::Date64 => Type::DATE,
-        DataType::Binary => Type::BYTEA,
-        DataType::Float32 => Type::FLOAT4,
-        DataType::Float64 => Type::FLOAT8,
-        DataType::Utf8 => Type::VARCHAR,
-        DataType::List(field) => match field.data_type() {
-            DataType::Boolean => Type::BOOL_ARRAY,
-            DataType::Int8 | DataType::UInt8 => Type::CHAR_ARRAY,
-            DataType::Int16 | DataType::UInt16 => Type::INT2_ARRAY,
-            DataType::Int32 | DataType::UInt32 => Type::INT4_ARRAY,
-            DataType::Int64 | DataType::UInt64 => Type::INT8_ARRAY,
-            DataType::Timestamp(_, _) => Type::TIMESTAMP_ARRAY,
-            DataType::Time32(_) | DataType::Time64(_) => Type::TIME_ARRAY,
-            DataType::Date32 | DataType::Date64 => Type::DATE_ARRAY,
-            DataType::Binary => Type::BYTEA_ARRAY,
-            DataType::Float32 => Type::FLOAT4_ARRAY,
-            DataType::Float64 => Type::FLOAT8_ARRAY,
-            DataType::Utf8 => Type::VARCHAR_ARRAY,
-            list_type => {
-                return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                    "ERROR".to_owned(),
-                    "XX000".to_owned(),
-                    format!("Unsupported List Datatype {list_type}"),
-                ))));
-            }
-        },
-        _ => {
-            return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                "ERROR".to_owned(),
-                "XX000".to_owned(),
-                format!("Unsupported Datatype {df_type}"),
-            ))));
-        }
-    })
-}
-
-fn row_desc_from_stmt(stmt: &Statement, format: &Format) -> PgWireResult<Vec<FieldInfo>> {
-    let columns = stmt.column_count();
-
-    (0..columns)
-        .map(|idx| {
-            let datatype = stmt.column_type(idx);
-            let name = stmt.column_name(idx).unwrap();
-
-            Ok(FieldInfo::new(
-                name.clone(),
-                None,
-                None,
-                into_pg_type(&datatype).unwrap(),
-                format.format_for(idx),
-            ))
-        })
-        .collect()
-}
-
-fn encode_row_data(
-    mut rows: Rows<'_>,
-    schema: Arc<Vec<FieldInfo>>,
-) -> impl Stream<Item = PgWireResult<DataRow>> {
-    let mut results = Vec::new();
-    let ncols = schema.len();
-    while let Ok(Some(row)) = rows.next() {
-        let mut encoder = DataRowEncoder::new(schema.clone());
-        for idx in 0..ncols {
-            let data = row.get_ref_unwrap::<usize>(idx);
-            match data {
-                ValueRef::Null => encoder.encode_field(&None::<i8>).unwrap(),
-                ValueRef::TinyInt(i) => {
-                    encoder.encode_field(&i).unwrap();
-                }
-                ValueRef::SmallInt(i) => {
-                    encoder.encode_field(&i).unwrap();
-                }
-                ValueRef::Int(i) => {
-                    encoder.encode_field(&i).unwrap();
-                }
-                ValueRef::BigInt(i) => {
-                    encoder.encode_field(&i).unwrap();
-                }
-                ValueRef::Float(f) => {
-                    encoder.encode_field(&f).unwrap();
-                }
-                ValueRef::Double(f) => {
-                    encoder.encode_field(&f).unwrap();
-                }
-                ValueRef::Text(t) => {
-                    encoder
-                        .encode_field(&String::from_utf8_lossy(t).as_ref())
-                        .unwrap();
-                }
-                ValueRef::Blob(b) => {
-                    encoder.encode_field(&b).unwrap();
-                }
-                _ => {
-                    unimplemented!("More types to be supported.")
-                }
-            }
-        }
-
-        results.push(encoder.finish());
-    }
-
-    stream::iter(results.into_iter())
 }
 
 fn get_params(portal: &Portal<String>) -> Vec<Box<dyn ToSql>> {
@@ -232,6 +124,25 @@ fn get_params(portal: &Portal<String>) -> Vec<Box<dyn ToSql>> {
     results
 }
 
+fn row_desc_from_stmt(stmt: &Statement, format: &Format) -> PgWireResult<Vec<FieldInfo>> {
+    let columns = stmt.column_count();
+
+    (0..columns)
+        .map(|idx| {
+            let datatype = stmt.column_type(idx);
+            let name = stmt.column_name(idx).unwrap();
+
+            Ok(FieldInfo::new(
+                name.clone(),
+                None,
+                None,
+                into_pg_type(&datatype).unwrap(),
+                format.format_for(idx),
+            ))
+        })
+        .collect()
+}
+
 #[async_trait]
 impl ExtendedQueryHandler for DuckDBBackend {
     type Statement = String;
@@ -262,18 +173,27 @@ impl ExtendedQueryHandler for DuckDBBackend {
             .collect::<Vec<&dyn duckdb::ToSql>>();
 
         if query.to_uppercase().starts_with("SELECT") {
-            let rows: Rows<'_> = stmt
-                .query::<&[&dyn duckdb::ToSql]>(params_ref.as_ref())
+            let ret = stmt
+                .query_arrow(params![])
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-            let row_stmt = rows.as_ref().unwrap();
-            let header = Arc::new(row_desc_from_stmt(row_stmt, &portal.result_column_format)?);
-            let s = encode_row_data(rows, header.clone());
-            Ok(Response::Query(QueryResponse::new(header, s)))
+            let schema = ret.get_schema();
+            let header = Arc::new(arrow_schema_to_pg_fields(
+                schema.as_ref(),
+                &Format::UnifiedText,
+            )?);
+
+            let header_ref = header.clone();
+            let data = ret
+                .flat_map(move |rb| encode_recordbatch(header_ref.clone(), rb))
+                .collect::<Vec<_>>();
+
+            Ok(Response::Query(QueryResponse::new(
+                header,
+                stream::iter(data.into_iter()),
+            )))
         } else {
             stmt.execute::<&[&dyn duckdb::ToSql]>(params_ref.as_ref())
-                .map(|affected_rows| {
-                    Response::Execution(Tag::new("OK").with_rows(affected_rows).into())
-                })
+                .map(|affected_rows| Response::Execution(Tag::new("OK").with_rows(affected_rows)))
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         }
     }
@@ -307,8 +227,7 @@ impl ExtendedQueryHandler for DuckDBBackend {
         let stmt = conn
             .prepare_cached(&portal.statement.statement)
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-        row_desc_from_stmt(&stmt, &portal.result_column_format)
-            .map(|fields| DescribePortalResponse::new(fields))
+        row_desc_from_stmt(&stmt, &portal.result_column_format).map(DescribePortalResponse::new)
     }
 }
 
