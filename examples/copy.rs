@@ -3,14 +3,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::{Sink, SinkExt};
-use pgwire::api::cancel::NoopCancelHandler;
 use tokio::net::TcpListener;
 
-use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::copy::CopyHandler;
-use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
+use pgwire::api::query::SimpleQueryHandler;
 use pgwire::api::results::{CopyResponse, Response};
-use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireConnectionState, PgWireServerHandlers};
+use pgwire::api::{ClientInfo, PgWireConnectionState, PgWireServerHandlers};
 use pgwire::error::ErrorInfo;
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::messages::copy::{CopyData, CopyDone, CopyFail};
@@ -19,8 +17,6 @@ use pgwire::messages::PgWireBackendMessage;
 use pgwire::tokio::process_socket;
 
 pub struct DummyProcessor;
-
-impl NoopStartupHandler for DummyProcessor {}
 
 #[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
@@ -104,35 +100,12 @@ struct DummyProcessorFactory {
 }
 
 impl PgWireServerHandlers for DummyProcessorFactory {
-    type StartupHandler = DummyProcessor;
-    type SimpleQueryHandler = DummyProcessor;
-    type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
-    type CopyHandler = DummyProcessor;
-    type ErrorHandler = NoopErrorHandler;
-    type CancelHandler = NoopCancelHandler;
-
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+    fn simple_query_handler(&self) -> Arc<impl SimpleQueryHandler> {
         self.handler.clone()
     }
 
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
-        Arc::new(PlaceholderExtendedQueryHandler)
-    }
-
-    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+    fn copy_handler(&self) -> Arc<impl CopyHandler> {
         self.handler.clone()
-    }
-
-    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
-        self.handler.clone()
-    }
-
-    fn cancel_handler(&self) -> Arc<Self::CancelHandler> {
-        Arc::new(NoopCancelHandler)
-    }
-
-    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
-        Arc::new(NoopErrorHandler)
     }
 }
 

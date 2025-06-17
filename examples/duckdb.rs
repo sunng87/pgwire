@@ -7,16 +7,16 @@ use async_trait::async_trait;
 use duckdb::{params, Connection, Statement, ToSql};
 use futures::stream;
 use pgwire::api::auth::md5pass::{hash_md5_password, Md5PasswordAuthStartupHandler};
-use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
-use pgwire::api::cancel::NoopCancelHandler;
-use pgwire::api::copy::NoopCopyHandler;
+use pgwire::api::auth::{
+    AuthSource, DefaultServerParameterProvider, LoginInfo, Password, StartupHandler,
+};
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
     DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse, Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
-use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type};
+use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
 use tokio::net::TcpListener;
@@ -245,39 +245,19 @@ struct DuckDBBackendFactory {
 }
 
 impl PgWireServerHandlers for DuckDBBackendFactory {
-    type StartupHandler =
-        Md5PasswordAuthStartupHandler<DummyAuthSource, DefaultServerParameterProvider>;
-    type SimpleQueryHandler = DuckDBBackend;
-    type ExtendedQueryHandler = DuckDBBackend;
-    type CopyHandler = NoopCopyHandler;
-    type CancelHandler = NoopCancelHandler;
-    type ErrorHandler = NoopErrorHandler;
-
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+    fn simple_query_handler(&self) -> Arc<impl SimpleQueryHandler> {
         self.handler.clone()
     }
 
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+    fn extended_query_handler(&self) -> Arc<impl ExtendedQueryHandler> {
         self.handler.clone()
     }
 
-    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+    fn startup_handler(&self) -> Arc<impl StartupHandler> {
         Arc::new(Md5PasswordAuthStartupHandler::new(
             Arc::new(DummyAuthSource),
             Arc::new(DefaultServerParameterProvider::default()),
         ))
-    }
-
-    fn cancel_handler(&self) -> Arc<Self::CancelHandler> {
-        Arc::new(NoopCancelHandler)
-    }
-
-    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
-        Arc::new(NoopCopyHandler)
-    }
-
-    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
-        Arc::new(NoopErrorHandler)
     }
 }
 

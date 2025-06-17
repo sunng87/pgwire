@@ -2,23 +2,18 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use futures::stream;
-use pgwire::api::cancel::NoopCancelHandler;
+use gluesql::prelude::*;
 use tokio::net::TcpListener;
 
-use gluesql::prelude::*;
-use pgwire::api::auth::noop::NoopStartupHandler;
-use pgwire::api::copy::NoopCopyHandler;
-use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
+use pgwire::api::query::SimpleQueryHandler;
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
-use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type};
+use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
 
 pub struct GluesqlProcessor {
     glue: Arc<Mutex<Glue<MemoryStorage>>>,
 }
-
-impl NoopStartupHandler for GluesqlProcessor {}
 
 #[async_trait]
 impl SimpleQueryHandler for GluesqlProcessor {
@@ -163,35 +158,8 @@ struct GluesqlHandlerFactory {
 }
 
 impl PgWireServerHandlers for GluesqlHandlerFactory {
-    type StartupHandler = GluesqlProcessor;
-    type SimpleQueryHandler = GluesqlProcessor;
-    type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
-    type CopyHandler = NoopCopyHandler;
-    type CancelHandler = NoopCancelHandler;
-    type ErrorHandler = NoopErrorHandler;
-
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+    fn simple_query_handler(&self) -> Arc<impl SimpleQueryHandler> {
         self.processor.clone()
-    }
-
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
-        Arc::new(PlaceholderExtendedQueryHandler)
-    }
-
-    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
-        self.processor.clone()
-    }
-
-    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
-        Arc::new(NoopCopyHandler)
-    }
-
-    fn cancel_handler(&self) -> Arc<Self::CancelHandler> {
-        Arc::new(NoopCancelHandler)
-    }
-
-    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
-        Arc::new(NoopErrorHandler)
     }
 }
 
