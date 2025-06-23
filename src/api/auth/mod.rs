@@ -7,7 +7,7 @@ use futures::sink::{Sink, SinkExt};
 use super::{ClientInfo, PgWireConnectionState, METADATA_DATABASE, METADATA_USER};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::response::{ReadyForQuery, TransactionStatus};
-use crate::messages::startup::{Authentication, BackendKeyData30, ParameterStatus, Startup};
+use crate::messages::startup::{Authentication, BackendKeyData, ParameterStatus, Startup};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 /// Handles startup process and frontend messages
@@ -185,7 +185,7 @@ where
 
     let (pid, secret_key) = client.pid_and_secret_key();
     client
-        .feed(PgWireBackendMessage::BackendKeyData(BackendKeyData30::new(
+        .feed(PgWireBackendMessage::BackendKeyData(BackendKeyData::new(
             pid, secret_key,
         )))
         .await?;

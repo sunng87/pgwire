@@ -21,10 +21,10 @@ use crate::api::{
     PgWireServerHandlers,
 };
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
-use crate::messages::cancel::{CancelRequest, CancelRequest30};
+use crate::messages::cancel::CancelRequest;
 use crate::messages::response::ReadyForQuery;
 use crate::messages::response::{SslResponse, TransactionStatus};
-use crate::messages::startup::{SslRequest, Startup};
+use crate::messages::startup::{SecretKey, SslRequest, Startup};
 use crate::messages::{
     DecodeContext, Message, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,
 };
@@ -46,12 +46,9 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
             PgWireConnectionState::AwaitingSslRequest => {
                 // first try to decode it as CancelRequest
                 // TODO: detect cancel30 or cancel32
-                if let Some(true) = CancelRequest30::is_cancel_request_packet(src) {
-                    return CancelRequest30::decode(src, decode_context).map(|opt| {
-                        opt.map(|v| {
-                            PgWireFrontendMessage::CancelRequest(CancelRequest::CancelRequest30(v))
-                        })
-                    });
+                if let Some(true) = CancelRequest::is_cancel_request_packet(src) {
+                    return CancelRequest::decode(src, decode_context)
+                        .map(|opt| opt.map(PgWireFrontendMessage::CancelRequest));
                 }
 
                 if src.remaining() >= SslRequest::BODY_SIZE {
@@ -104,14 +101,22 @@ impl<T: 'static, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
         self.codec().client_info.is_secure
     }
 
-    fn pid_and_secret_key(&self) -> (i32, i32) {
+    fn pid_and_secret_key(&self) -> (i32, SecretKey) {
         self.codec().client_info.pid_and_secret_key()
     }
 
-    fn set_pid_and_secret_key(&mut self, pid: i32, secret_key: i32) {
+    fn set_pid_and_secret_key(&mut self, pid: i32, secret_key: SecretKey) {
         self.codec_mut()
             .client_info
             .set_pid_and_secret_key(pid, secret_key);
+    }
+
+    fn protocol_version(&self) -> ProtocolVersion {
+        self.codec().client_info.protocol_version()
+    }
+
+    fn set_protocol_version(&mut self, version: ProtocolVersion) {
+        self.codec_mut().client_info.set_protocol_version(version);
     }
 
     fn state(&self) -> PgWireConnectionState {
@@ -337,7 +342,7 @@ async fn check_cancel_request(tcp_socket: &TcpStream) -> Result<bool, io::Error>
     let n = tcp_socket.peek(&mut buf).await?;
 
     if n == buf.len() {
-        Ok(CancelRequest30::is_cancel_request_packet(&buf).unwrap_or(false))
+        Ok(CancelRequest::is_cancel_request_packet(&buf).unwrap_or(false))
     } else {
         Ok(false)
     }

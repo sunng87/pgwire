@@ -10,6 +10,8 @@ use rustls_pki_types::CertificateDer;
 
 use crate::error::PgWireError;
 use crate::messages::response::TransactionStatus;
+use crate::messages::startup::SecretKey;
+use crate::messages::ProtocolVersion;
 
 pub mod auth;
 pub mod cancel;
@@ -43,9 +45,13 @@ pub trait ClientInfo {
 
     fn is_secure(&self) -> bool;
 
-    fn pid_and_secret_key(&self) -> (i32, i32);
+    fn protocol_version(&self) -> ProtocolVersion;
 
-    fn set_pid_and_secret_key(&mut self, pid: i32, secret_key: i32);
+    fn set_protocol_version(&mut self, version: ProtocolVersion);
+
+    fn pid_and_secret_key(&self) -> (i32, SecretKey);
+
+    fn set_pid_and_secret_key(&mut self, pid: i32, secret_key: SecretKey);
 
     fn state(&self) -> PgWireConnectionState;
 
@@ -78,7 +84,8 @@ pub const METADATA_DATABASE: &str = "database";
 pub struct DefaultClient<S> {
     pub socket_addr: SocketAddr,
     pub is_secure: bool,
-    pub pid_secret_key: (i32, i32),
+    pub protocol_version: ProtocolVersion,
+    pub pid_secret_key: (i32, SecretKey),
     pub state: PgWireConnectionState,
     pub transaction_status: TransactionStatus,
     pub metadata: HashMap<String, String>,
@@ -94,12 +101,20 @@ impl<S> ClientInfo for DefaultClient<S> {
         self.is_secure
     }
 
-    fn pid_and_secret_key(&self) -> (i32, i32) {
-        self.pid_secret_key
+    fn pid_and_secret_key(&self) -> (i32, SecretKey) {
+        self.pid_secret_key.clone()
     }
 
-    fn set_pid_and_secret_key(&mut self, pid: i32, secret_key: i32) {
+    fn set_pid_and_secret_key(&mut self, pid: i32, secret_key: SecretKey) {
         self.pid_secret_key = (pid, secret_key);
+    }
+
+    fn protocol_version(&self) -> ProtocolVersion {
+        self.protocol_version
+    }
+
+    fn set_protocol_version(&mut self, version: ProtocolVersion) {
+        self.protocol_version = version;
     }
 
     fn state(&self) -> PgWireConnectionState {
@@ -137,7 +152,8 @@ impl<S> DefaultClient<S> {
         DefaultClient {
             socket_addr,
             is_secure,
-            pid_secret_key: (0, 0),
+            protocol_version: ProtocolVersion::UNKNOWN,
+            pid_secret_key: (0, SecretKey::default()),
             state: PgWireConnectionState::default(),
             transaction_status: TransactionStatus::Idle,
             metadata: HashMap::new(),

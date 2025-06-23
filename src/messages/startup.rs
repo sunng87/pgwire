@@ -384,28 +384,30 @@ impl Message for ParameterStatus {
     }
 }
 
-/// `BackendKeyData` message enum
-///
-/// This message has two variants for protocol 3.0 and 3.2
-#[non_exhaustive]
-#[derive(PartialEq, Eq, Debug)]
-pub enum BackendKeyData {
-    BackendKeyData30(BackendKeyData30),
-    BackendKeyData32(BackendKeyData32),
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum SecretKey {
+    Proto30(i32),
+    Proto32(Bytes),
+}
+
+impl Default for SecretKey {
+    fn default() -> Self {
+        SecretKey::Proto30(0)
+    }
 }
 
 /// `BackendKeyData` message, sent from backend to frontend for issuing
 /// `CancelRequestMessage`
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
-pub struct BackendKeyData30 {
+pub struct BackendKeyData {
     pub pid: i32,
-    pub secret_key: i32,
+    pub secret_key: SecretKey,
 }
 
 pub const MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA: u8 = b'K';
 
-impl Message for BackendKeyData30 {
+impl Message for BackendKeyData {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA)
@@ -418,48 +420,21 @@ impl Message for BackendKeyData30 {
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         buf.put_i32(self.pid);
-        buf.put_i32(self.secret_key);
+        match &self.secret_key {
+            SecretKey::Proto30(key) => buf.put_i32(*key),
+            SecretKey::Proto32(key) => buf.put_slice(key),
+        }
 
         Ok(())
     }
 
     fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
         let pid = buf.get_i32();
+
+        // TODO:
         let secret_key = buf.get_i32();
 
-        Ok(BackendKeyData30 { pid, secret_key })
-    }
-}
-
-#[derive(PartialEq, Eq, Debug, new)]
-pub struct BackendKeyData32 {
-    pub pid: i32,
-    pub secret_key: Bytes,
-}
-
-impl Message for BackendKeyData32 {
-    #[inline]
-    fn message_type() -> Option<u8> {
-        Some(MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA)
-    }
-
-    #[inline]
-    fn message_length(&self) -> usize {
-        8 + self.secret_key.len()
-    }
-
-    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
-        buf.put_i32(self.pid);
-        buf.put_slice(&self.secret_key);
-
-        Ok(())
-    }
-
-    fn decode_body(buf: &mut BytesMut, msg_len: usize) -> PgWireResult<Self> {
-        let pid = buf.get_i32();
-        let secret_key = buf.split_to(msg_len - 8).freeze();
-
-        Ok(Self { pid, secret_key })
+        Ok(BackendKeyData { pid, secret_key })
     }
 }
 

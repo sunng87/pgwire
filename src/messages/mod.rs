@@ -9,7 +9,7 @@ use bytes::{Buf, BufMut, BytesMut};
 
 use crate::error::{PgWireError, PgWireResult};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ProtocolVersion {
     UNKNOWN,
     PROTOCOL3_0,
@@ -129,10 +129,7 @@ impl PgWireFrontendMessage {
     pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         match self {
             Self::Startup(msg) => msg.encode(buf),
-            Self::CancelRequest(msg) => match msg {
-                cancel::CancelRequest::CancelRequest30(cancel_msg) => cancel_msg.encode(buf),
-                cancel::CancelRequest::CancelRequest32(cancel_msg) => cancel_msg.encode(buf),
-            },
+            Self::CancelRequest(msg) => msg.encode(buf),
             Self::SslRequest(msg) => {
                 if let Some(msg) = msg {
                     msg.encode(buf)
@@ -266,10 +263,7 @@ impl PgWireBackendMessage {
         match self {
             Self::Authentication(msg) => msg.encode(buf),
             Self::ParameterStatus(msg) => msg.encode(buf),
-            Self::BackendKeyData(bkmsg) => match bkmsg {
-                startup::BackendKeyData::BackendKeyData30(msg) => msg.encode(buf),
-                startup::BackendKeyData::BackendKeyData32(msg) => msg.encode(buf),
-            },
+            Self::BackendKeyData(msg) => msg.encode(buf),
 
             Self::ParseComplete(msg) => msg.encode(buf),
             Self::BindComplete(msg) => msg.encode(buf),
@@ -308,22 +302,9 @@ impl PgWireBackendMessage {
                 startup::MESSAGE_TYPE_BYTE_PARAMETER_STATUS => {
                     startup::ParameterStatus::decode(buf, ctx).map(|v| v.map(Self::ParameterStatus))
                 }
-                startup::MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA => match ctx.protocol_version {
-                    ProtocolVersion::UNKNOWN | ProtocolVersion::PROTOCOL3_0 => {
-                        startup::BackendKeyData30::decode(buf, ctx).map(|v| {
-                            v.map(|v| {
-                                Self::BackendKeyData(startup::BackendKeyData::BackendKeyData30(v))
-                            })
-                        })
-                    }
-                    ProtocolVersion::PROTOCOL3_2 => startup::BackendKeyData32::decode(buf, ctx)
-                        .map(|v| {
-                            v.map(|v| {
-                                Self::BackendKeyData(startup::BackendKeyData::BackendKeyData32(v))
-                            })
-                        }),
-                },
-
+                startup::MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA => {
+                    startup::BackendKeyData::decode(buf, ctx).map(|v| v.map(Self::BackendKeyData))
+                }
                 extendedquery::MESSAGE_TYPE_BYTE_PARSE_COMPLETE => {
                     extendedquery::ParseComplete::decode(buf, ctx)
                         .map(|v| v.map(Self::ParseComplete))
