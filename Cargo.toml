@@ -96,7 +96,7 @@ arrow-pg = "0.2.0"
 rustls-pemfile = "2.0"
 ## webpki-roots has mozilla's set of roots
 ## rustls-native-certs loads roots from current system
-gluesql = { version = "0.16", default-features = false, features = ["gluesql_memory_storage"] }
+gluesql = { version = "0.17", default-features = false, features = ["gluesql_memory_storage"] }
 
 [patch.crates-io]
 pgwire = { path = "." }
