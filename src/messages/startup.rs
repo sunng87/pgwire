@@ -384,15 +384,38 @@ impl Message for ParameterStatus {
     }
 }
 
+/// The secret key for canceling query
+///
+/// There is a minor protocol change for this key. It was i32 in Protocol 3.0
+/// but due to the limitation of a short key, in Protocol 3.2 this key is
+/// extended to bytes with a max length of 256.
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum SecretKey {
-    Proto30(i32),
-    Proto32(Bytes),
+    I32(i32),
+    Bytes(Bytes),
 }
 
 impl Default for SecretKey {
     fn default() -> Self {
-        SecretKey::Proto30(0)
+        SecretKey::I32(0)
+    }
+}
+
+impl SecretKey {
+    /// Try to coerce the key as a i32 value
+    ///
+    /// Return None if the bytes is longer than 32 bits.
+    pub fn as_i32(&self) -> Option<i32> {
+        match self {
+            Self::I32(v) => Some(*v),
+            Self::Bytes(v) => {
+                if v.len() == 4 {
+                    Some((&v[..]).get_i32())
+                } else {
+                    None
+                }
+            }
+        }
     }
 }
 
@@ -415,26 +438,31 @@ impl Message for BackendKeyData {
 
     #[inline]
     fn message_length(&self) -> usize {
-        12
+        match &self.secret_key {
+            SecretKey::I32(_) => 12,
+            SecretKey::Bytes(bytes) => 8 + bytes.len(),
+        }
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         buf.put_i32(self.pid);
         match &self.secret_key {
-            SecretKey::Proto30(key) => buf.put_i32(*key),
-            SecretKey::Proto32(key) => buf.put_slice(key),
+            SecretKey::I32(key) => buf.put_i32(*key),
+            SecretKey::Bytes(key) => buf.put_slice(key),
         }
 
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, msg_len: usize) -> PgWireResult<Self> {
         let pid = buf.get_i32();
 
-        // TODO:
-        let secret_key = buf.get_i32();
+        let secret_key = buf.split_to(msg_len - 8).freeze();
 
-        Ok(BackendKeyData { pid, secret_key })
+        Ok(BackendKeyData {
+            pid,
+            secret_key: SecretKey::Bytes(secret_key),
+        })
     }
 }
 

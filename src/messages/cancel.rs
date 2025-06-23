@@ -30,7 +30,10 @@ impl CancelRequest {
 impl Message for CancelRequest {
     #[inline]
     fn message_length(&self) -> usize {
-        16
+        match &self.secret_key {
+            SecretKey::I32(_) => 16,
+            SecretKey::Bytes(bytes) => 12 + bytes.len(),
+        }
     }
 
     fn encode_body(&self, buf: &mut bytes::BytesMut) -> PgWireResult<()> {
@@ -38,8 +41,8 @@ impl Message for CancelRequest {
         buf.put_i32(self.pid);
 
         match &self.secret_key {
-            SecretKey::Proto30(key) => buf.put_i32(*key),
-            SecretKey::Proto32(key) => buf.put_slice(key),
+            SecretKey::I32(key) => buf.put_i32(*key),
+            SecretKey::Bytes(key) => buf.put_slice(key),
         }
 
         Ok(())
@@ -65,8 +68,11 @@ impl Message for CancelRequest {
         // skip length and cancel code
         buf.advance(4);
         let pid = buf.get_i32();
-        let secret_key = buf.get_i32();
+        let secret_key = buf.split_to(msg_len - 12).freeze();
 
-        Ok(CancelRequest { pid, secret_key })
+        Ok(CancelRequest {
+            pid,
+            secret_key: SecretKey::Bytes(secret_key),
+        })
     }
 }
