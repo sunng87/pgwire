@@ -1,6 +1,7 @@
 use bytes::{Buf, BufMut, BytesMut};
 
 use super::codec;
+use super::DecodeContext;
 use super::Message;
 use crate::error::{PgWireError, PgWireResult};
 
@@ -245,7 +246,7 @@ impl Message for SslResponse {
         unreachable!()
     }
 
-    fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
+    fn decode(buf: &mut BytesMut, _ctx: DecodeContext) -> PgWireResult<Option<Self>> {
         if buf.remaining() >= Self::MESSAGE_LENGTH {
             match buf[0] {
                 Self::BYTE_ACCEPT => {

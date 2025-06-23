@@ -21,11 +21,13 @@ use crate::api::{
     PgWireServerHandlers,
 };
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
-use crate::messages::cancel::CancelRequest;
+use crate::messages::cancel::{CancelRequest, CancelRequest30};
 use crate::messages::response::ReadyForQuery;
 use crate::messages::response::{SslResponse, TransactionStatus};
 use crate::messages::startup::{SslRequest, Startup};
-use crate::messages::{Message, PgWireBackendMessage, PgWireFrontendMessage};
+use crate::messages::{
+    DecodeContext, Message, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,
+};
 
 #[non_exhaustive]
 #[derive(Debug, new)]
@@ -38,19 +40,25 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
     type Error = PgWireError;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        let decode_context = DecodeContext::new(ProtocolVersion::UNKNOWN);
+
         match self.client_info.state() {
             PgWireConnectionState::AwaitingSslRequest => {
                 // first try to decode it as CancelRequest
-                if let Some(true) = CancelRequest::is_cancel_request_packet(src) {
-                    return CancelRequest::decode(src)
-                        .map(|opt| opt.map(PgWireFrontendMessage::CancelRequest));
+                // TODO: detect cancel30 or cancel32
+                if let Some(true) = CancelRequest30::is_cancel_request_packet(src) {
+                    return CancelRequest30::decode(src, decode_context).map(|opt| {
+                        opt.map(|v| {
+                            PgWireFrontendMessage::CancelRequest(CancelRequest::CancelRequest30(v))
+                        })
+                    });
                 }
 
                 if src.remaining() >= SslRequest::BODY_SIZE {
                     self.client_info
                         .set_state(PgWireConnectionState::AwaitingStartup);
 
-                    if let Some(request) = SslRequest::decode(src)? {
+                    if let Some(request) = SslRequest::decode(src, decode_context)? {
                         return Ok(Some(PgWireFrontendMessage::SslRequest(Some(request))));
                     } else {
                         // this is not a real message, but to indicate that
@@ -63,14 +71,14 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
             }
 
             PgWireConnectionState::AwaitingStartup => {
-                if let Some(startup) = Startup::decode(src)? {
+                if let Some(startup) = Startup::decode(src, decode_context)? {
                     Ok(Some(PgWireFrontendMessage::Startup(startup)))
                 } else {
                     Ok(None)
                 }
             }
 
-            _ => PgWireFrontendMessage::decode(src),
+            _ => PgWireFrontendMessage::decode(src, decode_context),
         }
     }
 }
@@ -329,7 +337,7 @@ async fn check_cancel_request(tcp_socket: &TcpStream) -> Result<bool, io::Error>
     let n = tcp_socket.peek(&mut buf).await?;
 
     if n == buf.len() {
-        Ok(CancelRequest::is_cancel_request_packet(&buf).unwrap_or(false))
+        Ok(CancelRequest30::is_cancel_request_packet(&buf).unwrap_or(false))
     } else {
         Ok(false)
     }

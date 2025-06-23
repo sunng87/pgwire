@@ -5,12 +5,12 @@ use async_trait::async_trait;
 use futures::channel::oneshot::Sender;
 use futures::lock::Mutex;
 
-use crate::messages::cancel::CancelRequest;
+use crate::messages::cancel::CancelRequest30;
 
 /// Handler for Cancel Request
 #[async_trait]
 pub trait CancelHandler: Send + Sync {
-    async fn on_cancel_request(&self, cancel_request: CancelRequest);
+    async fn on_cancel_request(&self, cancel_request: CancelRequest30);
 }
 
 #[derive(Debug, new)]
@@ -20,7 +20,7 @@ pub struct DefaultCancelHandler {
 
 #[async_trait]
 impl CancelHandler for DefaultCancelHandler {
-    async fn on_cancel_request(&self, cancel_request: CancelRequest) {
+    async fn on_cancel_request(&self, cancel_request: CancelRequest30) {
         let keypair = (cancel_request.pid, cancel_request.secret_key);
         if let Some(handle) = self.cancel_manager.lock().await.remove(&keypair) {
             let _ = handle.send(());
@@ -30,7 +30,7 @@ impl CancelHandler for DefaultCancelHandler {
 
 #[async_trait]
 impl CancelHandler for super::NoopHandler {
-    async fn on_cancel_request(&self, _cancel_request: CancelRequest) {}
+    async fn on_cancel_request(&self, _cancel_request: CancelRequest30) {}
 }
 
 pub trait QueryCancelManager {

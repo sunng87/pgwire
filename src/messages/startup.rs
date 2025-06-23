@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 use super::codec;
+use super::DecodeContext;
 use super::Message;
 use crate::error::{PgWireError, PgWireResult};
 
@@ -27,8 +28,11 @@ impl Default for Startup {
 impl Startup {
     const MINIMUM_STARTUP_MESSAGE_LEN: usize = 8;
 
+    pub const PROTOCOL_VERSION_3_0: i32 = 196608;
+    pub const PROTOCOL_VERSION_3_2: i32 = 196610;
+
     fn is_protocol_version_supported(version: i32) -> bool {
-        version == 196608
+        version == Self::PROTOCOL_VERSION_3_0 || version == Self::PROTOCOL_VERSION_3_2
     }
 }
 
@@ -59,7 +63,7 @@ impl Message for Startup {
         Ok(())
     }
 
-    fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
+    fn decode(buf: &mut BytesMut, _ctx: DecodeContext) -> PgWireResult<Option<Self>> {
         // packet len + protocol version
         // check if packet is valid
         if buf.remaining() >= Self::MINIMUM_STARTUP_MESSAGE_LEN {
@@ -380,18 +384,28 @@ impl Message for ParameterStatus {
     }
 }
 
+/// `BackendKeyData` message enum
+///
+/// This message has two variants for protocol 3.0 and 3.2
+#[non_exhaustive]
+#[derive(PartialEq, Eq, Debug)]
+pub enum BackendKeyData {
+    BackendKeyData30(BackendKeyData30),
+    BackendKeyData32(BackendKeyData32),
+}
+
 /// `BackendKeyData` message, sent from backend to frontend for issuing
 /// `CancelRequestMessage`
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
-pub struct BackendKeyData {
+pub struct BackendKeyData30 {
     pub pid: i32,
     pub secret_key: i32,
 }
 
 pub const MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA: u8 = b'K';
 
-impl Message for BackendKeyData {
+impl Message for BackendKeyData30 {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA)
@@ -413,7 +427,39 @@ impl Message for BackendKeyData {
         let pid = buf.get_i32();
         let secret_key = buf.get_i32();
 
-        Ok(BackendKeyData { pid, secret_key })
+        Ok(BackendKeyData30 { pid, secret_key })
+    }
+}
+
+#[derive(PartialEq, Eq, Debug, new)]
+pub struct BackendKeyData32 {
+    pub pid: i32,
+    pub secret_key: Bytes,
+}
+
+impl Message for BackendKeyData32 {
+    #[inline]
+    fn message_type() -> Option<u8> {
+        Some(MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA)
+    }
+
+    #[inline]
+    fn message_length(&self) -> usize {
+        8 + self.secret_key.len()
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        buf.put_i32(self.pid);
+        buf.put_slice(&self.secret_key);
+
+        Ok(())
+    }
+
+    fn decode_body(buf: &mut BytesMut, msg_len: usize) -> PgWireResult<Self> {
+        let pid = buf.get_i32();
+        let secret_key = buf.split_to(msg_len - 8).freeze();
+
+        Ok(Self { pid, secret_key })
     }
 }
 
@@ -454,7 +500,7 @@ impl Message for SslRequest {
     }
 
     /// Try to decode and check if the packet is a `SslRequest`.
-    fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
+    fn decode(buf: &mut BytesMut, _ctx: DecodeContext) -> PgWireResult<Option<Self>> {
         if buf.remaining() >= 8 && (&buf[4..8]).get_i32() == Self::BODY_MAGIC_NUMBER {
             buf.advance(8);
             Ok(Some(SslRequest))
