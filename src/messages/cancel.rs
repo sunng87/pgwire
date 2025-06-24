@@ -76,6 +76,8 @@ impl Message for CancelRequest {
         let pid = buf.get_i32();
         let secret_key = buf.split_to(msg_len - 12).freeze();
 
+        // TODO: specify server version so we can decode the secretkey accordingly
+
         Ok(CancelRequest {
             pid,
             secret_key: SecretKey::Bytes(secret_key),

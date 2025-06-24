@@ -5,6 +5,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use super::codec;
 use super::DecodeContext;
 use super::Message;
+use super::ProtocolVersion;
 use crate::error::{PgWireError, PgWireResult};
 
 /// Postgresql wire protocol startup message.
@@ -460,15 +461,16 @@ impl Message for BackendKeyData {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, msg_len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, msg_len: usize, ctx: &DecodeContext) -> PgWireResult<Self> {
         let pid = buf.get_i32();
 
-        let secret_key = buf.split_to(msg_len - 8).freeze();
+        let secret_key = match ctx.protocol_version {
+            ProtocolVersion::PROTOCOL3_0 => SecretKey::I32(buf.get_i32()),
+            ProtocolVersion::PROTOCOL3_2 => SecretKey::Bytes(buf.split_to(msg_len - 8).freeze()),
+            _ => unreachable!("Protocol Version must be known for BackendKeyData"),
+        };
 
-        Ok(BackendKeyData {
-            pid,
-            secret_key: SecretKey::Bytes(secret_key),
-        })
+        Ok(BackendKeyData { pid, secret_key })
     }
 }
 

@@ -429,8 +429,7 @@ mod test {
 
     #[test]
     fn test_cancel_request() {
-        let s = CancelRequest::new(100, 200);
-
+        let s = CancelRequest::new(100, SecretKey::Bytes(Bytes::from("server2008")));
         roundtrip!(s, CancelRequest);
     }
 
