@@ -63,7 +63,7 @@ impl Message for Startup {
         Ok(())
     }
 
-    fn decode(buf: &mut BytesMut, _ctx: DecodeContext) -> PgWireResult<Option<Self>> {
+    fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
         // packet len + protocol version
         // check if packet is valid
         if buf.remaining() >= Self::MINIMUM_STARTUP_MESSAGE_LEN {
@@ -73,10 +73,12 @@ impl Message for Startup {
             }
         }
 
-        codec::decode_packet(buf, 0, Self::decode_body)
+        codec::decode_packet(buf, 0, |buf, full_len| {
+            Self::decode_body(buf, full_len, ctx)
+        })
     }
 
-    fn decode_body(buf: &mut BytesMut, msg_len: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, msg_len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         // double check to ensure that the packet has more than 8 bytes
         // `codec::decode_packet` has its validation to ensure buf remaining is
         // larger than `msg_len`. So with both checks, we should not have issue
@@ -176,7 +178,7 @@ impl Message for Authentication {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, msg_len: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, msg_len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let code = buf.get_i32();
         let msg = match code {
             0 => Authentication::Ok,
@@ -260,7 +262,11 @@ impl Message for PasswordMessageFamily {
         }
     }
 
-    fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        buf: &mut BytesMut,
+        full_len: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         let body = buf.split_to(full_len - 4);
         Ok(PasswordMessageFamily::Raw(body))
     }
@@ -275,7 +281,7 @@ impl PasswordMessageFamily {
     pub fn into_password(self) -> PgWireResult<Password> {
         if let PasswordMessageFamily::Raw(mut body) = self {
             let len = body.len() + 4;
-            Password::decode_body(&mut body, len)
+            Password::decode_body(&mut body, len, &DecodeContext::default())
         } else {
             unreachable!(
                 "Do not coerce password message when it has a concrete type {:?}",
@@ -292,7 +298,7 @@ impl PasswordMessageFamily {
     pub fn into_sasl_initial_response(self) -> PgWireResult<SASLInitialResponse> {
         if let PasswordMessageFamily::Raw(mut body) = self {
             let len = body.len() + 4;
-            SASLInitialResponse::decode_body(&mut body, len)
+            SASLInitialResponse::decode_body(&mut body, len, &DecodeContext::default())
         } else {
             unreachable!(
                 "Do not coerce password message when it has a concrete type {:?}",
@@ -309,7 +315,7 @@ impl PasswordMessageFamily {
     pub fn into_sasl_response(self) -> PgWireResult<SASLResponse> {
         if let PasswordMessageFamily::Raw(mut body) = self {
             let len = body.len() + 4;
-            SASLResponse::decode_body(&mut body, len)
+            SASLResponse::decode_body(&mut body, len, &DecodeContext::default())
         } else {
             unreachable!(
                 "Do not coerce password message when it has a concrete type {:?}",
@@ -342,7 +348,7 @@ impl Message for Password {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let pass = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
         Ok(Password::new(pass))
@@ -376,7 +382,7 @@ impl Message for ParameterStatus {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let name = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
         let value = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
@@ -454,7 +460,7 @@ impl Message for BackendKeyData {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, msg_len: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, msg_len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let pid = buf.get_i32();
 
         let secret_key = buf.split_to(msg_len - 8).freeze();
@@ -498,12 +504,16 @@ impl Message for SslRequest {
         Ok(())
     }
 
-    fn decode_body(_buf: &mut BytesMut, _full_len: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        _buf: &mut BytesMut,
+        _full_len: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         unreachable!();
     }
 
     /// Try to decode and check if the packet is a `SslRequest`.
-    fn decode(buf: &mut BytesMut, _ctx: DecodeContext) -> PgWireResult<Option<Self>> {
+    fn decode(buf: &mut BytesMut, _ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
         if buf.remaining() >= 8 && (&buf[4..8]).get_i32() == Self::BODY_MAGIC_NUMBER {
             buf.advance(8);
             Ok(Some(SslRequest))
@@ -542,7 +552,11 @@ impl Message for SASLInitialResponse {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _full_len: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        buf: &mut BytesMut,
+        _full_len: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         let auth_method = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
         let data_len = buf.get_i32();
         let data = if data_len == -1 {
@@ -577,7 +591,11 @@ impl Message for SASLResponse {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        buf: &mut BytesMut,
+        full_len: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         let data = buf.split_to(full_len - 4).freeze();
         Ok(SASLResponse { data })
     }

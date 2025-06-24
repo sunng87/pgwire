@@ -40,14 +40,14 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
     type Error = PgWireError;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        let decode_context = DecodeContext::new(ProtocolVersion::UNKNOWN);
+        let decode_context = DecodeContext::new(self.client_info.protocol_version());
 
         match self.client_info.state() {
             PgWireConnectionState::AwaitingSslRequest => {
                 // first try to decode it as CancelRequest
                 // TODO: detect cancel30 or cancel32
                 if let Some(true) = CancelRequest::is_cancel_request_packet(src) {
-                    return CancelRequest::decode(src, decode_context)
+                    return CancelRequest::decode(src, &decode_context)
                         .map(|opt| opt.map(PgWireFrontendMessage::CancelRequest));
                 }
 
@@ -55,7 +55,7 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
                     self.client_info
                         .set_state(PgWireConnectionState::AwaitingStartup);
 
-                    if let Some(request) = SslRequest::decode(src, decode_context)? {
+                    if let Some(request) = SslRequest::decode(src, &decode_context)? {
                         return Ok(Some(PgWireFrontendMessage::SslRequest(Some(request))));
                     } else {
                         // this is not a real message, but to indicate that
@@ -68,14 +68,14 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
             }
 
             PgWireConnectionState::AwaitingStartup => {
-                if let Some(startup) = Startup::decode(src, decode_context)? {
+                if let Some(startup) = Startup::decode(src, &decode_context)? {
                     Ok(Some(PgWireFrontendMessage::Startup(startup)))
                 } else {
                     Ok(None)
                 }
             }
 
-            _ => PgWireFrontendMessage::decode(src, decode_context),
+            _ => PgWireFrontendMessage::decode(src, &decode_context),
         }
     }
 }

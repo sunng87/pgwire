@@ -48,10 +48,12 @@ impl Message for CancelRequest {
         Ok(())
     }
 
-    fn decode(buf: &mut bytes::BytesMut, _ctx: DecodeContext) -> PgWireResult<Option<Self>> {
+    fn decode(buf: &mut bytes::BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
         if let Some(is_cancel) = Self::is_cancel_request_packet(buf) {
             if is_cancel {
-                codec::decode_packet(buf, 0, Self::decode_body)
+                codec::decode_packet(buf, 0, |buf, full_len| {
+                    Self::decode_body(buf, full_len, ctx)
+                })
             } else {
                 Err(PgWireError::InvalidCancelRequest)
             }
@@ -60,7 +62,11 @@ impl Message for CancelRequest {
         }
     }
 
-    fn decode_body(buf: &mut bytes::BytesMut, msg_len: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        buf: &mut bytes::BytesMut,
+        msg_len: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         if msg_len < CancelRequest::MINIMUM_CANCEL_REQUEST_MESSAGE_LEN {
             return Err(PgWireError::InvalidCancelRequest);
         }

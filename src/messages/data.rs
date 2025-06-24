@@ -1,6 +1,7 @@
 use bytes::{Buf, BufMut, BytesMut};
 
 use super::codec;
+use super::DecodeContext;
 use super::Message;
 use crate::error::PgWireResult;
 
@@ -64,7 +65,7 @@ impl Message for RowDescription {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let fields_len = buf.get_i16();
         let mut fields = Vec::with_capacity(fields_len as usize);
 
@@ -115,7 +116,7 @@ impl Message for ParameterDescription {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let types_len = buf.get_u16();
         let mut types = Vec::with_capacity(types_len as usize);
 
@@ -160,7 +161,7 @@ impl Message for DataRow {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, msg_len: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, msg_len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let field_count = buf.get_i16();
         // get body size from packet
         let data = buf.split_to(msg_len - 4 - 2);
@@ -191,7 +192,7 @@ impl Message for NoData {
         Ok(())
     }
 
-    fn decode_body(_buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(_buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         Ok(NoData::new())
     }
 }

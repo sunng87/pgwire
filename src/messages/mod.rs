@@ -9,15 +9,16 @@ use bytes::{Buf, BufMut, BytesMut};
 
 use crate::error::{PgWireError, PgWireResult};
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Default, Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ProtocolVersion {
+    #[default]
     UNKNOWN,
     PROTOCOL3_0,
     PROTOCOL3_2,
 }
 
 #[non_exhaustive]
-#[derive(Debug, PartialEq, Eq, new)]
+#[derive(Default, Debug, PartialEq, Eq, new)]
 pub struct DecodeContext {
     pub protocol_version: ProtocolVersion,
 }
@@ -38,7 +39,8 @@ pub trait Message: Sized {
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()>;
 
     /// Decode body part of the message.
-    fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self>;
+    fn decode_body(buf: &mut BytesMut, full_len: usize, _ctx: &DecodeContext)
+        -> PgWireResult<Self>;
 
     /// Default implementation for encoding message.
     ///
@@ -58,11 +60,11 @@ pub trait Message: Sized {
     /// Message type and length are decoded in this implementation and it calls
     /// `decode_body` for remaining parts. Return `None` if the packet is not
     /// complete for parsing.
-    fn decode(buf: &mut BytesMut, _ctx: DecodeContext) -> PgWireResult<Option<Self>> {
+    fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
         let offset = Self::message_type().is_some().into();
 
         codec::decode_packet(buf, offset, |buf, full_len| {
-            Self::decode_body(buf, full_len)
+            Self::decode_body(buf, full_len, ctx)
         })
     }
 }
@@ -157,7 +159,7 @@ impl PgWireFrontendMessage {
         }
     }
 
-    pub fn decode(buf: &mut BytesMut, ctx: DecodeContext) -> PgWireResult<Option<Self>> {
+    pub fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
         // TODO: decode based on magic number
 
         // Note that Startup and CancelRequest message have to be decoded
@@ -292,7 +294,7 @@ impl PgWireBackendMessage {
         }
     }
 
-    pub fn decode(buf: &mut BytesMut, ctx: DecodeContext) -> PgWireResult<Option<Self>> {
+    pub fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
         if buf.remaining() > 1 {
             let first_byte = buf[0];
             match first_byte {
@@ -408,7 +410,7 @@ mod test {
             let ctx = DecodeContext {
                 protocol_version: ProtocolVersion::PROTOCOL3_0,
             };
-            let item2 = <$st>::decode(&mut buffer, ctx)
+            let item2 = <$st>::decode(&mut buffer, &ctx)
                 .expect("decode packet")
                 .expect("packet is none");
 
@@ -651,7 +653,7 @@ mod test {
 
         let decode_context = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
 
-        let item2 = PasswordMessageFamily::decode(&mut buffer, decode_context)
+        let item2 = PasswordMessageFamily::decode(&mut buffer, &decode_context)
             .unwrap()
             .unwrap();
         assert_eq!(buffer.remaining(), 0);
@@ -663,7 +665,7 @@ mod test {
         saslinitialresp.encode(&mut buffer).unwrap();
         assert!(buffer.remaining() > 0);
 
-        let item2 = PasswordMessageFamily::decode(&mut buffer, decode_context)
+        let item2 = PasswordMessageFamily::decode(&mut buffer, &decode_context)
             .unwrap()
             .unwrap();
         assert_eq!(buffer.remaining(), 0);
