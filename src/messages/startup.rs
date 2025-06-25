@@ -3,7 +3,9 @@ use std::collections::BTreeMap;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 use super::codec;
+use super::DecodeContext;
 use super::Message;
+use super::ProtocolVersion;
 use crate::error::{PgWireError, PgWireResult};
 
 /// Postgresql wire protocol startup message.
@@ -27,8 +29,11 @@ impl Default for Startup {
 impl Startup {
     const MINIMUM_STARTUP_MESSAGE_LEN: usize = 8;
 
+    pub const PROTOCOL_VERSION_3_0: i32 = 196608;
+    pub const PROTOCOL_VERSION_3_2: i32 = 196610;
+
     fn is_protocol_version_supported(version: i32) -> bool {
-        version == 196608
+        version == Self::PROTOCOL_VERSION_3_0 || version == Self::PROTOCOL_VERSION_3_2
     }
 }
 
@@ -59,7 +64,7 @@ impl Message for Startup {
         Ok(())
     }
 
-    fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
+    fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
         // packet len + protocol version
         // check if packet is valid
         if buf.remaining() >= Self::MINIMUM_STARTUP_MESSAGE_LEN {
@@ -69,10 +74,12 @@ impl Message for Startup {
             }
         }
 
-        codec::decode_packet(buf, 0, Self::decode_body)
+        codec::decode_packet(buf, 0, |buf, full_len| {
+            Self::decode_body(buf, full_len, ctx)
+        })
     }
 
-    fn decode_body(buf: &mut BytesMut, msg_len: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, msg_len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         // double check to ensure that the packet has more than 8 bytes
         // `codec::decode_packet` has its validation to ensure buf remaining is
         // larger than `msg_len`. So with both checks, we should not have issue
@@ -172,7 +179,7 @@ impl Message for Authentication {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, msg_len: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, msg_len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let code = buf.get_i32();
         let msg = match code {
             0 => Authentication::Ok,
@@ -256,7 +263,11 @@ impl Message for PasswordMessageFamily {
         }
     }
 
-    fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        buf: &mut BytesMut,
+        full_len: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         let body = buf.split_to(full_len - 4);
         Ok(PasswordMessageFamily::Raw(body))
     }
@@ -271,7 +282,7 @@ impl PasswordMessageFamily {
     pub fn into_password(self) -> PgWireResult<Password> {
         if let PasswordMessageFamily::Raw(mut body) = self {
             let len = body.len() + 4;
-            Password::decode_body(&mut body, len)
+            Password::decode_body(&mut body, len, &DecodeContext::default())
         } else {
             unreachable!(
                 "Do not coerce password message when it has a concrete type {:?}",
@@ -288,7 +299,7 @@ impl PasswordMessageFamily {
     pub fn into_sasl_initial_response(self) -> PgWireResult<SASLInitialResponse> {
         if let PasswordMessageFamily::Raw(mut body) = self {
             let len = body.len() + 4;
-            SASLInitialResponse::decode_body(&mut body, len)
+            SASLInitialResponse::decode_body(&mut body, len, &DecodeContext::default())
         } else {
             unreachable!(
                 "Do not coerce password message when it has a concrete type {:?}",
@@ -305,7 +316,7 @@ impl PasswordMessageFamily {
     pub fn into_sasl_response(self) -> PgWireResult<SASLResponse> {
         if let PasswordMessageFamily::Raw(mut body) = self {
             let len = body.len() + 4;
-            SASLResponse::decode_body(&mut body, len)
+            SASLResponse::decode_body(&mut body, len, &DecodeContext::default())
         } else {
             unreachable!(
                 "Do not coerce password message when it has a concrete type {:?}",
@@ -338,7 +349,7 @@ impl Message for Password {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let pass = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
         Ok(Password::new(pass))
@@ -372,11 +383,46 @@ impl Message for ParameterStatus {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let name = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
         let value = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
         Ok(ParameterStatus::new(name, value))
+    }
+}
+
+/// The secret key for canceling query
+///
+/// There is a minor protocol change for this key. It was i32 in Protocol 3.0
+/// but due to the limitation of a short key, in Protocol 3.2 this key is
+/// extended to bytes with a max length of 256.
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum SecretKey {
+    I32(i32),
+    Bytes(Bytes),
+}
+
+impl Default for SecretKey {
+    fn default() -> Self {
+        SecretKey::I32(0)
+    }
+}
+
+impl SecretKey {
+    /// Try to coerce the key as a i32 value
+    ///
+    /// Return None if the bytes is longer than 32 bits.
+    pub fn as_i32(&self) -> Option<i32> {
+        match self {
+            Self::I32(v) => Some(*v),
+            Self::Bytes(v) => {
+                if v.len() == 4 {
+                    Some((&v[..]).get_i32())
+                } else {
+                    None
+                }
+            }
+        }
     }
 }
 
@@ -386,7 +432,7 @@ impl Message for ParameterStatus {
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct BackendKeyData {
     pub pid: i32,
-    pub secret_key: i32,
+    pub secret_key: SecretKey,
 }
 
 pub const MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA: u8 = b'K';
@@ -399,19 +445,30 @@ impl Message for BackendKeyData {
 
     #[inline]
     fn message_length(&self) -> usize {
-        12
+        match &self.secret_key {
+            SecretKey::I32(_) => 12,
+            SecretKey::Bytes(bytes) => 8 + bytes.len(),
+        }
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         buf.put_i32(self.pid);
-        buf.put_i32(self.secret_key);
+        match &self.secret_key {
+            SecretKey::I32(key) => buf.put_i32(*key),
+            SecretKey::Bytes(key) => buf.put_slice(key),
+        }
 
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, msg_len: usize, ctx: &DecodeContext) -> PgWireResult<Self> {
         let pid = buf.get_i32();
-        let secret_key = buf.get_i32();
+
+        let secret_key = match ctx.protocol_version {
+            ProtocolVersion::PROTOCOL3_0 => SecretKey::I32(buf.get_i32()),
+            ProtocolVersion::PROTOCOL3_2 => SecretKey::Bytes(buf.split_to(msg_len - 8).freeze()),
+            _ => unreachable!("Protocol Version must be known for BackendKeyData"),
+        };
 
         Ok(BackendKeyData { pid, secret_key })
     }
@@ -449,12 +506,16 @@ impl Message for SslRequest {
         Ok(())
     }
 
-    fn decode_body(_buf: &mut BytesMut, _full_len: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        _buf: &mut BytesMut,
+        _full_len: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         unreachable!();
     }
 
     /// Try to decode and check if the packet is a `SslRequest`.
-    fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
+    fn decode(buf: &mut BytesMut, _ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
         if buf.remaining() >= 8 && (&buf[4..8]).get_i32() == Self::BODY_MAGIC_NUMBER {
             buf.advance(8);
             Ok(Some(SslRequest))
@@ -493,7 +554,11 @@ impl Message for SASLInitialResponse {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _full_len: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        buf: &mut BytesMut,
+        _full_len: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         let auth_method = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
         let data_len = buf.get_i32();
         let data = if data_len == -1 {
@@ -528,7 +593,11 @@ impl Message for SASLResponse {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, full_len: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        buf: &mut BytesMut,
+        full_len: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         let data = buf.split_to(full_len - 4).freeze();
         Ok(SASLResponse { data })
     }

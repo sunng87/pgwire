@@ -1,4 +1,4 @@
-use super::Message;
+use super::{DecodeContext, Message};
 use crate::error::PgWireResult;
 
 #[non_exhaustive]
@@ -22,7 +22,7 @@ impl Message for Terminate {
         Ok(())
     }
 
-    fn decode_body(_: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(_: &mut bytes::BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         Ok(Terminate)
     }
 }

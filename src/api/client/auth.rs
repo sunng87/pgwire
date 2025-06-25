@@ -106,6 +106,7 @@ impl StartupHandler for DefaultStartupHandler {
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
+        // TODO: customize protocol version
         let mut startup = Startup::new();
 
         let config = client.config();

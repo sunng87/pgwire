@@ -1,6 +1,7 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 use super::codec;
+use super::DecodeContext;
 use super::Message;
 use crate::error::PgWireResult;
 
@@ -27,7 +28,7 @@ impl Message for CopyData {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, len: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let data = buf.split_to(len - 4).freeze();
         Ok(Self::new(data))
     }
@@ -53,7 +54,7 @@ impl Message for CopyDone {
         Ok(())
     }
 
-    fn decode_body(_buf: &mut BytesMut, _len: usize) -> PgWireResult<Self> {
+    fn decode_body(_buf: &mut BytesMut, _len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         Ok(Self::new())
     }
 }
@@ -81,7 +82,7 @@ impl Message for CopyFail {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _len: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let msg = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
         Ok(Self::new(msg))
     }
@@ -116,7 +117,7 @@ impl Message for CopyInResponse {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _len: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let format = buf.get_i8();
         let columns = buf.get_i16();
         let mut column_formats = Vec::with_capacity(columns as usize);
@@ -157,7 +158,7 @@ impl Message for CopyOutResponse {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _len: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let format = buf.get_i8();
         let columns = buf.get_i16();
         let mut column_formats = Vec::with_capacity(columns as usize);
@@ -198,7 +199,7 @@ impl Message for CopyBothResponse {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _len: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let format = buf.get_i8();
         let columns = buf.get_i16();
         let mut column_formats = Vec::with_capacity(columns as usize);

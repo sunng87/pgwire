@@ -1,6 +1,7 @@
 use bytes::BytesMut;
 
 use super::codec;
+use super::DecodeContext;
 use super::Message;
 use crate::error::PgWireResult;
 
@@ -29,7 +30,7 @@ impl Message for Query {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let query = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
         Ok(Query::new(query))

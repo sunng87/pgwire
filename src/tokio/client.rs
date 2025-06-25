@@ -19,18 +19,36 @@ use crate::api::client::config::Host;
 use crate::api::client::query::SimpleQueryHandler;
 use crate::api::client::{ClientInfo, Config, ReadyState, ServerInformation};
 use crate::error::{PgWireClientError, PgWireClientResult, PgWireError};
-use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
+use crate::messages::{
+    DecodeContext, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,
+};
 
 #[non_exhaustive]
 #[derive(Debug)]
-pub struct PgWireMessageClientCodec;
+pub struct PgWireMessageClientCodec {
+    protocol_version: ProtocolVersion,
+}
+
+impl Default for PgWireMessageClientCodec {
+    fn default() -> Self {
+        Self {
+            protocol_version: ProtocolVersion::PROTOCOL3_0,
+        }
+    }
+}
 
 impl Decoder for PgWireMessageClientCodec {
     type Item = PgWireBackendMessage;
     type Error = PgWireError;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        PgWireBackendMessage::decode(src)
+        let decode_context = DecodeContext {
+            protocol_version: self.protocol_version,
+        };
+
+        //TODO: update protocol according to negotiation result
+
+        PgWireBackendMessage::decode(src, &decode_context)
     }
 }
 
@@ -64,6 +82,10 @@ impl ClientInfo for PgWireClient {
 
     fn process_id(&self) -> i32 {
         self.server_information.process_id
+    }
+
+    fn protocol_version(&self) -> ProtocolVersion {
+        self.socket.codec().protocol_version
     }
 }
 
@@ -110,12 +132,12 @@ impl PgWireClient {
     {
         // tcp connect
         let socket = TcpStream::connect(get_addr(&config)?).await?;
-        let socket = Framed::new(socket, PgWireMessageClientCodec);
+        let socket = Framed::new(socket, PgWireMessageClientCodec::default());
         // perform ssl handshake based on postgres configuration
         // if tls is not enabled, just return the socket and perform startup
         // directly
         let socket = ssl_handshake(socket, &config, tls_connector).await?;
-        let socket = Framed::new(socket, PgWireMessageClientCodec);
+        let socket = Framed::new(socket, PgWireMessageClientCodec::default());
 
         let mut client = PgWireClient {
             socket,

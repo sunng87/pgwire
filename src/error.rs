@@ -10,6 +10,8 @@ pub enum PgWireError {
     InvalidProtocolVersion(i32),
     #[error("Invalid CancelRequest message, code mismatch")]
     InvalidCancelRequest,
+    #[error("Secret key cannot be longer than 256")]
+    InvalidCancelRequestSecretKey,
     #[error("Invalid message recevied, received {0}")]
     InvalidMessageType(u8),
     #[error("Invalid target type, received {0}")]
@@ -276,6 +278,9 @@ impl From<PgWireError> for ErrorInfo {
                 ErrorInfo::new("FATAL".to_owned(), "28000".to_owned(), error.to_string())
             }
             PgWireError::NotReadyForQuery => {
+                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
+            }
+            PgWireError::InvalidCancelRequestSecretKey => {
                 ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
             }
             PgWireError::ApiError(_) => {

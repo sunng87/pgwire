@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 
 pub use config::Config;
 
+use crate::messages::ProtocolVersion;
+
 /// A trait for fetching necessary information from Client
 pub trait ClientInfo {
     /// Returns configuration of this client
@@ -17,6 +19,9 @@ pub trait ClientInfo {
 
     /// Returns process id received from server
     fn process_id(&self) -> i32;
+
+    /// Returns client protocol version
+    fn protocol_version(&self) -> ProtocolVersion;
 
     // TODO: transaction state
 }

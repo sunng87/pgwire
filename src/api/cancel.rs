@@ -6,6 +6,7 @@ use futures::channel::oneshot::Sender;
 use futures::lock::Mutex;
 
 use crate::messages::cancel::CancelRequest;
+use crate::messages::startup::SecretKey;
 
 /// Handler for Cancel Request
 #[async_trait]
@@ -35,23 +36,23 @@ impl CancelHandler for super::NoopHandler {
 
 pub trait QueryCancelManager {
     /// Add query handle to the manager
-    fn add(&mut self, keypair: (i32, i32), handle: Sender<()>);
+    fn add(&mut self, keypair: (i32, SecretKey), handle: Sender<()>);
 
     /// Remove query handle from the manager, return the handle if keypair matches
-    fn remove(&mut self, keypair: &(i32, i32)) -> Option<Sender<()>>;
+    fn remove(&mut self, keypair: &(i32, SecretKey)) -> Option<Sender<()>>;
 }
 
 #[derive(Debug)]
 pub struct DefaultQueryCancelManager {
-    inner: HashMap<(i32, i32), Sender<()>>,
+    inner: HashMap<(i32, SecretKey), Sender<()>>,
 }
 
 impl QueryCancelManager for DefaultQueryCancelManager {
-    fn add(&mut self, keypair: (i32, i32), handle: Sender<()>) {
+    fn add(&mut self, keypair: (i32, SecretKey), handle: Sender<()>) {
         self.inner.insert(keypair, handle);
     }
 
-    fn remove(&mut self, keypair: &(i32, i32)) -> Option<Sender<()>> {
+    fn remove(&mut self, keypair: &(i32, SecretKey)) -> Option<Sender<()>> {
         self.inner.remove(keypair)
     }
 }
@@ -61,9 +62,9 @@ impl QueryCancelManager for DefaultQueryCancelManager {
 pub struct NoopQueryCancelManager;
 
 impl QueryCancelManager for NoopQueryCancelManager {
-    fn add(&mut self, _keypair: (i32, i32), _handle: Sender<()>) {}
+    fn add(&mut self, _keypair: (i32, SecretKey), _handle: Sender<()>) {}
 
-    fn remove(&mut self, _keypair: &(i32, i32)) -> Option<Sender<()>> {
+    fn remove(&mut self, _keypair: &(i32, SecretKey)) -> Option<Sender<()>> {
         None
     }
 }
