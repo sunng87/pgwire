@@ -17,6 +17,15 @@ pub enum ProtocolVersion {
     PROTOCOL3_2,
 }
 
+impl ProtocolVersion {
+    pub fn version_number(&self) -> (u16, u16) {
+        match &self {
+            Self::UNKNOWN | Self::PROTOCOL3_0 => (3, 0),
+            Self::PROTOCOL3_2 => (3, 2),
+        }
+    }
+}
+
 #[non_exhaustive]
 #[derive(Default, Debug, PartialEq, Eq, new)]
 pub struct DecodeContext {
