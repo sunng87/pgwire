@@ -11,17 +11,27 @@ use crate::error::{PgWireError, PgWireResult};
 
 #[derive(Default, Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ProtocolVersion {
-    #[default]
-    UNKNOWN,
     PROTOCOL3_0,
+    #[default]
     PROTOCOL3_2,
 }
 
 impl ProtocolVersion {
     pub fn version_number(&self) -> (u16, u16) {
         match &self {
-            Self::UNKNOWN | Self::PROTOCOL3_0 => (3, 0),
+            Self::PROTOCOL3_0 => (3, 0),
             Self::PROTOCOL3_2 => (3, 2),
+        }
+    }
+
+    /// Get ProtocolVersion from (major, minor) version tuple
+    ///
+    /// Return none if protocol is not supported.
+    pub fn from_version_number(major: u16, minor: u16) -> Option<Self> {
+        match (major, minor) {
+            (3, 0) => Some(Self::PROTOCOL3_0),
+            (3, 2) => Some(Self::PROTOCOL3_2),
+            _ => None,
         }
     }
 }

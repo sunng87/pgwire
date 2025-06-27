@@ -8,7 +8,7 @@ use super::{ClientInfo, PgWireConnectionState, METADATA_DATABASE, METADATA_USER}
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::response::{ReadyForQuery, TransactionStatus};
 use crate::messages::startup::{Authentication, BackendKeyData, ParameterStatus, Startup};
-use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
+use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion};
 
 /// Handles startup process and frontend messages
 #[async_trait]
@@ -144,6 +144,27 @@ pub trait AuthSource: Send + Sync {
     ///
     /// `Password` has a an optional salt field when it's hashed.
     async fn get_password(&self, login: &LoginInfo) -> PgWireResult<Password>;
+}
+
+pub async fn protocol_negotiation<C>(
+    client: &mut C,
+    startup_message: &Startup,
+) -> PgWireResult<bool>
+where
+    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
+    C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+{
+    if let Some(protocol_version) = ProtocolVersion::from_version_number(
+        startup_message.protocol_number_major,
+        startup_message.protocol_number_minor,
+    ) {
+        client.set_protocol_version(protocol_version);
+    } else {
+        // TODO: full protocol negotiation
+    }
+
+    Ok(true)
 }
 
 pub fn save_startup_parameters_to_metadata<C>(client: &mut C, startup_message: &Startup)

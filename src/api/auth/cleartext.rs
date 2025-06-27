@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 
 use super::{
-    AuthSource, ClientInfo, LoginInfo, PgWireConnectionState, ServerParameterProvider,
-    StartupHandler,
+    protocol_negotiation, AuthSource, ClientInfo, LoginInfo, PgWireConnectionState,
+    ServerParameterProvider, StartupHandler,
 };
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::Authentication;
@@ -33,13 +33,15 @@ impl<V: AuthSource, P: ServerParameterProvider> StartupHandler
     {
         match message {
             PgWireFrontendMessage::Startup(ref startup) => {
-                super::save_startup_parameters_to_metadata(client, startup);
-                client.set_state(PgWireConnectionState::AuthenticationInProgress);
-                client
-                    .send(PgWireBackendMessage::Authentication(
-                        Authentication::CleartextPassword,
-                    ))
-                    .await?;
+                if protocol_negotiation(client, startup).await? {
+                    super::save_startup_parameters_to_metadata(client, startup);
+                    client.set_state(PgWireConnectionState::AuthenticationInProgress);
+                    client
+                        .send(PgWireBackendMessage::Authentication(
+                            Authentication::CleartextPassword,
+                        ))
+                        .await?;
+                }
             }
             PgWireFrontendMessage::PasswordMessageFamily(pwd) => {
                 let pwd = pwd.into_password()?;

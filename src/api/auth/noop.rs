@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 
-use super::{ClientInfo, DefaultServerParameterProvider, StartupHandler};
+use super::{protocol_negotiation, ClientInfo, DefaultServerParameterProvider, StartupHandler};
 use crate::api::PgWireConnectionState;
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::response::{ReadyForQuery, TransactionStatus};
@@ -41,18 +41,20 @@ where
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         if let PgWireFrontendMessage::Startup(ref startup) = message {
-            super::save_startup_parameters_to_metadata(client, startup);
-            super::finish_authentication0(client, &DefaultServerParameterProvider::default())
-                .await?;
+            if protocol_negotiation(client, startup).await? {
+                super::save_startup_parameters_to_metadata(client, startup);
+                super::finish_authentication0(client, &DefaultServerParameterProvider::default())
+                    .await?;
 
-            self.post_startup(client, message).await?;
+                self.post_startup(client, message).await?;
 
-            client
-                .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                    TransactionStatus::Idle,
-                )))
-                .await?;
-            client.set_state(PgWireConnectionState::ReadyForQuery);
+                client
+                    .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+                        TransactionStatus::Idle,
+                    )))
+                    .await?;
+                client.set_state(PgWireConnectionState::ReadyForQuery);
+            }
         }
 
         Ok(())

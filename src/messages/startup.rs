@@ -467,7 +467,6 @@ impl Message for BackendKeyData {
         let secret_key = match ctx.protocol_version {
             ProtocolVersion::PROTOCOL3_0 => SecretKey::I32(buf.get_i32()),
             ProtocolVersion::PROTOCOL3_2 => SecretKey::Bytes(buf.split_to(msg_len - 8).freeze()),
-            _ => unreachable!("Protocol Version must be known for BackendKeyData"),
         };
 
         Ok(BackendKeyData { pid, secret_key })
