@@ -152,7 +152,7 @@ impl<S> DefaultClient<S> {
         DefaultClient {
             socket_addr,
             is_secure,
-            protocol_version: ProtocolVersion::UNKNOWN,
+            protocol_version: ProtocolVersion::PROTOCOL3_2,
             pid_secret_key: (0, SecretKey::default()),
             state: PgWireConnectionState::default(),
             transaction_status: TransactionStatus::Idle,
