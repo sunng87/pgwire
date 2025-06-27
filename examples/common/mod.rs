@@ -26,7 +26,7 @@ impl NoopStartupHandler for DummyProcessor {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         println!(
-            "Client connected:\n- Socket Address: {}\n- TLS: {}\n- Protocol Version: {:?}\n- Process id/SecretKey: {:?}\n -- Metadata: {:?}",
+            "Client connected:\n- Socket Address: {}\n- TLS: {}\n- Protocol Version: {:?}\n- ProcessID/SecretKey: {:?}\n- Metadata: {:?}",
             client.socket_addr(),
             client.is_secure(),
             client.protocol_version(),
