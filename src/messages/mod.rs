@@ -248,6 +248,7 @@ pub enum PgWireBackendMessage {
     Authentication(startup::Authentication),
     ParameterStatus(startup::ParameterStatus),
     BackendKeyData(startup::BackendKeyData),
+    NegotiateProtocolVersion(startup::NegotiateProtocolVersion),
 
     // extended query
     ParseComplete(extendedquery::ParseComplete),
@@ -285,6 +286,7 @@ impl PgWireBackendMessage {
             Self::Authentication(msg) => msg.encode(buf),
             Self::ParameterStatus(msg) => msg.encode(buf),
             Self::BackendKeyData(msg) => msg.encode(buf),
+            Self::NegotiateProtocolVersion(msg) => msg.encode(buf),
 
             Self::ParseComplete(msg) => msg.encode(buf),
             Self::BindComplete(msg) => msg.encode(buf),
@@ -326,6 +328,11 @@ impl PgWireBackendMessage {
                 startup::MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA => {
                     startup::BackendKeyData::decode(buf, ctx).map(|v| v.map(Self::BackendKeyData))
                 }
+                startup::MESSAGE_TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION => {
+                    startup::NegotiateProtocolVersion::decode(buf, ctx)
+                        .map(|v| v.map(Self::NegotiateProtocolVersion))
+                }
+
                 extendedquery::MESSAGE_TYPE_BYTE_PARSE_COMPLETE => {
                     extendedquery::ParseComplete::decode(buf, ctx)
                         .map(|v| v.map(Self::ParseComplete))
@@ -731,5 +738,12 @@ mod test {
         let notification_response =
             NotificationResponse::new(10087, "channel".to_owned(), "payload".to_owned());
         roundtrip!(notification_response, NotificationResponse);
+    }
+
+    #[test]
+    fn test_negotiate_protocol_version() {
+        let negotiate_protocol_version =
+            NegotiateProtocolVersion::new(2, vec!["database".to_owned(), "user".to_owned()]);
+        roundtrip!(negotiate_protocol_version, NegotiateProtocolVersion);
     }
 }

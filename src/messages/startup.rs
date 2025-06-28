@@ -601,3 +601,58 @@ impl Message for SASLResponse {
         Ok(SASLResponse { data })
     }
 }
+
+#[non_exhaustive]
+#[derive(PartialEq, Eq, Debug, new)]
+pub struct NegotiateProtocolVersion {
+    newest_minor_protocol: i32,
+    unsupported_options: Vec<String>,
+}
+
+pub const MESSAGE_TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION: u8 = b'V';
+
+impl Message for NegotiateProtocolVersion {
+    #[inline]
+    fn message_type() -> Option<u8> {
+        Some(MESSAGE_TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION)
+    }
+
+    #[inline]
+    fn message_length(&self) -> usize {
+        12 + self
+            .unsupported_options
+            .iter()
+            .map(|s| s.len() + 1)
+            .sum::<usize>()
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        buf.put_i32(self.newest_minor_protocol);
+        buf.put_i32(self.unsupported_options.len() as i32);
+
+        for s in &self.unsupported_options {
+            codec::put_cstring(buf, s);
+        }
+
+        Ok(())
+    }
+
+    fn decode_body(
+        buf: &mut BytesMut,
+        _full_len: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
+        let version = buf.get_i32();
+        let option_count = buf.get_i32();
+        let mut options = Vec::with_capacity(option_count as usize);
+
+        for _ in 0..option_count {
+            options.push(codec::get_cstring(buf).unwrap_or_else(|| "".to_owned()))
+        }
+
+        Ok(Self {
+            newest_minor_protocol: version,
+            unsupported_options: options,
+        })
+    }
+}
