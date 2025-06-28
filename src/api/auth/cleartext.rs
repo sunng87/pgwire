@@ -33,15 +33,14 @@ impl<V: AuthSource, P: ServerParameterProvider> StartupHandler
     {
         match message {
             PgWireFrontendMessage::Startup(ref startup) => {
-                if protocol_negotiation(client, startup).await? {
-                    super::save_startup_parameters_to_metadata(client, startup);
-                    client.set_state(PgWireConnectionState::AuthenticationInProgress);
-                    client
-                        .send(PgWireBackendMessage::Authentication(
-                            Authentication::CleartextPassword,
-                        ))
-                        .await?;
-                }
+                protocol_negotiation(client, startup).await?;
+                super::save_startup_parameters_to_metadata(client, startup);
+                client.set_state(PgWireConnectionState::AuthenticationInProgress);
+                client
+                    .send(PgWireBackendMessage::Authentication(
+                        Authentication::CleartextPassword,
+                    ))
+                    .await?;
             }
             PgWireFrontendMessage::PasswordMessageFamily(pwd) => {
                 let pwd = pwd.into_password()?;

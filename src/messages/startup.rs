@@ -31,10 +31,6 @@ impl Startup {
 
     pub const PROTOCOL_VERSION_3_0: i32 = 196608;
     pub const PROTOCOL_VERSION_3_2: i32 = 196610;
-
-    fn is_protocol_version_supported(version: i32) -> bool {
-        version == Self::PROTOCOL_VERSION_3_0 || version == Self::PROTOCOL_VERSION_3_2
-    }
 }
 
 impl Message for Startup {
@@ -65,15 +61,6 @@ impl Message for Startup {
     }
 
     fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
-        // packet len + protocol version
-        // check if packet is valid
-        if buf.remaining() >= Self::MINIMUM_STARTUP_MESSAGE_LEN {
-            let packet_version = (&buf[4..8]).get_i32();
-            if !Self::is_protocol_version_supported(packet_version) {
-                return Err(PgWireError::InvalidProtocolVersion(packet_version));
-            }
-        }
-
         codec::decode_packet(buf, 0, |buf, full_len| {
             Self::decode_body(buf, full_len, ctx)
         })

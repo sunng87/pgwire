@@ -41,20 +41,19 @@ where
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         if let PgWireFrontendMessage::Startup(ref startup) = message {
-            if protocol_negotiation(client, startup).await? {
-                super::save_startup_parameters_to_metadata(client, startup);
-                super::finish_authentication0(client, &DefaultServerParameterProvider::default())
-                    .await?;
+            protocol_negotiation(client, startup).await?;
+            super::save_startup_parameters_to_metadata(client, startup);
+            super::finish_authentication0(client, &DefaultServerParameterProvider::default())
+                .await?;
 
-                self.post_startup(client, message).await?;
+            self.post_startup(client, message).await?;
 
-                client
-                    .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
-                        TransactionStatus::Idle,
-                    )))
-                    .await?;
-                client.set_state(PgWireConnectionState::ReadyForQuery);
-            }
+            client
+                .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
+                    TransactionStatus::Idle,
+                )))
+                .await?;
+            client.set_state(PgWireConnectionState::ReadyForQuery);
         }
 
         Ok(())

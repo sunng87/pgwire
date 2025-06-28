@@ -7,7 +7,9 @@ use futures::sink::{Sink, SinkExt};
 use super::{ClientInfo, PgWireConnectionState, METADATA_DATABASE, METADATA_USER};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::response::{ReadyForQuery, TransactionStatus};
-use crate::messages::startup::{Authentication, BackendKeyData, ParameterStatus, Startup};
+use crate::messages::startup::{
+    Authentication, BackendKeyData, NegotiateProtocolVersion, ParameterStatus, Startup,
+};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion};
 
 /// Handles startup process and frontend messages
@@ -146,10 +148,7 @@ pub trait AuthSource: Send + Sync {
     async fn get_password(&self, login: &LoginInfo) -> PgWireResult<Password>;
 }
 
-pub async fn protocol_negotiation<C>(
-    client: &mut C,
-    startup_message: &Startup,
-) -> PgWireResult<bool>
+pub async fn protocol_negotiation<C>(client: &mut C, startup_message: &Startup) -> PgWireResult<()>
 where
     C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
     C::Error: Debug,
@@ -160,11 +159,25 @@ where
         startup_message.protocol_number_minor,
     ) {
         client.set_protocol_version(protocol_version);
+        Ok(())
     } else {
-        // TODO: full protocol negotiation
+        let newest_server_version = ProtocolVersion::default();
+        let (newest_major_version, newest_minor_version) = newest_server_version.version_number();
+        if newest_major_version == startup_message.protocol_number_major {
+            client
+                .send(PgWireBackendMessage::NegotiateProtocolVersion(
+                    NegotiateProtocolVersion::new(newest_minor_version as i32, vec![]),
+                ))
+                .await?;
+            client.set_protocol_version(newest_server_version);
+            Ok(())
+        } else {
+            Err(PgWireError::UnsupportedProtocolVersion(
+                startup_message.protocol_number_major,
+                startup_message.protocol_number_minor,
+            ))
+        }
     }
-
-    Ok(true)
 }
 
 pub fn save_startup_parameters_to_metadata<C>(client: &mut C, startup_message: &Startup)
