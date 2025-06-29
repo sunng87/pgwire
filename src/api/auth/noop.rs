@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 
-use super::{protocol_negotiation, ClientInfo, DefaultServerParameterProvider, StartupHandler};
+use super::{ClientInfo, DefaultServerParameterProvider, StartupHandler};
 use crate::api::PgWireConnectionState;
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::response::{ReadyForQuery, TransactionStatus};
@@ -41,7 +41,7 @@ where
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         if let PgWireFrontendMessage::Startup(ref startup) = message {
-            protocol_negotiation(client, startup).await?;
+            super::protocol_negotiation(client, startup).await?;
             super::save_startup_parameters_to_metadata(client, startup);
             super::finish_authentication0(client, &DefaultServerParameterProvider::default())
                 .await?;

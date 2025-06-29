@@ -24,7 +24,7 @@ use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::Authentication;
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
-use super::{protocol_negotiation, ServerParameterProvider, StartupHandler};
+use super::{ServerParameterProvider, StartupHandler};
 
 #[derive(Debug)]
 pub enum ScramState {
@@ -99,7 +99,7 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
     {
         match message {
             PgWireFrontendMessage::Startup(ref startup) => {
-                protocol_negotiation(client, startup).await?;
+                super::protocol_negotiation(client, startup).await?;
                 super::save_startup_parameters_to_metadata(client, startup);
                 client.set_state(PgWireConnectionState::AuthenticationInProgress);
                 let supported_mechanisms = if self.server_cert_sig.is_some() {
