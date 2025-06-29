@@ -19,6 +19,8 @@ this library.
 
 - Message format
   - [x] Frontend-Backend protocol messages
+    - [x] 3.0
+    - [x] 3.2, Postgres 18
   - [ ] Streaming replication protocol
   - [ ] Logical streaming replication protocol message
 - [x] Backend TCP/TLS server on Tokio
@@ -27,6 +29,7 @@ this library.
   - [x] SSL Request and Response
     - [x] PostgreSQL 17 direct SSL negotiation
   - [x] Startup
+    - [x] Protocol negotiation
     - [x] No authentication
     - [x] Clear-text password authentication
     - [x] Md5 Password authentication

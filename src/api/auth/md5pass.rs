@@ -6,8 +6,8 @@ use futures::sink::{Sink, SinkExt};
 use tokio::sync::Mutex;
 
 use super::{
-    protocol_negotiation, AuthSource, ClientInfo, LoginInfo, PgWireConnectionState,
-    ServerParameterProvider, StartupHandler,
+    AuthSource, ClientInfo, LoginInfo, PgWireConnectionState, ServerParameterProvider,
+    StartupHandler,
 };
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::Authentication;
@@ -45,29 +45,28 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
     {
         match message {
             PgWireFrontendMessage::Startup(ref startup) => {
-                if protocol_negotiation(client, startup).await? {
-                    super::save_startup_parameters_to_metadata(client, startup);
-                    client.set_state(PgWireConnectionState::AuthenticationInProgress);
+                super::protocol_negotiation(client, startup).await?;
+                super::save_startup_parameters_to_metadata(client, startup);
+                client.set_state(PgWireConnectionState::AuthenticationInProgress);
 
-                    let login_info = LoginInfo::from_client_info(client);
-                    let salt_and_pass = self.auth_source.get_password(&login_info).await?;
+                let login_info = LoginInfo::from_client_info(client);
+                let salt_and_pass = self.auth_source.get_password(&login_info).await?;
 
-                    let salt = salt_and_pass
-                        .salt
-                        .as_ref()
-                        .expect("Salt is required for Md5Password authentication");
+                let salt = salt_and_pass
+                    .salt
+                    .as_ref()
+                    .expect("Salt is required for Md5Password authentication");
 
-                    self.cached_password
-                        .lock()
-                        .await
-                        .clone_from(&salt_and_pass.password);
+                self.cached_password
+                    .lock()
+                    .await
+                    .clone_from(&salt_and_pass.password);
 
-                    client
-                        .send(PgWireBackendMessage::Authentication(
-                            Authentication::MD5Password(salt.clone()),
-                        ))
-                        .await?;
-                }
+                client
+                    .send(PgWireBackendMessage::Authentication(
+                        Authentication::MD5Password(salt.clone()),
+                    ))
+                    .await?;
             }
             PgWireFrontendMessage::PasswordMessageFamily(pwd) => {
                 let pwd = pwd.into_password()?;

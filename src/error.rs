@@ -6,8 +6,8 @@ use crate::messages::response::{ErrorResponse, NoticeResponse};
 
 #[derive(Error, Debug)]
 pub enum PgWireError {
-    #[error("Invalid protocol version, received {0}")]
-    InvalidProtocolVersion(i32),
+    #[error("Unsupported protocol version, received {0}.{1}")]
+    UnsupportedProtocolVersion(u16, u16),
     #[error("Invalid CancelRequest message, code mismatch")]
     InvalidCancelRequest,
     #[error("Secret key cannot be longer than 256")]
@@ -226,7 +226,7 @@ impl From<ErrorInfo> for NoticeResponse {
 impl From<PgWireError> for ErrorInfo {
     fn from(error: PgWireError) -> Self {
         match error {
-            PgWireError::InvalidProtocolVersion(_) => {
+            PgWireError::UnsupportedProtocolVersion(_, _) => {
                 ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
             }
             PgWireError::InvalidCancelRequest => {

@@ -31,10 +31,6 @@ impl Startup {
 
     pub const PROTOCOL_VERSION_3_0: i32 = 196608;
     pub const PROTOCOL_VERSION_3_2: i32 = 196610;
-
-    fn is_protocol_version_supported(version: i32) -> bool {
-        version == Self::PROTOCOL_VERSION_3_0 || version == Self::PROTOCOL_VERSION_3_2
-    }
 }
 
 impl Message for Startup {
@@ -65,15 +61,6 @@ impl Message for Startup {
     }
 
     fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
-        // packet len + protocol version
-        // check if packet is valid
-        if buf.remaining() >= Self::MINIMUM_STARTUP_MESSAGE_LEN {
-            let packet_version = (&buf[4..8]).get_i32();
-            if !Self::is_protocol_version_supported(packet_version) {
-                return Err(PgWireError::InvalidProtocolVersion(packet_version));
-            }
-        }
-
         codec::decode_packet(buf, 0, |buf, full_len| {
             Self::decode_body(buf, full_len, ctx)
         })
@@ -599,5 +586,60 @@ impl Message for SASLResponse {
     ) -> PgWireResult<Self> {
         let data = buf.split_to(full_len - 4).freeze();
         Ok(SASLResponse { data })
+    }
+}
+
+#[non_exhaustive]
+#[derive(PartialEq, Eq, Debug, new)]
+pub struct NegotiateProtocolVersion {
+    newest_minor_protocol: i32,
+    unsupported_options: Vec<String>,
+}
+
+pub const MESSAGE_TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION: u8 = b'V';
+
+impl Message for NegotiateProtocolVersion {
+    #[inline]
+    fn message_type() -> Option<u8> {
+        Some(MESSAGE_TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION)
+    }
+
+    #[inline]
+    fn message_length(&self) -> usize {
+        12 + self
+            .unsupported_options
+            .iter()
+            .map(|s| s.len() + 1)
+            .sum::<usize>()
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        buf.put_i32(self.newest_minor_protocol);
+        buf.put_i32(self.unsupported_options.len() as i32);
+
+        for s in &self.unsupported_options {
+            codec::put_cstring(buf, s);
+        }
+
+        Ok(())
+    }
+
+    fn decode_body(
+        buf: &mut BytesMut,
+        _full_len: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
+        let version = buf.get_i32();
+        let option_count = buf.get_i32();
+        let mut options = Vec::with_capacity(option_count as usize);
+
+        for _ in 0..option_count {
+            options.push(codec::get_cstring(buf).unwrap_or_else(|| "".to_owned()))
+        }
+
+        Ok(Self {
+            newest_minor_protocol: version,
+            unsupported_options: options,
+        })
     }
 }
