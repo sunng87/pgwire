@@ -40,6 +40,10 @@ impl ProtocolVersion {
 #[derive(Default, Debug, PartialEq, Eq, new)]
 pub struct DecodeContext {
     pub protocol_version: ProtocolVersion,
+    #[new(value = "true")]
+    pub awaiting_ssl: bool,
+    #[new(value = "true")]
+    pub awaiting_startup: bool,
 }
 
 /// Define how message encode and decoded.
@@ -111,9 +115,7 @@ pub mod terminate;
 pub enum PgWireFrontendMessage {
     Startup(startup::Startup),
     CancelRequest(cancel::CancelRequest),
-    // when client has no ssl configured, it skip this message.
-    // our decoder will return a `SslRequest(None)` for this case.
-    SslRequest(Option<startup::SslRequest>),
+    SslRequest(startup::SslRequest),
     PasswordMessageFamily(startup::PasswordMessageFamily),
 
     Query(simplequery::Query),
@@ -151,13 +153,8 @@ impl PgWireFrontendMessage {
         match self {
             Self::Startup(msg) => msg.encode(buf),
             Self::CancelRequest(msg) => msg.encode(buf),
-            Self::SslRequest(msg) => {
-                if let Some(msg) = msg {
-                    msg.encode(buf)
-                } else {
-                    Ok(())
-                }
-            }
+            Self::SslRequest(msg) => msg.encode(buf),
+
             Self::PasswordMessageFamily(msg) => msg.encode(buf),
 
             Self::Query(msg) => msg.encode(buf),
@@ -179,11 +176,40 @@ impl PgWireFrontendMessage {
     }
 
     pub fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
-        // TODO: decode based on magic number
-
-        // Note that Startup and CancelRequest message have to be decoded
-        // separately because it's tied with connection state.
-        if buf.remaining() > 1 {
+        if ctx.awaiting_ssl {
+            // Connection just estabilished, the incoming message can be:
+            // - SSLRequest
+            // - Startup
+            // - CancelRequest
+            // Try to read the magic number to tell whether it SSLRequest or
+            // Startup, all these messages should have at least 8 bytes
+            if buf.remaining() >= 8 {
+                if cancel::CancelRequest::is_cancel_request_packet(buf) {
+                    cancel::CancelRequest::decode(buf, ctx)
+                        .map(|opt| opt.map(PgWireFrontendMessage::CancelRequest))
+                } else if startup::SslRequest::is_ssl_request_packet(buf) {
+                    startup::SslRequest::decode(buf, ctx)
+                        .map(|opt| opt.map(PgWireFrontendMessage::SslRequest))
+                } else {
+                    // startup
+                    startup::Startup::decode(buf, ctx).map(|v| v.map(Self::Startup))
+                }
+            } else {
+                Ok(None)
+            }
+        } else if ctx.awaiting_startup {
+            // we will check for cancel request again in case it's sent in ssl connection
+            if buf.remaining() >= 8 {
+                if cancel::CancelRequest::is_cancel_request_packet(buf) {
+                    cancel::CancelRequest::decode(buf, ctx)
+                        .map(|opt| opt.map(PgWireFrontendMessage::CancelRequest))
+                } else {
+                    startup::Startup::decode(buf, ctx).map(|v| v.map(Self::Startup))
+                }
+            } else {
+                Ok(None)
+            }
+        } else if buf.remaining() > 1 {
             let first_byte = buf[0];
 
             match first_byte {
@@ -427,16 +453,13 @@ mod test {
     use bytes::{Buf, BufMut, Bytes, BytesMut};
 
     macro_rules! roundtrip {
-        ($ins:ident, $st:ty) => {
+        ($ins:ident, $st:ty, $ctx:expr) => {
             let mut buffer = BytesMut::new();
             $ins.encode(&mut buffer).expect("encode packet");
 
             assert!(buffer.remaining() > 0);
 
-            let ctx = DecodeContext {
-                protocol_version: ProtocolVersion::PROTOCOL3_0,
-            };
-            let item2 = <$st>::decode(&mut buffer, &ctx)
+            let item2 = <$st>::decode(&mut buffer, $ctx)
                 .expect("decode packet")
                 .expect("packet is none");
 
@@ -447,20 +470,34 @@ mod test {
 
     #[test]
     fn test_startup() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+
         let mut s = Startup::default();
         s.parameters.insert("user".to_owned(), "tomcat".to_owned());
+        roundtrip!(s, Startup, &ctx);
 
-        roundtrip!(s, Startup);
+        ctx.awaiting_ssl = false;
+        roundtrip!(s, Startup, &ctx);
     }
 
     #[test]
     fn test_cancel_request() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_2);
+
         let s = CancelRequest::new(100, SecretKey::Bytes(Bytes::from("server2008")));
-        roundtrip!(s, CancelRequest);
+        roundtrip!(s, CancelRequest, &ctx);
+
+        ctx.protocol_version = ProtocolVersion::PROTOCOL3_0;
+        let s = CancelRequest::new(100, SecretKey::I32(1900));
+        roundtrip!(s, CancelRequest, &ctx);
     }
 
     #[test]
     fn test_authentication() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let ss = vec![
             Authentication::Ok,
             Authentication::CleartextPassword,
@@ -469,67 +506,99 @@ mod test {
             Authentication::SASLFinal(Bytes::from("world")),
         ];
         for s in ss {
-            roundtrip!(s, Authentication);
+            roundtrip!(s, Authentication, &ctx);
         }
 
         let md5pass = Authentication::MD5Password(vec![b'p', b's', b't', b'g']);
-        roundtrip!(md5pass, Authentication);
+        roundtrip!(md5pass, Authentication, &ctx);
     }
 
     #[test]
     fn test_password() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let s = Password::new("pgwire".to_owned());
-        roundtrip!(s, Password);
+        roundtrip!(s, Password, &ctx);
     }
 
     #[test]
     fn test_parameter_status() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let pps = ParameterStatus::new("cli".to_owned(), "psql".to_owned());
-        roundtrip!(pps, ParameterStatus);
+        roundtrip!(pps, ParameterStatus, &ctx);
     }
 
     #[test]
     fn test_query() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let query = Query::new("SELECT 1".to_owned());
-        roundtrip!(query, Query);
+        roundtrip!(query, Query, &ctx);
     }
 
     #[test]
     fn test_command_complete() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let cc = CommandComplete::new("DELETE 5".to_owned());
-        roundtrip!(cc, CommandComplete);
+        roundtrip!(cc, CommandComplete, &ctx);
     }
 
     #[test]
     fn test_ready_for_query() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let r4q = ReadyForQuery::new(TransactionStatus::Idle);
-        roundtrip!(r4q, ReadyForQuery);
+        roundtrip!(r4q, ReadyForQuery, &ctx);
         let r4q = ReadyForQuery::new(TransactionStatus::Transaction);
-        roundtrip!(r4q, ReadyForQuery);
+        roundtrip!(r4q, ReadyForQuery, &ctx);
         let r4q = ReadyForQuery::new(TransactionStatus::Error);
-        roundtrip!(r4q, ReadyForQuery);
+        roundtrip!(r4q, ReadyForQuery, &ctx);
     }
 
     #[test]
     fn test_error_response() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let mut error = ErrorResponse::default();
         error.fields.push((b'R', "ERROR".to_owned()));
         error.fields.push((b'K', "cli".to_owned()));
 
-        roundtrip!(error, ErrorResponse);
+        roundtrip!(error, ErrorResponse, &ctx);
     }
 
     #[test]
     fn test_notice_response() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let mut error = NoticeResponse::default();
         error.fields.push((b'R', "NOTICE".to_owned()));
         error.fields.push((b'K', "cli".to_owned()));
 
-        roundtrip!(error, NoticeResponse);
+        roundtrip!(error, NoticeResponse, &ctx);
     }
 
     #[test]
     fn test_row_description() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let mut row_description = RowDescription::default();
 
         let mut f1 = FieldDescription::default();
@@ -552,11 +621,15 @@ mod test {
         f2.format_code = FORMAT_CODE_TEXT;
         row_description.fields.push(f2);
 
-        roundtrip!(row_description, RowDescription);
+        roundtrip!(row_description, RowDescription, &ctx);
     }
 
     #[test]
     fn test_data_row() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let mut row0 = DataRow::default();
         row0.data.put_i32(4);
         row0.data.put_slice("data".as_bytes());
@@ -564,52 +637,75 @@ mod test {
         row0.data.put_i32(1001);
         row0.data.put_i32(-1);
 
-        roundtrip!(row0, DataRow);
+        roundtrip!(row0, DataRow, &ctx);
     }
 
     #[test]
     fn test_terminate() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let terminate = Terminate::new();
-        roundtrip!(terminate, Terminate);
+        roundtrip!(terminate, Terminate, &ctx);
     }
 
     #[test]
     fn test_parse() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let parse = Parse::new(
             Some("find-user-by-id".to_owned()),
             "SELECT * FROM user WHERE id = ?".to_owned(),
             vec![1],
         );
-        roundtrip!(parse, Parse);
+        roundtrip!(parse, Parse, &ctx);
     }
 
     #[test]
     fn test_parse_65k() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let parse = Parse::new(
             Some("many-params".to_owned()),
             "it won't be parsed anyway".to_owned(),
             vec![25; u16::MAX as usize],
         );
-        roundtrip!(parse, Parse);
+        roundtrip!(parse, Parse, &ctx);
     }
 
     #[test]
     fn test_parse_complete() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let parse_complete = ParseComplete::new();
-        roundtrip!(parse_complete, ParseComplete);
+        roundtrip!(parse_complete, ParseComplete, &ctx);
     }
 
     #[test]
     fn test_close() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let close = Close::new(
             TARGET_TYPE_BYTE_STATEMENT,
             Some("find-user-by-id".to_owned()),
         );
-        roundtrip!(close, Close);
+        roundtrip!(close, Close, &ctx);
     }
 
     #[test]
     fn test_bind() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
         let bind = Bind::new(
             Some("find-user-by-id-0".to_owned()),
             Some("find-user-by-id".to_owned()),
@@ -617,11 +713,15 @@ mod test {
             vec![Some(Bytes::from_static(b"1234"))],
             vec![0],
         );
-        roundtrip!(bind, Bind);
+        roundtrip!(bind, Bind, &ctx);
     }
 
     #[test]
     fn test_bind_65k() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let bind = Bind::new(
             Some("lol".to_owned()),
             Some("kek".to_owned()),
@@ -629,56 +729,74 @@ mod test {
             vec![Some(Bytes::from_static(b"1234")); u16::MAX as usize],
             vec![0],
         );
-        roundtrip!(bind, Bind);
+        roundtrip!(bind, Bind, &ctx);
     }
 
     #[test]
     fn test_execute() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let exec = Execute::new(Some("find-user-by-id-0".to_owned()), 100);
-        roundtrip!(exec, Execute);
+        roundtrip!(exec, Execute, &ctx);
     }
 
     #[test]
     fn test_sslrequest() {
+        let ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+
         let sslreq = SslRequest::new();
-        roundtrip!(sslreq, SslRequest);
+        roundtrip!(sslreq, SslRequest, &ctx);
     }
 
     #[test]
     fn test_sslresponse() {
+        let ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+
         let sslaccept = SslResponse::Accept;
-        roundtrip!(sslaccept, SslResponse);
+        roundtrip!(sslaccept, SslResponse, &ctx);
         let sslrefuse = SslResponse::Refuse;
-        roundtrip!(sslrefuse, SslResponse);
+        roundtrip!(sslrefuse, SslResponse, &ctx);
     }
 
     #[test]
     fn test_saslresponse() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let saslinitialresp =
             SASLInitialResponse::new("SCRAM-SHA-256".to_owned(), Some(Bytes::from_static(b"abc")));
-        roundtrip!(saslinitialresp, SASLInitialResponse);
+        roundtrip!(saslinitialresp, SASLInitialResponse, &ctx);
 
         let saslresp = SASLResponse::new(Bytes::from_static(b"abc"));
-        roundtrip!(saslresp, SASLResponse);
+        roundtrip!(saslresp, SASLResponse, &ctx);
     }
 
     #[test]
     fn test_parameter_description() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let param_desc = ParameterDescription::new(vec![100, 200]);
-        roundtrip!(param_desc, ParameterDescription);
+        roundtrip!(param_desc, ParameterDescription, &ctx);
     }
 
     #[test]
     fn test_password_family() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let password = Password::new("tomcat".to_owned());
 
         let mut buffer = BytesMut::new();
         password.encode(&mut buffer).unwrap();
         assert!(buffer.remaining() > 0);
 
-        let decode_context = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-
-        let item2 = PasswordMessageFamily::decode(&mut buffer, &decode_context)
+        let item2 = PasswordMessageFamily::decode(&mut buffer, &ctx)
             .unwrap()
             .unwrap();
         assert_eq!(buffer.remaining(), 0);
@@ -690,7 +808,7 @@ mod test {
         saslinitialresp.encode(&mut buffer).unwrap();
         assert!(buffer.remaining() > 0);
 
-        let item2 = PasswordMessageFamily::decode(&mut buffer, &decode_context)
+        let item2 = PasswordMessageFamily::decode(&mut buffer, &ctx)
             .unwrap()
             .unwrap();
         assert_eq!(buffer.remaining(), 0);
@@ -699,51 +817,79 @@ mod test {
 
     #[test]
     fn test_no_data() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let nodata = NoData::new();
-        roundtrip!(nodata, NoData);
+        roundtrip!(nodata, NoData, &ctx);
     }
 
     #[test]
     fn test_copy_data() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let copydata = CopyData::new(Bytes::from_static("tomcat".as_bytes()));
-        roundtrip!(copydata, CopyData);
+        roundtrip!(copydata, CopyData, &ctx);
     }
 
     #[test]
     fn test_copy_done() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let copydone = CopyDone::new();
-        roundtrip!(copydone, CopyDone);
+        roundtrip!(copydone, CopyDone, &ctx);
     }
 
     #[test]
     fn test_copy_fail() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let copyfail = CopyFail::new("copy failed".to_owned());
-        roundtrip!(copyfail, CopyFail);
+        roundtrip!(copyfail, CopyFail, &ctx);
     }
 
     #[test]
     fn test_copy_response() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let copyresponse = CopyInResponse::new(0, 3, vec![0, 0, 0]);
-        roundtrip!(copyresponse, CopyInResponse);
+        roundtrip!(copyresponse, CopyInResponse, &ctx);
 
         let copyresponse = CopyOutResponse::new(0, 3, vec![0, 0, 0]);
-        roundtrip!(copyresponse, CopyOutResponse);
+        roundtrip!(copyresponse, CopyOutResponse, &ctx);
 
         let copyresponse = CopyBothResponse::new(0, 3, vec![0, 0, 0]);
-        roundtrip!(copyresponse, CopyBothResponse);
+        roundtrip!(copyresponse, CopyBothResponse, &ctx);
     }
 
     #[test]
     fn test_notification_response() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let notification_response =
             NotificationResponse::new(10087, "channel".to_owned(), "payload".to_owned());
-        roundtrip!(notification_response, NotificationResponse);
+        roundtrip!(notification_response, NotificationResponse, &ctx);
     }
 
     #[test]
     fn test_negotiate_protocol_version() {
+        let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        ctx.awaiting_ssl = false;
+        ctx.awaiting_startup = false;
+
         let negotiate_protocol_version =
             NegotiateProtocolVersion::new(2, vec!["database".to_owned(), "user".to_owned()]);
-        roundtrip!(negotiate_protocol_version, NegotiateProtocolVersion);
+        roundtrip!(negotiate_protocol_version, NegotiateProtocolVersion, &ctx);
     }
 }
