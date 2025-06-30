@@ -198,7 +198,17 @@ impl PgWireFrontendMessage {
                 Ok(None)
             }
         } else if ctx.awaiting_startup {
-            startup::Startup::decode(buf, ctx).map(|v| v.map(Self::Startup))
+            // we will check for cancel request again in case it's sent in ssl connection
+            if buf.remaining() >= 8 {
+                if cancel::CancelRequest::is_cancel_request_packet(buf) {
+                    cancel::CancelRequest::decode(buf, ctx)
+                        .map(|opt| opt.map(PgWireFrontendMessage::CancelRequest))
+                } else {
+                    startup::Startup::decode(buf, ctx).map(|v| v.map(Self::Startup))
+                }
+            } else {
+                Ok(None)
+            }
         } else if buf.remaining() > 1 {
             let first_byte = buf[0];
 

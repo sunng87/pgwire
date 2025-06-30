@@ -45,6 +45,9 @@
             gnuplot ## for cargo bench
             pythonEnv
             postgresql
+            babashka
+            nodejs_24
+            go
           ];
 
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;

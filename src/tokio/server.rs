@@ -20,7 +20,6 @@ use crate::api::{
     PgWireServerHandlers,
 };
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
-use crate::messages::cancel::CancelRequest;
 use crate::messages::response::ReadyForQuery;
 use crate::messages::response::{SslResponse, TransactionStatus};
 use crate::messages::startup::{SecretKey, SslRequest};
@@ -335,10 +334,9 @@ async fn peek_for_sslrequest<ST>(
         let n = tcp_socket.peek(&mut buf).await?;
 
         if n == buf.len() {
-            if CancelRequest::is_cancel_request_packet(&buf) {
-                // cancel
-                Ok(SslNegotiationType::None)
-            } else if SslRequest::is_ssl_request_packet(&buf) {
+            if SslRequest::is_ssl_request_packet(&buf) {
+                // consume SslRequest
+                let _ = socket.next().await;
                 // ssl request
                 if ssl_supported {
                     socket
@@ -352,7 +350,7 @@ async fn peek_for_sslrequest<ST>(
                     Ok(SslNegotiationType::None)
                 }
             } else {
-                // startup
+                // startup or cancel
                 Ok(SslNegotiationType::None)
             }
         } else {
