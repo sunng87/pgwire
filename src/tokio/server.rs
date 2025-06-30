@@ -23,7 +23,7 @@ use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::cancel::CancelRequest;
 use crate::messages::response::ReadyForQuery;
 use crate::messages::response::{SslResponse, TransactionStatus};
-use crate::messages::startup::SecretKey;
+use crate::messages::startup::{SecretKey, SslRequest};
 use crate::messages::{
     DecodeContext, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,
 };
@@ -323,39 +323,42 @@ async fn check_ssl_direct_negotiation(tcp_socket: &TcpStream) -> Result<bool, io
     Ok(n > 0 && buf[0] == 0x16)
 }
 
-async fn check_cancel_request(tcp_socket: &TcpStream) -> Result<bool, io::Error> {
-    let mut buf = [0u8; 8];
-    let n = tcp_socket.peek(&mut buf).await?;
-
-    if n == buf.len() {
-        Ok(CancelRequest::is_cancel_request_packet(&buf))
-    } else {
-        Ok(false)
-    }
-}
-
 async fn peek_for_sslrequest<ST>(
     socket: &mut Framed<TcpStream, PgWireMessageServerCodec<ST>>,
     ssl_supported: bool,
 ) -> Result<SslNegotiationType, io::Error> {
-    if check_ssl_direct_negotiation(socket.get_ref()).await? {
+    let tcp_socket = socket.get_ref();
+    if check_ssl_direct_negotiation(tcp_socket).await? {
         Ok(SslNegotiationType::Direct)
-    } else if check_cancel_request(socket.get_ref()).await? {
-        Ok(SslNegotiationType::None)
-    } else if let Some(Ok(PgWireFrontendMessage::SslRequest(_))) = socket.next().await {
-        if ssl_supported {
-            socket
-                .send(PgWireBackendMessage::SslResponse(SslResponse::Accept))
-                .await?;
-            Ok(SslNegotiationType::Postgres)
+    } else {
+        let mut buf = [0u8; 8];
+        let n = tcp_socket.peek(&mut buf).await?;
+
+        if n == buf.len() {
+            if CancelRequest::is_cancel_request_packet(&buf) {
+                // cancel
+                Ok(SslNegotiationType::None)
+            } else if SslRequest::is_ssl_request_packet(&buf) {
+                // ssl request
+                if ssl_supported {
+                    socket
+                        .send(PgWireBackendMessage::SslResponse(SslResponse::Accept))
+                        .await?;
+                    Ok(SslNegotiationType::Postgres)
+                } else {
+                    socket
+                        .send(PgWireBackendMessage::SslResponse(SslResponse::Refuse))
+                        .await?;
+                    Ok(SslNegotiationType::None)
+                }
+            } else {
+                // startup
+                Ok(SslNegotiationType::None)
+            }
         } else {
-            socket
-                .send(PgWireBackendMessage::SslResponse(SslResponse::Refuse))
-                .await?;
+            // failed to peek, the connection may have gone
             Ok(SslNegotiationType::None)
         }
-    } else {
-        Ok(SslNegotiationType::None)
     }
 }
 
