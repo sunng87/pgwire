@@ -42,9 +42,7 @@ impl Decoder for PgWireMessageClientCodec {
     type Error = PgWireError;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        let decode_context = DecodeContext {
-            protocol_version: self.protocol_version,
-        };
+        let decode_context = DecodeContext::default();
 
         //TODO: update protocol according to negotiation result
 
@@ -291,9 +289,9 @@ pub(crate) async fn ssl_handshake(
         } else {
             // postgres ssl handshake
             socket
-                .send(PgWireFrontendMessage::SslRequest(Some(
+                .send(PgWireFrontendMessage::SslRequest(
                     crate::messages::startup::SslRequest,
-                )))
+                ))
                 .await?;
 
             if let Some(Ok(PgWireBackendMessage::SslResponse(ssl_resp))) = socket.next().await {
