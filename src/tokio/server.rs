@@ -1,7 +1,6 @@
 use std::io;
 use std::sync::Arc;
 
-use bytes::Buf;
 use futures::{SinkExt, StreamExt};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use rustls_pki_types::CertificateDer;
@@ -24,9 +23,9 @@ use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::cancel::CancelRequest;
 use crate::messages::response::ReadyForQuery;
 use crate::messages::response::{SslResponse, TransactionStatus};
-use crate::messages::startup::{SecretKey, SslRequest, Startup};
+use crate::messages::startup::SecretKey;
 use crate::messages::{
-    DecodeContext, Message, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,
+    DecodeContext, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,
 };
 
 #[non_exhaustive]
@@ -40,43 +39,30 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
     type Error = PgWireError;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        let decode_context = DecodeContext::new(self.client_info.protocol_version());
+        let mut decode_context = DecodeContext::new(self.client_info.protocol_version());
 
         match self.client_info.state() {
-            PgWireConnectionState::AwaitingSslRequest => {
-                // first try to decode it as CancelRequest
-                // TODO: detect cancel30 or cancel32
-                if let Some(true) = CancelRequest::is_cancel_request_packet(src) {
-                    return CancelRequest::decode(src, &decode_context)
-                        .map(|opt| opt.map(PgWireFrontendMessage::CancelRequest));
-                }
-
-                if src.remaining() >= SslRequest::BODY_SIZE {
-                    self.client_info
-                        .set_state(PgWireConnectionState::AwaitingStartup);
-
-                    if let Some(request) = SslRequest::decode(src, &decode_context)? {
-                        return Ok(Some(PgWireFrontendMessage::SslRequest(Some(request))));
-                    } else {
-                        // this is not a real message, but to indicate that
-                        //  client will not init ssl handshake
-                        return Ok(Some(PgWireFrontendMessage::SslRequest(None)));
-                    }
-                }
-
-                Ok(None)
-            }
+            PgWireConnectionState::AwaitingSslRequest => {}
 
             PgWireConnectionState::AwaitingStartup => {
-                if let Some(startup) = Startup::decode(src, &decode_context)? {
-                    Ok(Some(PgWireFrontendMessage::Startup(startup)))
-                } else {
-                    Ok(None)
-                }
+                decode_context.awaiting_ssl = false;
             }
 
-            _ => PgWireFrontendMessage::decode(src, &decode_context),
+            _ => {
+                decode_context.awaiting_ssl = false;
+                decode_context.awaiting_startup = false;
+            }
         }
+
+        let msg = PgWireFrontendMessage::decode(src, &decode_context);
+
+        // move state forward
+        if let Ok(Some(PgWireFrontendMessage::SslRequest(_))) = msg {
+            self.client_info
+                .set_state(PgWireConnectionState::AwaitingStartup);
+        }
+
+        msg
     }
 }
 
@@ -342,7 +328,7 @@ async fn check_cancel_request(tcp_socket: &TcpStream) -> Result<bool, io::Error>
     let n = tcp_socket.peek(&mut buf).await?;
 
     if n == buf.len() {
-        Ok(CancelRequest::is_cancel_request_packet(&buf).unwrap_or(false))
+        Ok(CancelRequest::is_cancel_request_packet(&buf))
     } else {
         Ok(false)
     }
@@ -356,7 +342,7 @@ async fn peek_for_sslrequest<ST>(
         Ok(SslNegotiationType::Direct)
     } else if check_cancel_request(socket.get_ref()).await? {
         Ok(SslNegotiationType::None)
-    } else if let Some(Ok(PgWireFrontendMessage::SslRequest(Some(_)))) = socket.next().await {
+    } else if let Some(Ok(PgWireFrontendMessage::SslRequest(_))) = socket.next().await {
         if ssl_supported {
             socket
                 .send(PgWireBackendMessage::SslResponse(SslResponse::Accept))
@@ -391,6 +377,10 @@ where
     CR: CancelHandler,
     E: ErrorHandler,
 {
+    // SslRequest is processed outside the decoder, so there we set state to
+    // AwaitingStartup by default
+    socket.set_state(PgWireConnectionState::AwaitingStartup);
+
     while let Some(Ok(msg)) = socket.next().await {
         let is_extended_query = match socket.state() {
             PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
@@ -450,6 +440,8 @@ where
     let client_info = DefaultClient::new(addr, false);
     let mut tcp_socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
 
+    // this function will process postgres ssl negotiation and consume the first
+    // SslRequest packet if detected.
     let ssl = peek_for_sslrequest(&mut tcp_socket, tls_acceptor.is_some()).await?;
 
     let startup_handler = handlers.startup_handler();

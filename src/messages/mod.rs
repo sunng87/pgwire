@@ -40,6 +40,10 @@ impl ProtocolVersion {
 #[derive(Default, Debug, PartialEq, Eq, new)]
 pub struct DecodeContext {
     pub protocol_version: ProtocolVersion,
+    #[new(value = "true")]
+    pub awaiting_ssl: bool,
+    #[new(value = "true")]
+    pub awaiting_startup: bool,
 }
 
 /// Define how message encode and decoded.
@@ -111,9 +115,7 @@ pub mod terminate;
 pub enum PgWireFrontendMessage {
     Startup(startup::Startup),
     CancelRequest(cancel::CancelRequest),
-    // when client has no ssl configured, it skip this message.
-    // our decoder will return a `SslRequest(None)` for this case.
-    SslRequest(Option<startup::SslRequest>),
+    SslRequest(startup::SslRequest),
     PasswordMessageFamily(startup::PasswordMessageFamily),
 
     Query(simplequery::Query),
@@ -151,13 +153,8 @@ impl PgWireFrontendMessage {
         match self {
             Self::Startup(msg) => msg.encode(buf),
             Self::CancelRequest(msg) => msg.encode(buf),
-            Self::SslRequest(msg) => {
-                if let Some(msg) = msg {
-                    msg.encode(buf)
-                } else {
-                    Ok(())
-                }
-            }
+            Self::SslRequest(msg) => msg.encode(buf),
+
             Self::PasswordMessageFamily(msg) => msg.encode(buf),
 
             Self::Query(msg) => msg.encode(buf),
@@ -179,11 +176,30 @@ impl PgWireFrontendMessage {
     }
 
     pub fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
-        // TODO: decode based on magic number
-
-        // Note that Startup and CancelRequest message have to be decoded
-        // separately because it's tied with connection state.
-        if buf.remaining() > 1 {
+        if ctx.awaiting_ssl {
+            // Connection just estabilished, the incoming message can be:
+            // - SSLRequest
+            // - Startup
+            // - CancelRequest
+            // Try to read the magic number to tell whether it SSLRequest or
+            // Startup, all these messages should have at least 8 bytes
+            if buf.remaining() >= 8 {
+                if cancel::CancelRequest::is_cancel_request_packet(buf) {
+                    cancel::CancelRequest::decode(buf, ctx)
+                        .map(|opt| opt.map(PgWireFrontendMessage::CancelRequest))
+                } else if startup::SslRequest::is_ssl_request_packet(buf) {
+                    startup::SslRequest::decode(buf, ctx)
+                        .map(|opt| opt.map(PgWireFrontendMessage::SslRequest))
+                } else {
+                    // startup
+                    startup::Startup::decode(buf, ctx).map(|v| v.map(Self::Startup))
+                }
+            } else {
+                Ok(None)
+            }
+        } else if ctx.awaiting_startup {
+            startup::Startup::decode(buf, ctx).map(|v| v.map(Self::Startup))
+        } else if buf.remaining() > 1 {
             let first_byte = buf[0];
 
             match first_byte {
@@ -433,9 +449,8 @@ mod test {
 
             assert!(buffer.remaining() > 0);
 
-            let ctx = DecodeContext {
-                protocol_version: ProtocolVersion::PROTOCOL3_0,
-            };
+            let ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+
             let item2 = <$st>::decode(&mut buffer, &ctx)
                 .expect("decode packet")
                 .expect("packet is none");

@@ -16,14 +16,13 @@ impl CancelRequest {
     const MINIMUM_CANCEL_REQUEST_MESSAGE_LEN: usize = 16;
 
     /// try to inspect the buf if it's a cancel request packet
-    /// return None if there is not enough bytes to give the result
-    pub fn is_cancel_request_packet(buf: &[u8]) -> Option<bool> {
-        if buf.len() >= 8 {
-            let cancel_code = (&buf[4..8]).get_i32();
-            Some(cancel_code == CancelRequest::CANCEL_REQUEST_CODE)
-        } else {
-            None
+    pub fn is_cancel_request_packet(buf: &[u8]) -> bool {
+        if buf.remaining() < 8 {
+            return false;
         }
+
+        let cancel_code = (&buf[4..8]).get_i32();
+        cancel_code == CancelRequest::CANCEL_REQUEST_CODE
     }
 }
 
@@ -48,9 +47,11 @@ impl Message for CancelRequest {
         Ok(())
     }
 
+    /// Please call `is_cancel_request_packet` before calling this if you don't
+    /// want to get an error for non-CancelRequest packet.
     fn decode(buf: &mut bytes::BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
-        if let Some(is_cancel) = Self::is_cancel_request_packet(buf) {
-            if is_cancel {
+        if buf.remaining() >= 8 {
+            if Self::is_cancel_request_packet(buf) {
                 codec::decode_packet(buf, 0, |buf, full_len| {
                     Self::decode_body(buf, full_len, ctx)
                 })
