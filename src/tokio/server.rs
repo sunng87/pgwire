@@ -378,10 +378,6 @@ where
     CR: CancelHandler,
     E: ErrorHandler,
 {
-    // SslRequest is processed outside the decoder, so there we set state to
-    // AwaitingStartup by default
-    socket.set_state(PgWireConnectionState::AwaitingStartup);
-
     while let Some(Ok(msg)) = socket.next().await {
         let is_extended_query = match socket.state() {
             PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
