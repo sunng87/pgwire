@@ -474,6 +474,15 @@ pub struct SslRequest;
 impl SslRequest {
     pub const BODY_MAGIC_NUMBER: i32 = 80877103;
     pub const BODY_SIZE: usize = 8;
+
+    pub fn is_ssl_request_packet(buf: &[u8]) -> bool {
+        if buf.remaining() >= Self::BODY_SIZE {
+            let magic_code = (&buf[4..8]).get_i32();
+            magic_code == Self::BODY_MAGIC_NUMBER
+        } else {
+            false
+        }
+    }
 }
 
 impl Message for SslRequest {
@@ -501,10 +510,17 @@ impl Message for SslRequest {
     }
 
     /// Try to decode and check if the packet is a `SslRequest`.
+    ///
+    /// Please call `is_ssl_request_packet` before calling this if you don't
+    /// want to get an error for non-SslRequest packet.
     fn decode(buf: &mut BytesMut, _ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
-        if buf.remaining() >= 8 && (&buf[4..8]).get_i32() == Self::BODY_MAGIC_NUMBER {
-            buf.advance(8);
-            Ok(Some(SslRequest))
+        if buf.remaining() >= Self::BODY_SIZE {
+            if Self::is_ssl_request_packet(buf) {
+                buf.advance(8);
+                Ok(Some(SslRequest))
+            } else {
+                Err(PgWireError::InvalidSSLRequestMessage)
+            }
         } else {
             Ok(None)
         }
