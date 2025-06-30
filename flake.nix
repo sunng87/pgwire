@@ -22,6 +22,7 @@
           duckdb.dev
           duckdb.lib
           sqlite.dev
+          openssl.out
         ];
       in
       {
