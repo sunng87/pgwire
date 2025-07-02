@@ -1,6 +1,6 @@
 use bytes::{Buf, BufMut};
 
-use super::{codec, startup::SecretKey, DecodeContext, Message, ProtocolVersion};
+use super::{codec, startup::SecretKey, DecodeContext, Message};
 use crate::error::{PgWireError, PgWireResult};
 
 #[non_exhaustive]
@@ -29,20 +29,14 @@ impl CancelRequest {
 impl Message for CancelRequest {
     #[inline]
     fn message_length(&self) -> usize {
-        match &self.secret_key {
-            SecretKey::I32(_) => 16,
-            SecretKey::Bytes(bytes) => 12 + bytes.len(),
-        }
+        12 + self.secret_key.len()
     }
 
     fn encode_body(&self, buf: &mut bytes::BytesMut) -> PgWireResult<()> {
         buf.put_i32(CancelRequest::CANCEL_REQUEST_CODE);
         buf.put_i32(self.pid);
 
-        match &self.secret_key {
-            SecretKey::I32(key) => buf.put_i32(*key),
-            SecretKey::Bytes(key) => buf.put_slice(key),
-        }
+        self.secret_key.encode(buf)?;
 
         Ok(())
     }
@@ -72,14 +66,10 @@ impl Message for CancelRequest {
             return Err(PgWireError::InvalidCancelRequest);
         }
 
-        // skip length and cancel code
+        // skip cancel code
         buf.advance(4);
         let pid = buf.get_i32();
-
-        let secret_key = match ctx.protocol_version {
-            ProtocolVersion::PROTOCOL3_0 => SecretKey::I32(buf.get_i32()),
-            ProtocolVersion::PROTOCOL3_2 => SecretKey::Bytes(buf.split_to(msg_len - 12).freeze()),
-        };
+        let secret_key = SecretKey::decode(buf, msg_len - 12, ctx)?;
 
         Ok(CancelRequest { pid, secret_key })
     }

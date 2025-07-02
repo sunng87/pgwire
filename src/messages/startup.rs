@@ -411,6 +411,50 @@ impl SecretKey {
             }
         }
     }
+
+    fn validate(&self) -> PgWireResult<()> {
+        match self {
+            SecretKey::I32(_) => Ok(()),
+            SecretKey::Bytes(key_bytes) => {
+                let len = key_bytes.len();
+                Self::validate_bytes_len(len)
+            }
+        }
+    }
+
+    fn validate_bytes_len(data_len: usize) -> PgWireResult<()> {
+        if !(4..=256).contains(&data_len) {
+            return Err(PgWireError::InvalidSecretKey);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            SecretKey::I32(_) => 4,
+            SecretKey::Bytes(key_bytes) => key_bytes.len(),
+        }
+    }
+
+    pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        match self {
+            SecretKey::I32(key) => buf.put_i32(*key),
+            SecretKey::Bytes(key) => {
+                self.validate()?;
+                buf.put_slice(key)
+            }
+        }
+        Ok(())
+    }
+
+    pub fn decode(buf: &mut BytesMut, data_len: usize, ctx: &DecodeContext) -> PgWireResult<Self> {
+        Self::validate_bytes_len(data_len)?;
+
+        match ctx.protocol_version {
+            ProtocolVersion::PROTOCOL3_2 => Ok(SecretKey::Bytes(buf.split_to(data_len).freeze())),
+            ProtocolVersion::PROTOCOL3_0 => Ok(SecretKey::I32(buf.get_i32())),
+        }
+    }
 }
 
 /// `BackendKeyData` message, sent from backend to frontend for issuing
@@ -432,29 +476,20 @@ impl Message for BackendKeyData {
 
     #[inline]
     fn message_length(&self) -> usize {
-        match &self.secret_key {
-            SecretKey::I32(_) => 12,
-            SecretKey::Bytes(bytes) => 8 + bytes.len(),
-        }
+        8 + self.secret_key.len()
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         buf.put_i32(self.pid);
-        match &self.secret_key {
-            SecretKey::I32(key) => buf.put_i32(*key),
-            SecretKey::Bytes(key) => buf.put_slice(key),
-        }
+        self.secret_key.encode(buf)?;
 
         Ok(())
     }
 
     fn decode_body(buf: &mut BytesMut, msg_len: usize, ctx: &DecodeContext) -> PgWireResult<Self> {
         let pid = buf.get_i32();
-
-        let secret_key = match ctx.protocol_version {
-            ProtocolVersion::PROTOCOL3_0 => SecretKey::I32(buf.get_i32()),
-            ProtocolVersion::PROTOCOL3_2 => SecretKey::Bytes(buf.split_to(msg_len - 8).freeze()),
-        };
+        // data_len = msg_len - msg_len(4) - pid(4)
+        let secret_key = SecretKey::decode(buf, msg_len - 8, ctx)?;
 
         Ok(BackendKeyData { pid, secret_key })
     }
