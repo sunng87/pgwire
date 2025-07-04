@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Added
+
+- Initial support for Postgres 18 new proptocol version 3.2, and protocol
+  negotiation for future protocol upgrades [#281]
+- CancelRequest message and initial (unstable) API, made backend key and secret
+  key configurable by user [#266] [#267]
+
+### Changed
+
+- Updated `PgWireServerHandlers` to use `impl trait` style return value, this
+  allow us to define default implementation easier, which requires less
+  boilerplate code. [#269]
+- Updated message decode functions to take an additional `DecodeContext`. It
+  provides some state information like protocol version, connection state, with
+  which we can not decode `SslRequest`, `Startup` messages in the `decode`
+  function. [#282]
+- Using `arrow-pg` crate for duckdb example [#273]
+
 ## [0.30.2] - 2025-06-03
 
 ### Changed
