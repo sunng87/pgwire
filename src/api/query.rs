@@ -46,6 +46,18 @@ pub trait SimpleQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
+        self._on_query(client, query).await
+    }
+
+    /// This is the default implementation of `on_query`. If you want to
+    /// override `on_query` with your own pre/post processing logic, you can
+    /// call this function.
+    async fn _on_query<C>(&self, client: &mut C, query: Query) -> PgWireResult<()>
+    where
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
         // Make sure client is ready for query
         // We will still let query to execute when running in transaction error
         // state because we have no knowledge about whether to query is to
@@ -199,6 +211,20 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
+        self._on_execute(client, message).await
+    }
+
+    /// The default implementation of `on_execute`.
+    ///
+    /// If write your own `on_execute` for pre/post query processing, you can
+    /// reference this implementation by calling `self._on_execute(...)`.
+    async fn _on_execute<C>(&self, client: &mut C, message: Execute) -> PgWireResult<()>
+    where
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
         // make sure client is ready for query
         if !matches!(client.state(), super::PgWireConnectionState::ReadyForQuery) {
             return Err(PgWireError::NotReadyForQuery);
@@ -268,6 +294,20 @@ pub trait ExtendedQueryHandler: Send + Sync {
     ///
     /// The default implementation delegates the call to `self::do_describe`.
     async fn on_describe<C>(&self, client: &mut C, message: Describe) -> PgWireResult<()>
+    where
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        self._on_describe(client, message).await
+    }
+
+    /// The default implementation of `on_describe`
+    ///
+    /// If you are writing pre/post processing for describe, you can reference
+    /// this implementation by `self._on_describe(...)`
+    async fn _on_describe<C>(&self, client: &mut C, message: Describe) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::PortalStore: PortalStore<Statement = Self::Statement>,
