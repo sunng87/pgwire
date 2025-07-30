@@ -643,11 +643,11 @@ impl Message for SASLResponse {
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct NegotiateProtocolVersion {
-    newest_minor_protocol: i32,
-    unsupported_options: Vec<String>,
+    pub newest_minor_protocol: i32,
+    pub unsupported_options: Vec<String>,
 }
 
-pub const MESSAGE_TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION: u8 = b'V';
+pub const MESSAGE_TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION: u8 = b'v';
 
 impl Message for NegotiateProtocolVersion {
     #[inline]
