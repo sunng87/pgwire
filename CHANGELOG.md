@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Added
+
+- The default implementation of `SimpleQueryHandler#on_query`,
+  `ExtendedQueryHandler#on_execute` and `ExtendedQueryHandler#on_describe` and
+  moved to `SimpleQueryHandler#_on_query`, `ExtendedQueryHandler#_on_execute`
+  and `ExtendedQueryHandler#_on_describe`. This allows you to reuse the
+  implementation in your own `on_query`/`on_execute`/`on_describe` without
+  copying the code. [#287]
+
+### Fixed
+
+- `NegotiateProtocolVersion` code and member visibility [#288]
+
 ## [0.31.0] - 2025-07-04
 
 ### Added
