@@ -28,6 +28,7 @@ this library.
 - Frontend-Backend interaction over TCP
   - [x] SSL Request and Response
     - [x] PostgreSQL 17 direct SSL negotiation
+  - [x] GSSAPI Request and Response: GSSAPI encryption is not supported
   - [x] Startup
     - [x] Protocol negotiation
     - [x] No authentication
