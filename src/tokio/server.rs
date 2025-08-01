@@ -20,9 +20,9 @@ use crate::api::{
     PgWireServerHandlers,
 };
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
-use crate::messages::response::ReadyForQuery;
+use crate::messages::response::{GssEncResponse, ReadyForQuery};
 use crate::messages::response::{SslResponse, TransactionStatus};
-use crate::messages::startup::{SecretKey, SslRequest};
+use crate::messages::startup::{GssEncRequest, SecretKey, SslRequest};
 use crate::messages::{
     DecodeContext, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,
 };
@@ -56,7 +56,9 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
         let msg = PgWireFrontendMessage::decode(src, &decode_context);
 
         // move state forward
-        if let Ok(Some(PgWireFrontendMessage::SslRequest(_))) = msg {
+        if let Ok(Some(PgWireFrontendMessage::SslRequest(_)))
+        | Ok(Some(PgWireFrontendMessage::GssEncRequest(_))) = msg
+        {
             self.client_info
                 .set_state(PgWireConnectionState::AwaitingStartup);
         }
@@ -349,6 +351,12 @@ async fn peek_for_sslrequest<ST>(
                         .await?;
                     Ok(SslNegotiationType::None)
                 }
+            } else if GssEncRequest::is_gss_enc_request_packet(&buf) {
+                let _ = socket.next().await;
+                socket
+                    .send(PgWireBackendMessage::GssEncResponse(GssEncResponse::Refuse))
+                    .await?;
+                Ok(SslNegotiationType::None)
             } else {
                 // startup or cancel
                 Ok(SslNegotiationType::None)

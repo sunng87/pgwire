@@ -500,8 +500,7 @@ impl Message for BackendKeyData {
 /// contains only a length(4) and an i32 value.
 ///
 /// The backend sends a single byte 'S' or 'N' to indicate its support. Upon 'S'
-/// the frontend should close the connection and reinitialize a new TLS
-/// connection.
+/// the frontend start initialize a TLS handshake on current connection.
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct SslRequest;
@@ -555,6 +554,71 @@ impl Message for SslRequest {
                 Ok(Some(SslRequest))
             } else {
                 Err(PgWireError::InvalidSSLRequestMessage)
+            }
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+/// `GssEncRequest` sent from frontend to negotiate with backend to check if the
+/// backend supports GSSAPI secure connection. The packet has no message type and
+/// contains only a length(4) and an i32 value.
+///
+/// The backend sends a single byte 'G' or 'N' to indicate its support.
+#[non_exhaustive]
+#[derive(PartialEq, Eq, Debug, new)]
+pub struct GssEncRequest;
+
+impl GssEncRequest {
+    pub const BODY_MAGIC_NUMBER: i32 = 80877104;
+    pub const BODY_SIZE: usize = 8;
+
+    pub fn is_gss_enc_request_packet(buf: &[u8]) -> bool {
+        if buf.remaining() >= Self::BODY_SIZE {
+            let magic_code = (&buf[4..8]).get_i32();
+            magic_code == Self::BODY_MAGIC_NUMBER
+        } else {
+            false
+        }
+    }
+}
+
+impl Message for GssEncRequest {
+    #[inline]
+    fn message_type() -> Option<u8> {
+        None
+    }
+
+    #[inline]
+    fn message_length(&self) -> usize {
+        Self::BODY_SIZE
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        buf.put_i32(Self::BODY_MAGIC_NUMBER);
+        Ok(())
+    }
+
+    fn decode_body(
+        _buf: &mut BytesMut,
+        _full_len: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
+        unreachable!();
+    }
+
+    /// Try to decode and check if the packet is a `SslRequest`.
+    ///
+    /// Please call `is_ssl_request_packet` before calling this if you don't
+    /// want to get an error for non-SslRequest packet.
+    fn decode(buf: &mut BytesMut, _ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
+        if buf.remaining() >= Self::BODY_SIZE {
+            if Self::is_gss_enc_request_packet(buf) {
+                buf.advance(8);
+                Ok(Some(GssEncRequest))
+            } else {
+                Err(PgWireError::InvalidGssEncRequestMessage)
             }
         } else {
             Ok(None)
