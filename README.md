@@ -169,6 +169,18 @@ application development, you can use
 
 Submit a pull request if your project isn't listed here.
 
+## Community
+
+### Developer Mailing List
+
+If you like the idea of pgwire and want to join the development of the library,
+or its ecosystem integrations, extensions, you are welcomed to join our
+developer mailing list: https://groups.io/g/pgwire-dev/
+
+### Github Discussion
+
+Github discussion of this repo is also open for more generate questions.
+
 ## License
 
 This library is released under MIT/Apache dual license.
