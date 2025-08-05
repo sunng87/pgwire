@@ -215,7 +215,7 @@ impl PgWireFrontendMessage {
             match first_byte {
                 // Password, SASLInitialResponse, SASLResponse can only be
                 // decoded under certain context
-                startup::MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY => {
+                startup::MESSAGE_TYPE_BYTE_PASSWORD_MESSAGE_FAMILY => {
                     startup::PasswordMessageFamily::decode(buf, ctx)
                         .map(|v| v.map(Self::PasswordMessageFamily))
                 }
