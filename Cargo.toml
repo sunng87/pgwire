@@ -22,7 +22,8 @@ tokio = { version = "1.19", features = [
     "net",
     "rt",
     "io-util",
-    "macros"
+    "macros",
+    "time"
 ], optional = true }
 tokio-util = { version = "0.7.3", features = ["codec", "io"], optional = true }
 tokio-rustls = { version = "0.26.2", optional = true, default-features = false, features = ["logging", "tls12"]}
