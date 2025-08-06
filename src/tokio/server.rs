@@ -30,7 +30,7 @@ use crate::messages::{
 };
 
 /// startup timeout
-const STARTUP_TIMEOUT_MILLIS: u64 = 10_000;
+const STARTUP_TIMEOUT_MILLIS: u64 = 60_000;
 
 #[non_exhaustive]
 #[derive(Debug, new)]
