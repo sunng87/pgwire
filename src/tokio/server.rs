@@ -1,4 +1,5 @@
 use std::io;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::{SinkExt, StreamExt};
@@ -6,6 +7,7 @@ use futures::{SinkExt, StreamExt};
 use rustls_pki_types::CertificateDer;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
+use tokio::time::{sleep, Duration, Sleep};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use tokio_rustls::server::TlsStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
@@ -26,6 +28,9 @@ use crate::messages::startup::{SecretKey, SslRequest};
 use crate::messages::{
     DecodeContext, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,
 };
+
+/// startup timeout
+const STARTUP_TIMEOUT_MILLIS: u64 = 10_000;
 
 #[non_exhaustive]
 #[derive(Debug, new)]
@@ -360,8 +365,10 @@ async fn peek_for_sslrequest<ST>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn do_process_socket<S, A, Q, EQ, C, CR, E>(
     socket: &mut Framed<S, PgWireMessageServerCodec<EQ::Statement>>,
+    mut startup_timeout: Pin<&mut Sleep>,
     startup_handler: Arc<A>,
     simple_query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
@@ -381,24 +388,53 @@ where
     // for those steps without ssl negotiation
     socket.set_state(PgWireConnectionState::AwaitingStartup);
 
-    while let Some(Ok(msg)) = socket.next().await {
-        let is_extended_query = match socket.state() {
-            PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
-            _ => msg.is_extended_query(),
+    loop {
+        let msg = if matches!(
+            socket.state(),
+            PgWireConnectionState::AwaitingStartup
+                | PgWireConnectionState::AuthenticationInProgress
+        ) {
+            tokio::select! {
+                _ = &mut startup_timeout => {
+                    if matches!(
+                        socket.state(),
+                        PgWireConnectionState::AwaitingStartup
+                        | PgWireConnectionState::AuthenticationInProgress
+                    ) {
+                        None
+                    } else {
+                        continue;
+                    }
+                },
+                msg = socket.next() => {
+                    msg
+                },
+            }
+        } else {
+            socket.next().await
         };
-        if let Err(mut e) = process_message(
-            msg,
-            socket,
-            startup_handler.clone(),
-            simple_query_handler.clone(),
-            extended_query_handler.clone(),
-            copy_handler.clone(),
-            cancel_handler.clone(),
-        )
-        .await
-        {
-            error_handler.on_error(socket, &mut e);
-            process_error(socket, e, is_extended_query).await?;
+
+        if let Some(Ok(msg)) = msg {
+            let is_extended_query = match socket.state() {
+                PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
+                _ => msg.is_extended_query(),
+            };
+            if let Err(mut e) = process_message(
+                msg,
+                socket,
+                startup_handler.clone(),
+                simple_query_handler.clone(),
+                extended_query_handler.clone(),
+                copy_handler.clone(),
+                cancel_handler.clone(),
+            )
+            .await
+            {
+                error_handler.on_error(socket, &mut e);
+                process_error(socket, e, is_extended_query).await?;
+            }
+        } else {
+            break;
         }
     }
 
@@ -440,9 +476,21 @@ where
     let client_info = DefaultClient::new(addr, false);
     let mut tcp_socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
 
+    // start a timer for startup process, if the client couldn't finish startup
+    // within the timeout, it has to be dropped.
+    let startup_timeout = sleep(Duration::from_millis(STARTUP_TIMEOUT_MILLIS));
+    tokio::pin!(startup_timeout);
+
     // this function will process postgres ssl negotiation and consume the first
     // SslRequest packet if detected.
-    let ssl = peek_for_sslrequest(&mut tcp_socket, tls_acceptor.is_some()).await?;
+    let ssl = tokio::select! {
+        _ = &mut startup_timeout => {
+            return Ok(())
+        },
+        ssl = peek_for_sslrequest(&mut tcp_socket, tls_acceptor.is_some()) => {
+            ssl?
+        }
+    };
 
     let startup_handler = handlers.startup_handler();
     let simple_query_handler = handlers.simple_query_handler();
@@ -457,6 +505,7 @@ where
 
         do_process_socket(
             &mut socket,
+            startup_timeout,
             startup_handler,
             simple_query_handler,
             extended_query_handler,
@@ -470,11 +519,16 @@ where
         {
             // mention the use of ssl
             let client_info = DefaultClient::new(addr, true);
-            // safe to unwrap tls_acceptor here
-            let ssl_socket = tls_acceptor
-                .unwrap()
-                .accept(tcp_socket.into_inner())
-                .await?;
+
+            let ssl_socket = tokio::select! {
+                _ = &mut startup_timeout => {
+                    return Ok(())
+                },
+                // safe to unwrap tls_acceptor here
+                ssl_socket_result = tls_acceptor.unwrap().accept(tcp_socket.into_inner()) => {
+                    ssl_socket_result?
+                }
+            };
 
             // check alpn for direct ssl connection
             if ssl == SslNegotiationType::Direct {
@@ -485,6 +539,7 @@ where
 
             do_process_socket(
                 &mut socket,
+                startup_timeout,
                 startup_handler,
                 simple_query_handler,
                 extended_query_handler,
