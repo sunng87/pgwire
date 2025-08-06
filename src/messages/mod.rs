@@ -509,6 +509,13 @@ mod test {
 
         ctx.awaiting_ssl = false;
         roundtrip!(s, Startup, &ctx);
+
+        let mut s_too_large = Startup::default();
+        s_too_large
+            .parameters
+            .insert("user".to_owned(), "a".repeat(10000));
+        let mut buffer = BytesMut::new();
+        assert!(s_too_large.encode(&mut buffer).is_err());
     }
 
     #[test]
@@ -582,6 +589,10 @@ mod test {
 
         let cc = CommandComplete::new("DELETE 5".to_owned());
         roundtrip!(cc, CommandComplete, &ctx);
+
+        let cc = CommandComplete::new("DELETE 5".repeat(10_000));
+        let mut buffer = BytesMut::new();
+        assert!(cc.encode(&mut buffer).is_err());
     }
 
     #[test]
