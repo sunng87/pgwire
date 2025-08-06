@@ -37,6 +37,11 @@ impl Message for CancelRequest {
         12 + self.secret_key.len()
     }
 
+    #[inline]
+    fn max_message_length() -> usize {
+        startup::MAXIMUM_STARTUP_MESSAGE_LEN
+    }
+
     fn encode_body(&self, buf: &mut bytes::BytesMut) -> PgWireResult<()> {
         buf.put_i32(CancelRequest::CANCEL_REQUEST_CODE);
         buf.put_i32(self.pid);
@@ -67,10 +72,15 @@ impl Message for CancelRequest {
         msg_len: usize,
         ctx: &DecodeContext,
     ) -> PgWireResult<Self> {
-        if !(Self::MINIMUM_CANCEL_REQUEST_MESSAGE_LEN..=startup::MAXIMUM_STARTUP_MESSAGE_LEN)
-            .contains(&msg_len)
-        {
+        if msg_len < Self::MINIMUM_CANCEL_REQUEST_MESSAGE_LEN {
             return Err(PgWireError::InvalidCancelRequest);
+        }
+
+        if msg_len > Self::max_message_length() {
+            return Err(PgWireError::MessageTooLarge(
+                msg_len,
+                Self::max_message_length(),
+            ));
         }
 
         // skip cancel code

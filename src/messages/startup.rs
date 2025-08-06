@@ -12,7 +12,7 @@ pub(crate) const MINIMUM_STARTUP_MESSAGE_LEN: usize = 8;
 // as defined in pqcomm.h.
 // this const is shared between all unauthencated messages including Startup,
 // SslRequest, GssRequest and CancelRequest
-pub(crate) const MAXIMUM_STARTUP_MESSAGE_LEN: usize = 10000;
+pub(crate) const MAXIMUM_STARTUP_MESSAGE_LEN: usize = super::SMALL_PACKET_SIZE_LIMIT;
 
 /// Postgresql wire protocol startup message.
 #[non_exhaustive]
@@ -51,6 +51,11 @@ impl Message for Startup {
         9 + param_length
     }
 
+    #[inline]
+    fn max_message_length() -> usize {
+        MAXIMUM_STARTUP_MESSAGE_LEN
+    }
+
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         // version number
         buf.put_u16(self.protocol_number_major);
@@ -78,8 +83,15 @@ impl Message for Startup {
         // `codec::decode_packet` has its validation to ensure buf remaining is
         // larger than `msg_len`. So with both checks, we should not have issue
         // with reading protocol numbers.
-        if msg_len <= MINIMUM_STARTUP_MESSAGE_LEN || msg_len > MAXIMUM_STARTUP_MESSAGE_LEN {
+        if msg_len <= MINIMUM_STARTUP_MESSAGE_LEN {
             return Err(PgWireError::InvalidStartupMessage);
+        }
+
+        if msg_len > Self::max_message_length() {
+            return Err(PgWireError::MessageTooLarge(
+                msg_len,
+                Self::max_message_length(),
+            ));
         }
 
         // parse
@@ -135,6 +147,11 @@ impl Message for Authentication {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_AUTHENTICATION)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
     }
 
     #[inline]
@@ -374,6 +391,11 @@ impl Message for ParameterStatus {
         Some(MESSAGE_TYPE_BYTE_PARAMETER_STATUS)
     }
 
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
+    }
+
     fn message_length(&self) -> usize {
         4 + 2 + self.name.len() + self.value.len()
     }
@@ -487,6 +509,11 @@ impl Message for BackendKeyData {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
     }
 
     #[inline]
@@ -668,6 +695,11 @@ impl Message for NegotiateProtocolVersion {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
     }
 
     #[inline]

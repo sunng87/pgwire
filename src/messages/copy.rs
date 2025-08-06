@@ -19,6 +19,11 @@ impl Message for CopyData {
         Some(MESSAGE_TYPE_BYTE_COPY_DATA)
     }
 
+    #[inline]
+    fn max_message_length() -> usize {
+        super::LARGE_PACKET_SIZE_LIMIT
+    }
+
     fn message_length(&self) -> usize {
         4 + self.data.len()
     }
@@ -104,6 +109,11 @@ impl Message for CopyInResponse {
         Some(MESSAGE_TYPE_BYTE_COPY_IN_RESPONSE)
     }
 
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
+    }
+
     fn message_length(&self) -> usize {
         4 + 1 + 2 + self.column_formats.len() * 2
     }
@@ -145,6 +155,11 @@ impl Message for CopyOutResponse {
         Some(MESSAGE_TYPE_BYTE_COPY_OUT_RESPONSE)
     }
 
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
+    }
+
     fn message_length(&self) -> usize {
         4 + 1 + 2 + self.column_formats.len() * 2
     }
@@ -184,6 +199,11 @@ impl Message for CopyBothResponse {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_COPY_BOTH_RESPONSE)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
     }
 
     fn message_length(&self) -> usize {
