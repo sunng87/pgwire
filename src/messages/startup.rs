@@ -8,6 +8,12 @@ use super::Message;
 use super::ProtocolVersion;
 use crate::error::{PgWireError, PgWireResult};
 
+pub(crate) const MINIMUM_STARTUP_MESSAGE_LEN: usize = 8;
+// as defined in pqcomm.h.
+// this const is shared between all unauthencated messages including Startup,
+// SslRequest, GssRequest and CancelRequest
+pub(crate) const MAXIMUM_STARTUP_MESSAGE_LEN: usize = super::SMALL_PACKET_SIZE_LIMIT;
+
 /// Postgresql wire protocol startup message.
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
@@ -27,10 +33,11 @@ impl Default for Startup {
 }
 
 impl Startup {
-    const MINIMUM_STARTUP_MESSAGE_LEN: usize = 8;
-
     pub const PROTOCOL_VERSION_3_0: i32 = 196608;
     pub const PROTOCOL_VERSION_3_2: i32 = 196610;
+
+    pub const PG_PROTOCOL_EARLIEST: u16 = 3;
+    pub const PG_PROTOCOL_LATEST: u16 = 3;
 }
 
 impl Message for Startup {
@@ -42,6 +49,11 @@ impl Message for Startup {
             .sum::<usize>();
         // length:4 + protocol_number:4 + param.len + nullbyte:1
         9 + param_length
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        MAXIMUM_STARTUP_MESSAGE_LEN
     }
 
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
@@ -71,12 +83,26 @@ impl Message for Startup {
         // `codec::decode_packet` has its validation to ensure buf remaining is
         // larger than `msg_len`. So with both checks, we should not have issue
         // with reading protocol numbers.
-        if msg_len <= Self::MINIMUM_STARTUP_MESSAGE_LEN {
+        if msg_len <= MINIMUM_STARTUP_MESSAGE_LEN {
             return Err(PgWireError::InvalidStartupMessage);
+        }
+
+        if msg_len > Self::max_message_length() {
+            return Err(PgWireError::MessageTooLarge(
+                msg_len,
+                Self::max_message_length(),
+            ));
         }
 
         // parse
         let protocol_number_major = buf.get_u16();
+
+        // ensure the protocol version is correct and supported
+        if !(Self::PG_PROTOCOL_EARLIEST..=Self::PG_PROTOCOL_LATEST).contains(&protocol_number_major)
+        {
+            return Err(PgWireError::InvalidStartupMessage);
+        }
+
         let protocol_number_minor = buf.get_u16();
 
         // end by reading the last \0
@@ -121,6 +147,11 @@ impl Message for Authentication {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_AUTHENTICATION)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
     }
 
     #[inline]
@@ -170,6 +201,7 @@ impl Message for Authentication {
         let code = buf.get_i32();
         let msg = match code {
             0 => Authentication::Ok,
+
             2 => Authentication::KerberosV5,
             3 => Authentication::CleartextPassword,
             5 => {
@@ -195,7 +227,7 @@ impl Message for Authentication {
     }
 }
 
-pub const MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY: u8 = b'p';
+pub const MESSAGE_TYPE_BYTE_PASSWORD_MESSAGE_FAMILY: u8 = b'p';
 
 /// In postgres wire protocol, there are several message types share the same
 /// message type 'p':
@@ -226,7 +258,7 @@ pub enum PasswordMessageFamily {
 
 impl Message for PasswordMessageFamily {
     fn message_type() -> Option<u8> {
-        Some(MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY)
+        Some(MESSAGE_TYPE_BYTE_PASSWORD_MESSAGE_FAMILY)
     }
 
     fn message_length(&self) -> usize {
@@ -323,7 +355,7 @@ pub struct Password {
 impl Message for Password {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY)
+        Some(MESSAGE_TYPE_BYTE_PASSWORD_MESSAGE_FAMILY)
     }
 
     fn message_length(&self) -> usize {
@@ -357,6 +389,11 @@ impl Message for ParameterStatus {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_PARAMETER_STATUS)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
     }
 
     fn message_length(&self) -> usize {
@@ -475,6 +512,11 @@ impl Message for BackendKeyData {
     }
 
     #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
+    }
+
+    #[inline]
     fn message_length(&self) -> usize {
         8 + self.secret_key.len()
     }
@@ -507,7 +549,7 @@ pub struct SslRequest;
 
 impl SslRequest {
     pub const BODY_MAGIC_NUMBER: i32 = 80877103;
-    pub const BODY_SIZE: usize = 8;
+    pub const BODY_SIZE: usize = MINIMUM_STARTUP_MESSAGE_LEN;
 
     pub fn is_ssl_request_packet(buf: &[u8]) -> bool {
         if buf.remaining() >= Self::BODY_SIZE {
@@ -636,7 +678,7 @@ pub struct SASLInitialResponse {
 impl Message for SASLInitialResponse {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY)
+        Some(MESSAGE_TYPE_BYTE_PASSWORD_MESSAGE_FAMILY)
     }
 
     #[inline]
@@ -681,7 +723,7 @@ pub struct SASLResponse {
 impl Message for SASLResponse {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY)
+        Some(MESSAGE_TYPE_BYTE_PASSWORD_MESSAGE_FAMILY)
     }
 
     #[inline]
@@ -717,6 +759,11 @@ impl Message for NegotiateProtocolVersion {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
     }
 
     #[inline]

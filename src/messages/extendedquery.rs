@@ -20,6 +20,11 @@ impl Message for Parse {
         Some(MESSAGE_TYPE_BYTE_PARSE)
     }
 
+    #[inline]
+    fn max_message_length() -> usize {
+        super::LARGE_PACKET_SIZE_LIMIT
+    }
+
     fn message_length(&self) -> usize {
         4 + codec::option_string_len(&self.name) // name
             + (1 + self.query.len()) // query
@@ -71,6 +76,11 @@ impl Message for ParseComplete {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_PARSE_COMPLETE)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
     }
 
     #[inline]
@@ -148,6 +158,11 @@ impl Message for CloseComplete {
     }
 
     #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
+    }
+
+    #[inline]
     fn message_length(&self) -> usize {
         4
     }
@@ -187,6 +202,11 @@ impl Message for Bind {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_BIND)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::LARGE_PACKET_SIZE_LIMIT
     }
 
     fn message_length(&self) -> usize {
@@ -283,6 +303,11 @@ impl Message for BindComplete {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_BIND_COMPLETE)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
     }
 
     #[inline]
@@ -453,6 +478,11 @@ impl Message for PortalSuspended {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_PORTAL_SUSPENDED)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
     }
 
     #[inline]

@@ -24,6 +24,11 @@ impl Message for Query {
         5 + self.query.len()
     }
 
+    #[inline]
+    fn max_message_length() -> usize {
+        super::LARGE_PACKET_SIZE_LIMIT
+    }
+
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         codec::put_cstring(buf, &self.query);
 

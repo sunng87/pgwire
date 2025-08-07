@@ -36,8 +36,14 @@ pub struct RowDescription {
 pub const MESSAGE_TYPE_BYTE_ROW_DESCRITION: u8 = b'T';
 
 impl Message for RowDescription {
+    #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_ROW_DESCRITION)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::LONG_BACKEND_PACKET_SIZE_LIMIT
     }
 
     fn message_length(&self) -> usize {
@@ -98,8 +104,14 @@ pub struct ParameterDescription {
 pub const MESSAGE_TYPE_BYTE_PARAMETER_DESCRITION: u8 = b't';
 
 impl Message for ParameterDescription {
+    #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_PARAMETER_DESCRITION)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
     }
 
     fn message_length(&self) -> usize {
@@ -149,6 +161,11 @@ impl Message for DataRow {
         Some(MESSAGE_TYPE_BYTE_DATA_ROW)
     }
 
+    #[inline]
+    fn max_message_length() -> usize {
+        super::LONG_BACKEND_PACKET_SIZE_LIMIT
+    }
+
     fn message_length(&self) -> usize {
         4 + 2 + self.data.len()
     }
@@ -182,6 +199,11 @@ impl Message for NoData {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_NO_DATA)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
     }
 
     fn message_length(&self) -> usize {

@@ -1,6 +1,10 @@
 use bytes::{Buf, BufMut};
 
-use super::{codec, startup::SecretKey, DecodeContext, Message};
+use super::{
+    codec,
+    startup::{self, SecretKey},
+    DecodeContext, Message,
+};
 use crate::error::{PgWireError, PgWireResult};
 
 #[non_exhaustive]
@@ -13,11 +17,12 @@ pub struct CancelRequest {
 impl CancelRequest {
     const CANCEL_REQUEST_CODE: i32 = 80877102;
 
-    const MINIMUM_CANCEL_REQUEST_MESSAGE_LEN: usize = 16;
+    // minimum length (8) + pid (4) + minimum secret length (4)
+    const MINIMUM_CANCEL_REQUEST_MESSAGE_LEN: usize = startup::MINIMUM_STARTUP_MESSAGE_LEN + 8;
 
     /// try to inspect the buf if it's a cancel request packet
     pub fn is_cancel_request_packet(buf: &[u8]) -> bool {
-        if buf.remaining() < 8 {
+        if buf.remaining() < startup::MINIMUM_STARTUP_MESSAGE_LEN {
             return false;
         }
 
@@ -32,6 +37,11 @@ impl Message for CancelRequest {
         12 + self.secret_key.len()
     }
 
+    #[inline]
+    fn max_message_length() -> usize {
+        startup::MAXIMUM_STARTUP_MESSAGE_LEN
+    }
+
     fn encode_body(&self, buf: &mut bytes::BytesMut) -> PgWireResult<()> {
         buf.put_i32(CancelRequest::CANCEL_REQUEST_CODE);
         buf.put_i32(self.pid);
@@ -44,7 +54,7 @@ impl Message for CancelRequest {
     /// Please call `is_cancel_request_packet` before calling this if you don't
     /// want to get an error for non-CancelRequest packet.
     fn decode(buf: &mut bytes::BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
-        if buf.remaining() >= 8 {
+        if buf.remaining() >= startup::MINIMUM_STARTUP_MESSAGE_LEN {
             if Self::is_cancel_request_packet(buf) {
                 codec::decode_packet(buf, 0, |buf, full_len| {
                     Self::decode_body(buf, full_len, ctx)
@@ -62,8 +72,15 @@ impl Message for CancelRequest {
         msg_len: usize,
         ctx: &DecodeContext,
     ) -> PgWireResult<Self> {
-        if msg_len < CancelRequest::MINIMUM_CANCEL_REQUEST_MESSAGE_LEN {
+        if msg_len < Self::MINIMUM_CANCEL_REQUEST_MESSAGE_LEN {
             return Err(PgWireError::InvalidCancelRequest);
+        }
+
+        if msg_len > Self::max_message_length() {
+            return Err(PgWireError::MessageTooLarge(
+                msg_len,
+                Self::max_message_length(),
+            ));
         }
 
         // skip cancel code

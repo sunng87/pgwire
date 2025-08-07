@@ -19,6 +19,11 @@ impl Message for CommandComplete {
         Some(MESSAGE_TYPE_BYTE_COMMAND_COMPLETE)
     }
 
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
+    }
+
     fn message_length(&self) -> usize {
         5 + self.tag.len()
     }
@@ -45,6 +50,11 @@ pub const MESSAGE_TYPE_BYTE_EMPTY_QUERY_RESPONSE: u8 = b'I';
 impl Message for EmptyQueryResponse {
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_EMPTY_QUERY_RESPONSE)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
     }
 
     fn message_length(&self) -> usize {
@@ -91,6 +101,11 @@ impl Message for ReadyForQuery {
     }
 
     #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
+    }
+
+    #[inline]
     fn message_length(&self) -> usize {
         5
     }
@@ -132,6 +147,11 @@ impl Message for ErrorResponse {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_ERROR_RESPONSE)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::LONG_BACKEND_PACKET_SIZE_LIMIT
     }
 
     fn message_length(&self) -> usize {
@@ -177,6 +197,11 @@ impl Message for NoticeResponse {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_NOTICE_RESPONSE)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::LONG_BACKEND_PACKET_SIZE_LIMIT
     }
 
     fn message_length(&self) -> usize {
@@ -339,6 +364,11 @@ impl Message for NotificationResponse {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_NOTIFICATION_RESPONSE)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::LONG_BACKEND_PACKET_SIZE_LIMIT
     }
 
     fn message_length(&self) -> usize {

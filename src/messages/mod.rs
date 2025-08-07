@@ -36,6 +36,14 @@ impl ProtocolVersion {
     }
 }
 
+// 1 gigabyte - 1
+pub(crate) const LARGE_PACKET_SIZE_LIMIT: usize = 0x3fffffff - 1;
+pub(crate) const SMALL_PACKET_SIZE_LIMIT: usize = 10000;
+// libpq has a limit on backend message length, except those
+// VALID_LONG_MESSAGE_TYPE
+pub(crate) const SMALL_BACKEND_PACKET_SIZE_LIMIT: usize = 30000;
+pub(crate) const LONG_BACKEND_PACKET_SIZE_LIMIT: usize = i32::MAX as usize;
+
 #[non_exhaustive]
 #[derive(Default, Debug, PartialEq, Eq, new)]
 pub struct DecodeContext {
@@ -58,6 +66,14 @@ pub trait Message: Sized {
     /// Return the length of the message, including the length integer itself.
     fn message_length(&self) -> usize;
 
+    /// Return the max length of message in this type.
+    ///
+    /// This is to validate the length field in decode
+    #[inline]
+    fn max_message_length() -> usize {
+        SMALL_PACKET_SIZE_LIMIT
+    }
+
     /// Encode body part of the message.
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()>;
 
@@ -74,7 +90,15 @@ pub trait Message: Sized {
             buf.put_u8(mt);
         }
 
-        buf.put_i32(self.message_length() as i32);
+        let len = self.message_length();
+        if len > Self::max_message_length() {
+            return Err(PgWireError::MessageTooLarge(
+                len,
+                Self::max_message_length(),
+            ));
+        }
+
+        buf.put_i32(len as i32);
         self.encode_body(buf)
     }
 
@@ -87,6 +111,13 @@ pub trait Message: Sized {
         let offset = Self::message_type().is_some().into();
 
         codec::decode_packet(buf, offset, |buf, full_len| {
+            if full_len > Self::max_message_length() {
+                return Err(PgWireError::MessageTooLarge(
+                    full_len,
+                    Self::max_message_length(),
+                ));
+            }
+
             Self::decode_body(buf, full_len, ctx)
         })
     }
@@ -220,7 +251,7 @@ impl PgWireFrontendMessage {
             match first_byte {
                 // Password, SASLInitialResponse, SASLResponse can only be
                 // decoded under certain context
-                startup::MESSAGE_TYPE_BYTE_PASWORD_MESSAGE_FAMILY => {
+                startup::MESSAGE_TYPE_BYTE_PASSWORD_MESSAGE_FAMILY => {
                     startup::PasswordMessageFamily::decode(buf, ctx)
                         .map(|v| v.map(Self::PasswordMessageFamily))
                 }
@@ -485,6 +516,13 @@ mod test {
 
         ctx.awaiting_ssl = false;
         roundtrip!(s, Startup, &ctx);
+
+        let mut s_too_large = Startup::default();
+        s_too_large
+            .parameters
+            .insert("user".to_owned(), "a".repeat(10000));
+        let mut buffer = BytesMut::new();
+        assert!(s_too_large.encode(&mut buffer).is_err());
     }
 
     #[test]
@@ -558,6 +596,10 @@ mod test {
 
         let cc = CommandComplete::new("DELETE 5".to_owned());
         roundtrip!(cc, CommandComplete, &ctx);
+
+        let cc = CommandComplete::new("DELETE 5".repeat(10_000));
+        let mut buffer = BytesMut::new();
+        assert!(cc.encode(&mut buffer).is_err());
     }
 
     #[test]
