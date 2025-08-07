@@ -91,7 +91,7 @@ rustls-pki-types = { version = "1.10" }
 rusqlite = { version = "0.37.0", features = ["column_decltype"] }
 ## for duckdb example
 duckdb = { version = "1.0.0" }
-arrow-pg = "0.*"
+arrow-pg = "0.4.1"
 
 ## for loading custom cert files
 rustls-pemfile = "2.0"
