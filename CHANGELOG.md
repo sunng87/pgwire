@@ -16,6 +16,10 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   after timeout. [#293]
 - Added validation on packet length. [#292]
 
+### Changed
+
+- Corrected typo for `MESSAGE_TYPE_BYTE_PASSWORD_MESSAGE_FAMILY`
+
 ## [0.31.1] - 2025-07-31
 
 ### Added
