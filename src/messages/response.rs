@@ -269,6 +269,61 @@ impl Message for SslResponse {
     }
 }
 
+/// Response to GssEncRequest.
+#[non_exhaustive]
+#[derive(Debug, PartialEq)]
+pub enum GssEncResponse {
+    Accept,
+    Refuse,
+}
+
+impl GssEncResponse {
+    pub const BYTE_ACCEPT: u8 = b'G';
+    pub const BYTE_REFUSE: u8 = b'N';
+    // The whole message takes only one byte and has no size field.
+    pub const MESSAGE_LENGTH: usize = 1;
+}
+
+impl Message for GssEncResponse {
+    fn message_length(&self) -> usize {
+        Self::MESSAGE_LENGTH
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        match self {
+            Self::Accept => buf.put_u8(Self::BYTE_ACCEPT),
+            Self::Refuse => buf.put_u8(Self::BYTE_REFUSE),
+        }
+        Ok(())
+    }
+
+    fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        self.encode_body(buf)
+    }
+
+    fn decode_body(_: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
+        unreachable!()
+    }
+
+    fn decode(buf: &mut BytesMut, _ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
+        if buf.remaining() >= Self::MESSAGE_LENGTH {
+            match buf[0] {
+                Self::BYTE_ACCEPT => {
+                    buf.advance(Self::MESSAGE_LENGTH);
+                    Ok(Some(Self::Accept))
+                }
+                Self::BYTE_REFUSE => {
+                    buf.advance(Self::MESSAGE_LENGTH);
+                    Ok(Some(Self::Refuse))
+                }
+                _ => Ok(None),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+}
+
 /// NotificationResponse
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]

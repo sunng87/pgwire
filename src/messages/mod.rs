@@ -116,6 +116,7 @@ pub enum PgWireFrontendMessage {
     Startup(startup::Startup),
     CancelRequest(cancel::CancelRequest),
     SslRequest(startup::SslRequest),
+    GssEncRequest(startup::GssEncRequest),
     PasswordMessageFamily(startup::PasswordMessageFamily),
 
     Query(simplequery::Query),
@@ -154,6 +155,7 @@ impl PgWireFrontendMessage {
             Self::Startup(msg) => msg.encode(buf),
             Self::CancelRequest(msg) => msg.encode(buf),
             Self::SslRequest(msg) => msg.encode(buf),
+            Self::GssEncRequest(msg) => msg.encode(buf),
 
             Self::PasswordMessageFamily(msg) => msg.encode(buf),
 
@@ -190,6 +192,9 @@ impl PgWireFrontendMessage {
                 } else if startup::SslRequest::is_ssl_request_packet(buf) {
                     startup::SslRequest::decode(buf, ctx)
                         .map(|opt| opt.map(PgWireFrontendMessage::SslRequest))
+                } else if startup::GssEncRequest::is_gss_enc_request_packet(buf) {
+                    startup::GssEncRequest::decode(buf, ctx)
+                        .map(|opt| opt.map(PgWireFrontendMessage::GssEncRequest))
                 } else {
                     // startup
                     startup::Startup::decode(buf, ctx).map(|v| v.map(Self::Startup))
@@ -271,6 +276,8 @@ impl PgWireFrontendMessage {
 #[derive(Debug)]
 pub enum PgWireBackendMessage {
     // startup
+    SslResponse(response::SslResponse),
+    GssEncResponse(response::GssEncResponse),
     Authentication(startup::Authentication),
     ParameterStatus(startup::ParameterStatus),
     BackendKeyData(startup::BackendKeyData),
@@ -288,7 +295,6 @@ pub enum PgWireBackendMessage {
     ReadyForQuery(response::ReadyForQuery),
     ErrorResponse(response::ErrorResponse),
     NoticeResponse(response::NoticeResponse),
-    SslResponse(response::SslResponse),
     NotificationResponse(response::NotificationResponse),
 
     // data
@@ -309,6 +315,8 @@ pub enum PgWireBackendMessage {
 impl PgWireBackendMessage {
     pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         match self {
+            Self::SslResponse(msg) => msg.encode(buf),
+            Self::GssEncResponse(msg) => msg.encode(buf),
             Self::Authentication(msg) => msg.encode(buf),
             Self::ParameterStatus(msg) => msg.encode(buf),
             Self::BackendKeyData(msg) => msg.encode(buf),
@@ -324,7 +332,6 @@ impl PgWireBackendMessage {
             Self::ReadyForQuery(msg) => msg.encode(buf),
             Self::ErrorResponse(msg) => msg.encode(buf),
             Self::NoticeResponse(msg) => msg.encode(buf),
-            Self::SslResponse(msg) => msg.encode(buf),
             Self::NotificationResponse(msg) => msg.encode(buf),
 
             Self::ParameterDescription(msg) => msg.encode(buf),
@@ -758,6 +765,24 @@ mod test {
         roundtrip!(sslaccept, SslResponse, &ctx);
         let sslrefuse = SslResponse::Refuse;
         roundtrip!(sslrefuse, SslResponse, &ctx);
+    }
+
+    #[test]
+    fn test_gssencrequest() {
+        let ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+
+        let sslreq = GssEncRequest::new();
+        roundtrip!(sslreq, GssEncRequest, &ctx);
+    }
+
+    #[test]
+    fn test_gssencresponse() {
+        let ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+
+        let gssenc_accept = GssEncResponse::Accept;
+        roundtrip!(gssenc_accept, GssEncResponse, &ctx);
+        let gssenc_refuse = GssEncResponse::Refuse;
+        roundtrip!(gssenc_refuse, GssEncResponse, &ctx);
     }
 
     #[test]

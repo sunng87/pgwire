@@ -20,6 +20,8 @@ pub enum PgWireError {
     InvalidTransactionStatus(u8),
     #[error("Invalid ssl request message")]
     InvalidSSLRequestMessage,
+    #[error("Invalid gss encrypt request message")]
+    InvalidGssEncRequestMessage,
     #[error("Invalid startup message")]
     InvalidStartupMessage,
     #[error("Invalid authentication message code: {0}")]
@@ -244,6 +246,9 @@ impl From<PgWireError> for ErrorInfo {
                 ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
             }
             PgWireError::InvalidSSLRequestMessage => {
+                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
+            }
+            PgWireError::InvalidGssEncRequestMessage => {
                 ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
             }
             PgWireError::InvalidStartupMessage => {

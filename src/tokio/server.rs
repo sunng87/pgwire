@@ -22,9 +22,9 @@ use crate::api::{
     PgWireServerHandlers,
 };
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
-use crate::messages::response::ReadyForQuery;
+use crate::messages::response::{GssEncResponse, ReadyForQuery};
 use crate::messages::response::{SslResponse, TransactionStatus};
-use crate::messages::startup::{SecretKey, SslRequest};
+use crate::messages::startup::{GssEncRequest, SecretKey, SslRequest};
 use crate::messages::{
     DecodeContext, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,
 };
@@ -61,7 +61,9 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
         let msg = PgWireFrontendMessage::decode(src, &decode_context);
 
         // move state forward
-        if let Ok(Some(PgWireFrontendMessage::SslRequest(_))) = msg {
+        if let Ok(Some(PgWireFrontendMessage::SslRequest(_)))
+        | Ok(Some(PgWireFrontendMessage::GssEncRequest(_))) = msg
+        {
             self.client_info
                 .set_state(PgWireConnectionState::AwaitingStartup);
         }
@@ -331,36 +333,60 @@ async fn peek_for_sslrequest<ST>(
     socket: &mut Framed<TcpStream, PgWireMessageServerCodec<ST>>,
     ssl_supported: bool,
 ) -> Result<SslNegotiationType, io::Error> {
-    let tcp_socket = socket.get_ref();
-    if check_ssl_direct_negotiation(tcp_socket).await? {
+    if check_ssl_direct_negotiation(socket.get_ref()).await? {
         Ok(SslNegotiationType::Direct)
     } else {
-        let mut buf = [0u8; 8];
-        let n = tcp_socket.peek(&mut buf).await?;
+        let mut ssl_done = false;
+        let mut gss_done = false;
 
-        if n == buf.len() {
-            if SslRequest::is_ssl_request_packet(&buf) {
-                // consume SslRequest
-                let _ = socket.next().await;
-                // ssl request
-                if ssl_supported {
+        loop {
+            let mut buf = [0u8; 8];
+            let n = socket.get_ref().peek(&mut buf).await?;
+
+            if n == buf.len() {
+                if SslRequest::is_ssl_request_packet(&buf) {
+                    // consume SslRequest
+                    let _ = socket.next().await;
+                    // ssl request
+                    if ssl_supported {
+                        socket
+                            .send(PgWireBackendMessage::SslResponse(SslResponse::Accept))
+                            .await?;
+                        return Ok(SslNegotiationType::Postgres);
+                    } else {
+                        socket
+                            .send(PgWireBackendMessage::SslResponse(SslResponse::Refuse))
+                            .await?;
+                        ssl_done = true;
+
+                        if gss_done {
+                            return Ok(SslNegotiationType::None);
+                        } else {
+                            // Continue to check for more requests (e.g., GssEncRequest after SSL refuse)
+                            continue;
+                        }
+                    }
+                } else if GssEncRequest::is_gss_enc_request_packet(&buf) {
+                    let _ = socket.next().await;
                     socket
-                        .send(PgWireBackendMessage::SslResponse(SslResponse::Accept))
+                        .send(PgWireBackendMessage::GssEncResponse(GssEncResponse::Refuse))
                         .await?;
-                    Ok(SslNegotiationType::Postgres)
+                    gss_done = true;
+
+                    if ssl_done {
+                        return Ok(SslNegotiationType::None);
+                    } else {
+                        // Continue to check for more requests (e.g., SSL request after GSSAPI refuse)
+                        continue;
+                    }
                 } else {
-                    socket
-                        .send(PgWireBackendMessage::SslResponse(SslResponse::Refuse))
-                        .await?;
-                    Ok(SslNegotiationType::None)
+                    // startup or cancel
+                    return Ok(SslNegotiationType::None);
                 }
             } else {
-                // startup or cancel
-                Ok(SslNegotiationType::None)
+                // failed to peek, the connection may have gone
+                return Ok(SslNegotiationType::None);
             }
-        } else {
-            // failed to peek, the connection may have gone
-            Ok(SslNegotiationType::None)
         }
     }
 }
