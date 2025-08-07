@@ -331,6 +331,9 @@ async fn peek_for_sslrequest<ST>(
     if check_ssl_direct_negotiation(socket.get_ref()).await? {
         Ok(SslNegotiationType::Direct)
     } else {
+        let mut ssl_done = false;
+        let mut gss_done = false;
+
         loop {
             let mut buf = [0u8; 8];
             let n = socket.get_ref().peek(&mut buf).await?;
@@ -349,15 +352,28 @@ async fn peek_for_sslrequest<ST>(
                         socket
                             .send(PgWireBackendMessage::SslResponse(SslResponse::Refuse))
                             .await?;
-                        return Ok(SslNegotiationType::None);
+                        ssl_done = true;
+
+                        if gss_done {
+                            return Ok(SslNegotiationType::None);
+                        } else {
+                            // Continue to check for more requests (e.g., GssEncRequest after SSL refuse)
+                            continue;
+                        }
                     }
                 } else if GssEncRequest::is_gss_enc_request_packet(&buf) {
                     let _ = socket.next().await;
                     socket
                         .send(PgWireBackendMessage::GssEncResponse(GssEncResponse::Refuse))
                         .await?;
-                    // Continue to check for more requests (e.g., SSL request after GSSAPI refuse)
-                    continue;
+                    gss_done = true;
+
+                    if ssl_done {
+                        return Ok(SslNegotiationType::None);
+                    } else {
+                        // Continue to check for more requests (e.g., SSL request after GSSAPI refuse)
+                        continue;
+                    }
                 } else {
                     // startup or cancel
                     return Ok(SslNegotiationType::None);
