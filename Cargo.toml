@@ -83,14 +83,15 @@ client-api-aws-lc-rs = ["client-api", "_aws-lc-rs", "dep:rustls-pki-types"]
 scram = ["dep:base64", "dep:stringprep", "dep:x509-certificate"]
 _duckdb = []
 _sqlite = []
-_bundled = ["duckdb/bundled", "rusqlite/bundled"]
+#_bundled = ["duckdb/bundled", "rusqlite/bundled"]
 
 [dev-dependencies]
 tokio = { version = "1.19", features = ["rt-multi-thread", "net", "macros", "time"]}
 futures-util = "*"
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "chrono"] }
 tokio-stream = { version = "*", features = ["net"] }
 rustls-pki-types = { version = "1.10" }
-rusqlite = { version = "0.37.0", features = ["column_decltype"] }
+#rusqlite = { version = "0.37.0", features = ["column_decltype"] }
 ## for duckdb example
 duckdb = { version = "1.0.0" }
 arrow-pg = "0.4.1"

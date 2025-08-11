@@ -31,3 +31,10 @@ jobs:
     - name: Run sleep example on ${{ matrix.platform }}
       run: cargo run --example sleep
       timeout-minutes: 10
+
+    - name: start background server
+      run: cargo run --example server &
+
+    - name: test sqlx
+      run: cargo run --example sqlx
+      timeout-minutes: 3
