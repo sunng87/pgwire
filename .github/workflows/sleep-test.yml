@@ -40,7 +40,20 @@ jobs:
       shell: powershell
       run: |
            Start-Process -FilePath "./target/debug/examples/server" -RedirectStandardOutput "server.log" -RedirectStandardError "server-error.log" -NoNewWindow
-           Start-Sleep -Seconds 5  # Give server time to start
+           # Check every second for 30 seconds
+           for ($i = 1; $i -le 30; $i++) {
+             Start-Sleep -Seconds 1
+
+             # Check if process exists
+             $serverProcess = Get-Process | Where-Object {$_.ProcessName -like "*server*"}
+             if (-not $serverProcess) {
+               Write-Host "ERROR: Server process not found after $i seconds!"
+               Write-Host "=== Server logs ==="
+               Get-Content "server.log" -ErrorAction SilentlyContinue
+               Get-Content "server-error.log" -ErrorAction SilentlyContinue
+               exit 1
+             }
+           }
 
     - name: Wait for server to start
       shell: powershell

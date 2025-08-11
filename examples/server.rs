@@ -24,7 +24,7 @@ impl PgWireServerHandlers for common::DummyProcessorFactory {
 pub async fn main() {
     let factory = Arc::new(common::DummyProcessorFactory::new());
 
-    let server_addr = "127.0.0.1:5432";
+    let server_addr = "0.0.0.0:5432";
     let listener = TcpListener::bind(server_addr).await.unwrap();
     println!("Listening to {}", server_addr);
     loop {
