@@ -7,7 +7,7 @@ use std::time::Duration;
 async fn main() -> Result<(), std::io::Error> {
     // 1. Load the database URL from an environment variable.
     // This is a best practice for not hardcoding credentials.
-    let database_url = "postgres://postgres:password@nc.sunng.info:5432/test";
+    let database_url = "postgres://postgres:password@127.0.0.1:5432/test";
 
     println!("Connecting to database...");
 
