@@ -1,4 +1,4 @@
-use std::io;
+use std::io::{self, Write};
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -60,6 +60,7 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
 
         let msg = PgWireFrontendMessage::decode(src, &decode_context);
         println!("{:?}, {:?}", self.client_info.socket_addr, &msg);
+        std::io::stdout().flush().unwrap();
 
         msg
     }
