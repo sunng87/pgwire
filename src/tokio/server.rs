@@ -58,9 +58,7 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
             }
         }
 
-        let msg = PgWireFrontendMessage::decode(src, &decode_context);
-
-        msg
+        PgWireFrontendMessage::decode(src, &decode_context)
     }
 }
 
