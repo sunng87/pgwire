@@ -327,6 +327,7 @@ async fn peek_for_sslrequest<ST>(
     socket: &mut Framed<TcpStream, PgWireMessageServerCodec<ST>>,
     ssl_supported: bool,
 ) -> Result<SslNegotiationType, io::Error> {
+    println!("peeking tls");
     if check_ssl_direct_negotiation(socket.get_ref()).await? {
         Ok(SslNegotiationType::Direct)
     } else {
@@ -336,6 +337,8 @@ async fn peek_for_sslrequest<ST>(
         loop {
             let mut buf = [0u8; 8];
             let n = socket.get_ref().peek(&mut buf).await?;
+            println!("Reading n {}", n);
+            println!("Reading buf {:?}", &buf);
 
             if n == buf.len() {
                 if SslRequest::is_ssl_request_packet(&buf) {
@@ -421,6 +424,7 @@ where
                         PgWireConnectionState::AwaitingStartup
                         | PgWireConnectionState::AuthenticationInProgress
                     ) {
+                        println!("timeout");
                         None
                     } else {
                         continue;
@@ -434,6 +438,7 @@ where
             socket.next().await
         };
 
+        println!("{:?}", msg);
         if let Some(Ok(msg)) = msg {
             let is_extended_query = match socket.state() {
                 PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
@@ -511,6 +516,7 @@ where
             ssl?
         }
     };
+    println!("ssl ready");
 
     let startup_handler = handlers.startup_handler();
     let simple_query_handler = handlers.simple_query_handler();
