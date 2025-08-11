@@ -393,7 +393,7 @@ async fn peek_for_sslrequest<ST>(
 #[allow(clippy::too_many_arguments)]
 async fn do_process_socket<S, A, Q, EQ, C, CR, E>(
     socket: &mut Framed<S, PgWireMessageServerCodec<EQ::Statement>>,
-    mut startup_timeout: Pin<&mut Sleep>,
+    mut _startup_timeout: Pin<&mut Sleep>,
     startup_handler: Arc<A>,
     simple_query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
@@ -420,18 +420,18 @@ where
                 | PgWireConnectionState::AuthenticationInProgress
         ) {
             tokio::select! {
-                _ = &mut startup_timeout => {
-                    if matches!(
-                        socket.state(),
-                        PgWireConnectionState::AwaitingStartup
-                        | PgWireConnectionState::AuthenticationInProgress
-                    ) {
-                        println!("timeout");
-                        None
-                    } else {
-                        continue;
-                    }
-                },
+                // _ = &mut startup_timeout => {
+                //     if matches!(
+                //         socket.state(),
+                //         PgWireConnectionState::AwaitingStartup
+                //         | PgWireConnectionState::AuthenticationInProgress
+                //     ) {
+                //         println!("timeout");
+                //         None
+                //     } else {
+                //         continue;
+                //     }
+                // },
                 msg = socket.next() => {
                     msg
                 },
@@ -514,9 +514,9 @@ where
     // this function will process postgres ssl negotiation and consume the first
     // SslRequest packet if detected.
     let ssl = tokio::select! {
-        _ = &mut startup_timeout => {
-            return Ok(())
-        },
+        // _ = &mut startup_timeout => {
+        //     return Ok(())
+        // },
         ssl = peek_for_sslrequest(&mut tcp_socket, tls_acceptor.is_some()) => {
             ssl?
         }
