@@ -40,7 +40,28 @@ jobs:
       shell: powershell
       run: |
            Start-Process -FilePath "./target/debug/examples/server" -RedirectStandardOutput "server.log" -RedirectStandardError "server-error.log" -NoNewWindow
-           Start-Sleep -Seconds 10  # Give server time to start
+           Start-Sleep -Seconds 5  # Give server time to start
+
+    - name: Wait for server to start
+      shell: powershell
+      run: |
+        $timeout = 30
+        $elapsed = 0
+        do {
+          $result = Test-NetConnection -ComputerName localhost -Port 5432 -InformationLevel Quiet
+          if ($result) {
+            Write-Host "Port 5432 is open!"
+            break
+          }
+          Start-Sleep -Seconds 1
+          $elapsed++
+          Write-Host "Waiting for port 5432... ($elapsed/$timeout)"
+        } while ($elapsed -lt $timeout)
+
+        if (-not $result) {
+          Write-Host "Port 5432 did not open within $timeout seconds"
+          exit 1
+        }
 
     - name: test sqlx
       run: cargo run --example sqlx
