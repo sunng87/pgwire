@@ -1,6 +1,6 @@
 use futures_util::future::{AbortHandle, Abortable};
 use std::io;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{self, Duration};
 
@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = tokio::spawn(async move {
         time::sleep(Duration::from_secs(1)).await; // Wait for server to be ready
 
-        if let Ok(mut stream) = TcpStream::connect("127.0.0.1:12306").await {
+        if let Ok(_stream) = TcpStream::connect("127.0.0.1:12306").await {
             println!("Client connected");
             time::sleep(Duration::from_secs(20)).await;
             // stream.write_all(b"Hello, server!\n").await.ok();
