@@ -18,7 +18,8 @@ async fn main() -> Result<(), std::io::Error> {
         // Set the maximum number of connections in the pool.
         .max_connections(5)
         // Set a timeout for acquiring a connection from the pool.
-        .acquire_timeout(Duration::from_secs(5))
+        .acquire_timeout(Duration::from_secs(20))
+        .test_before_acquire(false)
         // Connect to the database.
         .connect(&database_url)
         .await
