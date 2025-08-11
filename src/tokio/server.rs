@@ -495,6 +495,7 @@ pub async fn process_socket<H>(
 where
     H: PgWireServerHandlers,
 {
+    println!("processing socket");
     let addr = tcp_socket.peer_addr()?;
     tcp_socket.set_nodelay(true)?;
 

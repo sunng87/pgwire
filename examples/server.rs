@@ -29,6 +29,7 @@ pub async fn main() {
     loop {
         let incoming_socket = listener.accept().await.unwrap();
         let factory_ref = factory.clone();
+        println!("incoming socket: {:?}", &incoming_socket);
         tokio::spawn(async move { process_socket(incoming_socket.0, None, factory_ref).await });
     }
 }
