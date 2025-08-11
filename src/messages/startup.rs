@@ -73,7 +73,7 @@ impl Message for Startup {
     }
 
     fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
-        codec::decode_packet(buf, 0, |buf, full_len| {
+        codec::decode_packet(buf, 0, Self::max_message_length(), |buf, full_len| {
             Self::decode_body(buf, full_len, ctx)
         })
     }
@@ -85,13 +85,6 @@ impl Message for Startup {
         // with reading protocol numbers.
         if msg_len <= MINIMUM_STARTUP_MESSAGE_LEN {
             return Err(PgWireError::InvalidStartupMessage);
-        }
-
-        if msg_len > Self::max_message_length() {
-            return Err(PgWireError::MessageTooLarge(
-                msg_len,
-                Self::max_message_length(),
-            ));
         }
 
         // parse
