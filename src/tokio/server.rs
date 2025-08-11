@@ -59,6 +59,7 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
         }
 
         let msg = PgWireFrontendMessage::decode(src, &decode_context);
+        println!("{:?}, {:?}", self.client_info.socket_addr, &msg);
 
         // move state forward
         if let Ok(Some(PgWireFrontendMessage::SslRequest(_)))

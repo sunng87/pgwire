@@ -33,8 +33,12 @@ jobs:
       timeout-minutes: 10
 
     - name: start background server
-      run: cargo run --example server &
+      run: cargo run --example server > data.log &
 
     - name: test sqlx
       run: cargo run --example sqlx
       timeout-minutes: 3
+
+    - name: show logs
+      if: ${{ always() }}
+      run: cat data.log
