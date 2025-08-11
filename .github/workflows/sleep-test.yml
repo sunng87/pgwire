@@ -33,8 +33,11 @@ jobs:
     #   run: cargo run --example sleep
     #   timeout-minutes: 10
 
-    - name: start background server
-      run: cargo run --example server > data.log &
+    - name: build background server
+      run: cargo build --example server
+
+    - name: start server
+      run: ./target/debug/example/server > data.log &
 
     - name: wait for server to startup
       run: sleep 5
