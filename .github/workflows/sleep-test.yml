@@ -36,16 +36,25 @@ jobs:
     - name: build background server
       run: cargo build --example server
 
-    - name: start server
-      run: ./target/debug/example/server > data.log &
-
-    - name: wait for server to startup
-      run: sleep 5
+    - name: Start server in background
+      shell: powershell
+      run: |
+           Start-Process -FilePath "./target/debug/examples/server" -RedirectStandardOutput "server.log" -RedirectStandardError "server-error.log" -NoNewWindow
+           Start-Sleep -Seconds 5  # Give server time to start
 
     - name: test sqlx
       run: cargo run --example sqlx
       timeout-minutes: 3
 
     - name: show logs
-      if: ${{ always() }}
-      run: cat data.log
+      if: always()
+      shell: powershell
+      run: |
+          if (Test-Path "server.log") {
+            Write-Host "=== Server Output ==="
+            Get-Content "server.log"
+          }
+          if (Test-Path "server-error.log") {
+            Write-Host "=== Server Errors ==="
+            Get-Content "server-error.log"
+          }
