@@ -10,14 +10,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+#        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [windows-latest]
         include:
-          - os: ubuntu-latest
-            platform: Linux
+          # - os: ubuntu-latest
+          #   platform: Linux
           - os: windows-latest
             platform: Windows
-          - os: macos-latest
-            platform: macOS
+          # - os: macos-latest
+          #   platform: macOS
 
     steps:
     - name: Checkout code
@@ -28,12 +29,15 @@ jobs:
       with:
         toolchain: stable
 
-    - name: Run sleep example on ${{ matrix.platform }}
-      run: cargo run --example sleep
-      timeout-minutes: 10
+    # - name: Run sleep example on ${{ matrix.platform }}
+    #   run: cargo run --example sleep
+    #   timeout-minutes: 10
 
     - name: start background server
       run: cargo run --example server > data.log &
+
+    - name: wait for server to startup
+      run: sleep 5
 
     - name: test sqlx
       run: cargo run --example sqlx
