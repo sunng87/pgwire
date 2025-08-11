@@ -339,6 +339,7 @@ async fn peek_for_sslrequest<ST>(
             let n = socket.get_ref().peek(&mut buf).await?;
             println!("Reading n {}", n);
             println!("Reading buf {:?}", &buf);
+            std::io::stdout().flush().unwrap();
 
             if n == buf.len() {
                 if SslRequest::is_ssl_request_packet(&buf) {
@@ -496,6 +497,7 @@ where
     H: PgWireServerHandlers,
 {
     println!("processing socket");
+    std::io::stdout().flush().unwrap();
     let addr = tcp_socket.peer_addr()?;
     tcp_socket.set_nodelay(true)?;
 

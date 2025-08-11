@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::sync::Arc;
 
 use tokio::net::TcpListener;
@@ -30,6 +31,7 @@ pub async fn main() {
         let incoming_socket = listener.accept().await.unwrap();
         let factory_ref = factory.clone();
         println!("incoming socket: {:?}", &incoming_socket);
+        std::io::stdout().flush().unwrap();
         tokio::spawn(async move { process_socket(incoming_socket.0, None, factory_ref).await });
     }
 }

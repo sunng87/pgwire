@@ -40,7 +40,7 @@ jobs:
       shell: powershell
       run: |
            Start-Process -FilePath "./target/debug/examples/server" -RedirectStandardOutput "server.log" -RedirectStandardError "server-error.log" -NoNewWindow
-           Start-Sleep -Seconds 5  # Give server time to start
+           Start-Sleep -Seconds 10  # Give server time to start
 
     - name: test sqlx
       run: cargo run --example sqlx
