@@ -543,37 +543,44 @@ where
     } else {
         #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
         {
-            // mention the use of ssl
-            let client_info = DefaultClient::new(addr, true);
+            if let Some(tls_acceptor) = tls_acceptor {
+                // mention the use of ssl
+                let client_info = DefaultClient::new(addr, true);
 
-            let ssl_socket = tokio::select! {
-                _ = &mut startup_timeout => {
-                    return Ok(())
-                },
-                // safe to unwrap tls_acceptor here
-                ssl_socket_result = tls_acceptor.unwrap().accept(tcp_socket.into_inner()) => {
-                    ssl_socket_result?
+                let ssl_socket = tokio::select! {
+                    _ = &mut startup_timeout => {
+                        return Ok(())
+                    },
+                    // safe to unwrap tls_acceptor here
+                    ssl_socket_result = tls_acceptor.accept(tcp_socket.into_inner()) => {
+                        ssl_socket_result?
+                    }
+                };
+
+                // check alpn for direct ssl connection
+                if ssl == SslNegotiationType::Direct {
+                    check_alpn_for_direct_ssl(&ssl_socket)?;
                 }
-            };
 
-            // check alpn for direct ssl connection
-            if ssl == SslNegotiationType::Direct {
-                check_alpn_for_direct_ssl(&ssl_socket)?;
+                let mut socket =
+                    Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
+
+                do_process_socket(
+                    &mut socket,
+                    startup_timeout,
+                    startup_handler,
+                    simple_query_handler,
+                    extended_query_handler,
+                    copy_handler,
+                    cancel_handler,
+                    error_handler,
+                )
+                .await
+            } else {
+                // no tls_acceptor configured. But the client sends direct tls
+                // negotiation. this is typically an invalid connection
+                Ok(())
             }
-
-            let mut socket = Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
-
-            do_process_socket(
-                &mut socket,
-                startup_timeout,
-                startup_handler,
-                simple_query_handler,
-                extended_query_handler,
-                copy_handler,
-                cancel_handler,
-                error_handler,
-            )
-            .await
         }
 
         #[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]
