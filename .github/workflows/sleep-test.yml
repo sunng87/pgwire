@@ -54,31 +54,7 @@ jobs:
                exit 1
              }
            }
-
-    - name: Wait for server to start
-      shell: powershell
-      run: |
-        $timeout = 30
-        $elapsed = 0
-        do {
-          $result = Test-NetConnection -ComputerName localhost -Port 5432 -InformationLevel Quiet
-          if ($result) {
-            Write-Host "Port 5432 is open!"
-            break
-          }
-          Start-Sleep -Seconds 1
-          $elapsed++
-          Write-Host "Waiting for port 5432... ($elapsed/$timeout)"
-        } while ($elapsed -lt $timeout)
-
-        if (-not $result) {
-          Write-Host "Port 5432 did not open within $timeout seconds"
-          exit 1
-        }
-
-    - name: test sqlx
-      run: cargo run --example sqlx
-      timeout-minutes: 3
+           cargo run --example sqlx
 
     - name: show logs
       if: always()
