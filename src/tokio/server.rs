@@ -74,6 +74,7 @@ impl<S> Encoder<PgWireBackendMessage> for PgWireMessageServerCodec<S> {
         item: PgWireBackendMessage,
         dst: &mut bytes::BytesMut,
     ) -> Result<(), Self::Error> {
+        println!("reply {:?}", &item);
         item.encode(dst).map_err(Into::into)
     }
 }
@@ -456,6 +457,7 @@ where
             )
             .await
             {
+                println!("error processing message {:?}", &e);
                 error_handler.on_error(socket, &mut e);
                 process_error(socket, e, is_extended_query).await?;
             }
