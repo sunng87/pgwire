@@ -56,7 +56,7 @@ impl Message for CancelRequest {
     fn decode(buf: &mut bytes::BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
         if buf.remaining() >= startup::MINIMUM_STARTUP_MESSAGE_LEN {
             if Self::is_cancel_request_packet(buf) {
-                codec::decode_packet(buf, 0, |buf, full_len| {
+                codec::decode_packet(buf, 0, Self::max_message_length(), |buf, full_len| {
                     Self::decode_body(buf, full_len, ctx)
                 })
             } else {
@@ -74,13 +74,6 @@ impl Message for CancelRequest {
     ) -> PgWireResult<Self> {
         if msg_len < Self::MINIMUM_CANCEL_REQUEST_MESSAGE_LEN {
             return Err(PgWireError::InvalidCancelRequest);
-        }
-
-        if msg_len > Self::max_message_length() {
-            return Err(PgWireError::MessageTooLarge(
-                msg_len,
-                Self::max_message_length(),
-            ));
         }
 
         // skip cancel code

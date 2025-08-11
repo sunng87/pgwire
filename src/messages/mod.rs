@@ -110,14 +110,7 @@ pub trait Message: Sized {
     fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
         let offset = Self::message_type().is_some().into();
 
-        codec::decode_packet(buf, offset, |buf, full_len| {
-            if full_len > Self::max_message_length() {
-                return Err(PgWireError::MessageTooLarge(
-                    full_len,
-                    Self::max_message_length(),
-                ));
-            }
-
+        codec::decode_packet(buf, offset, Self::max_message_length(), |buf, full_len| {
             Self::decode_body(buf, full_len, ctx)
         })
     }

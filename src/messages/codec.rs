@@ -2,7 +2,7 @@ use std::str;
 
 use bytes::{Buf, BufMut, BytesMut};
 
-use crate::error::PgWireResult;
+use crate::error::{PgWireError, PgWireResult};
 
 /// Get null-terminated string, returns None when empty cstring read.
 ///
@@ -62,12 +62,17 @@ pub(crate) fn get_length(buf: &BytesMut, offset: usize) -> Option<usize> {
 pub(crate) fn decode_packet<T, F>(
     buf: &mut BytesMut,
     offset: usize,
+    max_size: usize,
     decode_fn: F,
 ) -> PgWireResult<Option<T>>
 where
     F: Fn(&mut BytesMut, usize) -> PgWireResult<T>,
 {
     if let Some(msg_len) = get_length(buf, offset) {
+        if msg_len > max_size {
+            return Err(PgWireError::MessageTooLarge(msg_len, max_size));
+        }
+
         if buf.remaining() >= msg_len + offset {
             buf.advance(offset + 4);
             return decode_fn(buf, msg_len).map(|r| Some(r));
