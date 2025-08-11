@@ -1,0 +1,33 @@
+name: Cross-Platform CI
+
+on:
+  push:
+    branches: [ chore/windows-cancel-test ]
+
+jobs:
+  test:
+    name: Run sleep example
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            platform: Linux
+          - os: windows-latest
+            platform: Windows
+          - os: macos-latest
+            platform: macOS
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+
+    - name: Run sleep example on ${{ matrix.platform }}
+      run: cargo run --example sleep
+      timeout-minutes: 10
