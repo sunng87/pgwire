@@ -5,7 +5,7 @@ use std::sync::Arc;
 use futures::{SinkExt, StreamExt};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use rustls_pki_types::CertificateDer;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, BufStream};
 use tokio::net::TcpStream;
 use tokio::time::{sleep, Duration, Sleep};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
@@ -312,29 +312,35 @@ enum SslNegotiationType {
     None,
 }
 
-async fn check_ssl_direct_negotiation(tcp_socket: &TcpStream) -> Result<bool, io::Error> {
-    let mut buf = [0u8; 1];
-    let n = tcp_socket.peek(&mut buf).await?;
+async fn check_ssl_direct_negotiation(
+    tcp_socket: &mut BufStream<TcpStream>,
+) -> Result<bool, io::Error> {
+    let buf = tcp_socket.fill_buf().await?;
 
-    Ok(n > 0 && buf[0] == 0x16)
+    Ok(!buf.is_empty() && buf[0] == 0x16)
 }
 
 async fn peek_for_sslrequest<ST>(
-    socket: &mut Framed<TcpStream, PgWireMessageServerCodec<ST>>,
+    socket: &mut Framed<BufStream<TcpStream>, PgWireMessageServerCodec<ST>>,
     ssl_supported: bool,
 ) -> Result<SslNegotiationType, io::Error> {
-    if check_ssl_direct_negotiation(socket.get_ref()).await? {
+    if check_ssl_direct_negotiation(socket.get_mut()).await? {
         Ok(SslNegotiationType::Direct)
     } else {
         let mut ssl_done = false;
         let mut gss_done = false;
 
         loop {
-            let mut buf = [0u8; 8];
-            let n = socket.get_ref().peek(&mut buf).await?;
+            let buf = socket.get_mut().fill_buf().await?;
+            let n = buf.len();
 
-            if n == buf.len() {
-                if SslRequest::is_ssl_request_packet(&buf) {
+            // already EOF
+            if n == 0 {
+                return Ok(SslNegotiationType::None);
+            }
+
+            if n >= 8 {
+                if SslRequest::is_ssl_request_packet(buf) {
                     // consume SslRequest
                     let _ = socket.next().await;
                     // ssl request
@@ -356,7 +362,7 @@ async fn peek_for_sslrequest<ST>(
                             continue;
                         }
                     }
-                } else if GssEncRequest::is_gss_enc_request_packet(&buf) {
+                } else if GssEncRequest::is_gss_enc_request_packet(buf) {
                     let _ = socket.next().await;
                     socket
                         .send(PgWireBackendMessage::GssEncResponse(GssEncResponse::Refuse))
@@ -373,9 +379,6 @@ async fn peek_for_sslrequest<ST>(
                     // startup or cancel
                     return Ok(SslNegotiationType::None);
                 }
-            } else {
-                // failed to peek, the connection may have gone
-                return Ok(SslNegotiationType::None);
             }
         }
     }
@@ -490,7 +493,10 @@ where
     tcp_socket.set_nodelay(true)?;
 
     let client_info = DefaultClient::new(addr, false);
-    let mut tcp_socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
+    let mut tcp_socket = Framed::new(
+        BufStream::new(tcp_socket),
+        PgWireMessageServerCodec::new(client_info),
+    );
 
     // start a timer for startup process, if the client couldn't finish startup
     // within the timeout, it has to be dropped.
