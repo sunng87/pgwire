@@ -244,6 +244,7 @@ where
             TransactionStatus::Idle,
         )))
         .await?;
+    client.flush().await?;
 
     client.set_state(PgWireConnectionState::ReadyForQuery);
     Ok(())
