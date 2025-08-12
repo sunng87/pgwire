@@ -204,13 +204,13 @@ where
     P: ServerParameterProvider,
 {
     client
-        .feed(PgWireBackendMessage::Authentication(Authentication::Ok))
+        .send(PgWireBackendMessage::Authentication(Authentication::Ok))
         .await?;
 
     if let Some(parameters) = server_parameter_provider.server_parameters(client) {
         for (k, v) in parameters {
             client
-                .feed(PgWireBackendMessage::ParameterStatus(ParameterStatus::new(
+                .send(PgWireBackendMessage::ParameterStatus(ParameterStatus::new(
                     k, v,
                 )))
                 .await?;
@@ -219,7 +219,7 @@ where
 
     let (pid, secret_key) = client.pid_and_secret_key();
     client
-        .feed(PgWireBackendMessage::BackendKeyData(BackendKeyData::new(
+        .send(PgWireBackendMessage::BackendKeyData(BackendKeyData::new(
             pid, secret_key,
         )))
         .await?;
