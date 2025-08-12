@@ -1,6 +1,7 @@
 use std::io::{self, Write};
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Instant;
 
 use futures::{SinkExt, StreamExt};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
@@ -340,7 +341,7 @@ async fn peek_for_sslrequest<ST>(
         loop {
             let mut buf = [0u8; 8];
             let n = socket.get_ref().peek(&mut buf).await?;
-            println!("Reading n {}", n);
+            println!("Reading n {} {:?}", n, Instant::now());
             println!("Reading buf {:?}", &buf);
             std::io::stdout().flush().unwrap();
 
@@ -444,7 +445,7 @@ where
             socket.next().await
         };
 
-        println!("{:?}", msg);
+        println!("{:?} {:?}", msg, Instant::now());
         if let Some(Ok(msg)) = msg {
             let is_extended_query = match socket.state() {
                 PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
