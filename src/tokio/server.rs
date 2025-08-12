@@ -358,6 +358,7 @@ async fn peek_for_sslrequest<ST>(
                         socket
                             .send(PgWireBackendMessage::SslResponse(SslResponse::Refuse))
                             .await?;
+                        socket.flush().await?;
                         ssl_done = true;
 
                         if gss_done {
@@ -372,6 +373,7 @@ async fn peek_for_sslrequest<ST>(
                     socket
                         .send(PgWireBackendMessage::GssEncResponse(GssEncResponse::Refuse))
                         .await?;
+                    socket.flush().await?;
                     gss_done = true;
 
                     if ssl_done {
