@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Fixed
+
+- Correct packet length check [#295]
+- Potential panic on direct TLS when it is not configured [#296]
+- Timeout on getting startup message on Windows [#297]
+
 ## [0.32.0] - 2025-08-07
 
 ### Added
