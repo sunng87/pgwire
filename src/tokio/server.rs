@@ -75,7 +75,9 @@ impl<S> Encoder<PgWireBackendMessage> for PgWireMessageServerCodec<S> {
         dst: &mut bytes::BytesMut,
     ) -> Result<(), Self::Error> {
         println!("reply {:?}", &item);
-        item.encode(dst).map_err(Into::into)
+        let s = item.encode(dst).map_err(Into::into);
+        println!("encode success {:?}", &s);
+        s
     }
 }
 

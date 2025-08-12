@@ -88,7 +88,7 @@ _sqlite = []
 [dev-dependencies]
 tokio = { version = "1.19", features = ["rt-multi-thread", "net", "macros", "time"]}
 futures-util = "*"
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "chrono", "tls-native-tls"] }
+sqlx = { git = "https://github.com/sunng87/sqlx.git", branch = "0-8-fix", commit = "a6938abda6f43079c41fdc2ecc72171f16c3af35", version = "0.8", features = ["runtime-tokio", "postgres", "chrono", "tls-native-tls"] }
 tokio-stream = { version = "*", features = ["net"] }
 rustls-pki-types = { version = "1.10" }
 #rusqlite = { version = "0.37.0", features = ["column_decltype"] }
