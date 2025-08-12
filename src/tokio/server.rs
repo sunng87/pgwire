@@ -558,8 +558,10 @@ where
                     check_alpn_for_direct_ssl(&ssl_socket)?;
                 }
 
-                let mut socket =
-                    Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
+                let mut socket = Framed::new(
+                    BufStream::new(ssl_socket),
+                    PgWireMessageServerCodec::new(client_info),
+                );
 
                 do_process_socket(
                     &mut socket,
