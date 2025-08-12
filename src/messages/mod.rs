@@ -45,13 +45,23 @@ pub(crate) const SMALL_BACKEND_PACKET_SIZE_LIMIT: usize = 30000;
 pub(crate) const LONG_BACKEND_PACKET_SIZE_LIMIT: usize = i32::MAX as usize;
 
 #[non_exhaustive]
-#[derive(Default, Debug, PartialEq, Eq, new)]
+#[derive(Debug, PartialEq, Eq, new)]
 pub struct DecodeContext {
     pub protocol_version: ProtocolVersion,
     #[new(value = "true")]
     pub awaiting_ssl: bool,
     #[new(value = "true")]
     pub awaiting_startup: bool,
+}
+
+impl Default for DecodeContext {
+    fn default() -> Self {
+        DecodeContext {
+            protocol_version: ProtocolVersion::default(),
+            awaiting_ssl: true,
+            awaiting_startup: true,
+        }
+    }
 }
 
 /// Define how message encode and decoded.
