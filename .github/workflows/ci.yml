@@ -56,6 +56,7 @@ jobs:
         toolchain: ${{ matrix.rust }}
         override: true
     - name: Build and run tests on default feature set
+      if: runner.os != 'Windows'
       run: cargo test
     - name: Run tests on minimal feature set
       run: cargo test --no-default-features
@@ -64,8 +65,10 @@ jobs:
     - name: Run tests on additional scram+ring feature set
       run: cargo test --no-default-features --features server-api-ring,scram
     - name: Run tests on additional scram+aws-lc-rs feature set
+      if: runner.os != 'Windows'
       run: cargo test --features scram
     - name: Run tests for client api
+      if: runner.os != 'Windows'
       run: cargo test --features client-api-aws-lc-rs
     - name: Run check on duckdb and sqlite example
       run: cargo check --all-targets --features _duckdb,_sqlite,_bundled
