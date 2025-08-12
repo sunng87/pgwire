@@ -36,6 +36,8 @@ const STARTUP_TIMEOUT_MILLIS: u64 = 60_000;
 #[derive(Debug, new)]
 pub struct PgWireMessageServerCodec<S> {
     pub client_info: DefaultClient<S>,
+    #[new(default)]
+    decode_context: DecodeContext,
 }
 
 impl<S> Decoder for PgWireMessageServerCodec<S> {
@@ -43,22 +45,21 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
     type Error = PgWireError;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        let mut decode_context = DecodeContext::new(self.client_info.protocol_version());
+        self.decode_context.protocol_version = self.client_info.protocol_version;
 
         match self.client_info.state() {
             PgWireConnectionState::AwaitingSslRequest => {}
 
             PgWireConnectionState::AwaitingStartup => {
-                decode_context.awaiting_ssl = false;
+                self.decode_context.awaiting_ssl = false;
             }
 
             _ => {
-                decode_context.awaiting_ssl = false;
-                decode_context.awaiting_startup = false;
+                self.decode_context.awaiting_startup = false;
             }
         }
 
-        PgWireFrontendMessage::decode(src, &decode_context)
+        PgWireFrontendMessage::decode(src, &self.decode_context)
     }
 }
 
