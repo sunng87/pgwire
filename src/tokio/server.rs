@@ -317,7 +317,7 @@ async fn check_ssl_direct_negotiation(
 ) -> Result<bool, io::Error> {
     let buf = tcp_socket.fill_buf().await?;
 
-    Ok(buf.len() > 0 && buf[0] == 0x16)
+    Ok(!buf.is_empty() && buf[0] == 0x16)
 }
 
 async fn peek_for_sslrequest<ST>(
@@ -340,7 +340,7 @@ async fn peek_for_sslrequest<ST>(
             }
 
             if n >= 8 {
-                if SslRequest::is_ssl_request_packet(&buf) {
+                if SslRequest::is_ssl_request_packet(buf) {
                     // consume SslRequest
                     let _ = socket.next().await;
                     // ssl request
@@ -362,7 +362,7 @@ async fn peek_for_sslrequest<ST>(
                             continue;
                         }
                     }
-                } else if GssEncRequest::is_gss_enc_request_packet(&buf) {
+                } else if GssEncRequest::is_gss_enc_request_packet(buf) {
                     let _ = socket.next().await;
                     socket
                         .send(PgWireBackendMessage::GssEncResponse(GssEncResponse::Refuse))
