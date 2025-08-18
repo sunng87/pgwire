@@ -39,7 +39,7 @@ base64 = { version = "0.22", optional = true }
 ring = { version = "0.17", optional = true }
 aws-lc-rs = { version = "1.7", optional = true }
 stringprep = { version = "0.1.2", optional = true }
-x509-certificate = { version = "0.24", optional = true }
+x509-certificate = { version = "0.25", optional = true }
 ## types
 postgres-types = { version = "0.2", features = [
     "with-chrono-0_4",
