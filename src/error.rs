@@ -28,6 +28,8 @@ pub enum PgWireError {
     InvalidStartupMessage,
     #[error("Invalid authentication message code: {0}")]
     InvalidAuthenticationMessageCode(i32),
+    #[error("Invalid password message type, failed to coerce")]
+    FailedToCoercePasswordMessage,
     #[error(transparent)]
     IoError(#[from] std::io::Error),
     #[error("Portal not found for name: {0}")]
@@ -261,6 +263,9 @@ impl From<PgWireError> for ErrorInfo {
             }
             PgWireError::InvalidAuthenticationMessageCode(_) => {
                 ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
+            }
+            PgWireError::FailedToCoercePasswordMessage => {
+                ErrorInfo::new("FATAL".to_owned(), "XX000".to_owned(), error.to_string())
             }
             PgWireError::IoError(_) => {
                 ErrorInfo::new("FATAL".to_owned(), "58030".to_owned(), error.to_string())

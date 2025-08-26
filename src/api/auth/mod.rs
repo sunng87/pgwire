@@ -22,7 +22,7 @@ pub trait StartupHandler: Send + Sync {
         message: PgWireFrontendMessage,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 }

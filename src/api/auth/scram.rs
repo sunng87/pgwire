@@ -21,28 +21,63 @@ use ring::{digest, hmac, pbkdf2};
 use crate::api::auth::{AuthSource, LoginInfo, Password};
 use crate::api::{ClientInfo, PgWireConnectionState};
 use crate::error::{PgWireError, PgWireResult};
-use crate::messages::startup::Authentication;
+use crate::messages::startup::{Authentication, PasswordMessageFamily};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 use super::{ServerParameterProvider, StartupHandler};
 
 #[derive(Debug)]
-pub enum ScramState {
+pub enum SASLState {
     Initial,
+    // scram authentication method selected
+    ScramClientFirstReceived,
     // cached password, channel_binding and partial auth-message
-    ServerFirstSent(Password, String, String),
+    ScramServerFirstSent(Password, String, String),
+    // finished
+    Finished,
+}
+
+impl SASLState {
+    fn is_scram(&self) -> bool {
+        matches!(
+            self,
+            SASLState::ScramClientFirstReceived | SASLState::ScramServerFirstSent(_, _, _)
+        )
+    }
 }
 
 #[derive(Debug)]
-pub struct SASLScramAuthStartupHandler<A, P> {
+pub struct ScramAuth<A> {
     auth_db: Arc<A>,
-    parameter_provider: Arc<P>,
-    /// state of the client-server communication
-    state: Mutex<ScramState>,
     /// base64 encoded certificate signature for tls-server-end-point channel binding
     server_cert_sig: Option<Arc<String>>,
     /// iterations
     iterations: usize,
+}
+
+#[derive(Debug)]
+pub struct SASLAuthStartupHandler<A, P> {
+    parameter_provider: Arc<P>,
+    /// state of the SASL auth
+    state: Mutex<SASLState>,
+    /// scram configuration
+    scram: ScramAuth<A>,
+}
+
+impl<A, P> SASLAuthStartupHandler<A, P> {
+    const SCRAM_SHA_256: &str = "SCRAM-SHA-256";
+    const SCRAM_SHA_256_PLUS: &str = "SCRAM-SHA-256-PLUS";
+
+    fn supported_mechanisms(&self) -> Vec<String> {
+        if self.scram.server_cert_sig.is_some() {
+            vec![
+                Self::SCRAM_SHA_256.to_owned(),
+                Self::SCRAM_SHA_256_PLUS.to_owned(),
+            ]
+        } else {
+            vec![Self::SCRAM_SHA_256.to_owned()]
+        }
+    }
 }
 
 /// Compute salted password from raw password as defined in
@@ -66,7 +101,7 @@ pub fn random_nonce() -> String {
     STANDARD.encode(rand::random::<[u8; 18]>())
 }
 
-impl<A, P> SASLScramAuthStartupHandler<A, P> {
+impl<A: AuthSource> ScramAuth<A> {
     fn compute_channel_binding(&self, client_channel_binding: &str) -> String {
         if client_channel_binding.starts_with("p=tls-server-end-point") {
             format!(
@@ -81,19 +116,115 @@ impl<A, P> SASLScramAuthStartupHandler<A, P> {
             STANDARD.encode(client_channel_binding.as_bytes())
         }
     }
+
+    /// Process incoming message and return response, new state
+    async fn process_scram_message<C>(
+        &self,
+        client: &C,
+        msg: PasswordMessageFamily,
+        state: &SASLState,
+    ) -> PgWireResult<(Authentication, SASLState)>
+    where
+        C: ClientInfo + Unpin + Send,
+    {
+        match state {
+            &SASLState::ScramClientFirstReceived => {
+                // initial response, client_first
+                let resp = msg.into_sasl_initial_response()?;
+                // parse into client_first
+                let client_first = resp
+                    .data
+                    .as_ref()
+                    .ok_or_else(|| {
+                        PgWireError::InvalidScramMessage("Empty client-first".to_owned())
+                    })
+                    .and_then(|data| {
+                        ClientFirst::try_new(String::from_utf8_lossy(data).as_ref())
+                    })?;
+
+                let salt_and_salted_pass = self
+                    .auth_db
+                    .get_password(&LoginInfo::from_client_info(client))
+                    .await?;
+
+                // create server_first and send
+                let mut new_nonce = client_first.nonce.clone();
+                new_nonce.push_str(random_nonce().as_str());
+
+                let server_first = ServerFirst::new(
+                    new_nonce,
+                    STANDARD.encode(
+                        salt_and_salted_pass
+                            .salt
+                            .as_ref()
+                            .expect("Salt required for SCRAM auth source"),
+                    ),
+                    self.iterations,
+                );
+                let server_first_message = server_first.message();
+
+                let next_state = SASLState::ScramServerFirstSent(
+                    salt_and_salted_pass,
+                    client_first.channel_binding(),
+                    format!("{},{}", client_first.bare(), &server_first_message),
+                );
+                let resp = Authentication::SASLContinue(Bytes::from(server_first_message));
+
+                Ok((resp, next_state))
+            }
+            SASLState::ScramServerFirstSent(
+                ref salt_and_salted_pass,
+                ref channel_binding_prefix,
+                ref partial_auth_msg,
+            ) => {
+                // second response, client_final
+                let resp = msg.into_sasl_response()?;
+                let client_final =
+                    ClientFinal::try_new(String::from_utf8_lossy(&resp.data).as_ref())?;
+
+                let channel_binding = self.compute_channel_binding(channel_binding_prefix);
+                client_final.validate_channel_binding(&channel_binding)?;
+
+                let salted_password = &salt_and_salted_pass.password;
+                let client_key = hmac(salted_password.as_ref(), b"Client Key");
+                let stored_key = h(client_key.as_ref());
+                let auth_msg = format!("{},{}", partial_auth_msg, client_final.without_proof());
+                let client_signature = hmac(stored_key.as_ref(), auth_msg.as_bytes());
+
+                let computed_client_proof =
+                    STANDARD.encode(xor(client_key.as_ref(), client_signature.as_ref()).as_slice());
+
+                if computed_client_proof == client_final.proof {
+                    let server_key = hmac(salted_password.as_ref(), b"Server Key");
+                    let server_signature = hmac(server_key.as_ref(), auth_msg.as_bytes());
+                    let server_final = ServerFinalSuccess::new(STANDARD.encode(server_signature));
+
+                    let new_state = SASLState::Finished;
+                    let resp = Authentication::SASLFinal(Bytes::from(server_final.message()));
+                    Ok((resp, new_state))
+                } else {
+                    let login_info = LoginInfo::from_client_info(client);
+                    Err(PgWireError::InvalidPassword(
+                        login_info.user().map(|x| x.to_owned()).unwrap_or_default(),
+                    ))
+                }
+            }
+            _ => {
+                todo!("unexpected state")
+            }
+        }
+    }
 }
 
 #[async_trait]
-impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
-    for SASLScramAuthStartupHandler<A, P>
-{
+impl<A: AuthSource, P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<A, P> {
     async fn on_startup<C>(
         &self,
         client: &mut C,
         message: PgWireFrontendMessage,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -102,123 +233,45 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                 super::protocol_negotiation(client, startup).await?;
                 super::save_startup_parameters_to_metadata(client, startup);
                 client.set_state(PgWireConnectionState::AuthenticationInProgress);
-                let supported_mechanisms = if self.server_cert_sig.is_some() {
-                    vec!["SCRAM-SHA-256".to_owned(), "SCRAM-SHA-256-PLUS".to_owned()]
-                } else {
-                    vec!["SCRAM-SHA-256".to_owned()]
-                };
+                let supported_mechanisms = self.supported_mechanisms();
                 client
                     .send(PgWireBackendMessage::Authentication(Authentication::SASL(
                         supported_mechanisms,
                     )))
                     .await?;
             }
-            PgWireFrontendMessage::PasswordMessageFamily(msg) => {
-                let salt_and_salted_pass = {
-                    let state = self.state.lock().await;
-                    match *state {
-                        ScramState::Initial => {
-                            let login_info = LoginInfo::from_client_info(client);
-                            self.auth_db.get_password(&login_info).await?
-                        }
-                        ScramState::ServerFirstSent(ref pass, _, _) => pass.clone(),
+            PgWireFrontendMessage::PasswordMessageFamily(mut msg) => {
+                let mut state = self.state.lock().await;
+                if let SASLState::Initial = *state {
+                    let sasl_initial_response = msg.into_sasl_initial_response()?;
+                    let selected_mechanism = sasl_initial_response.auth_method.as_str();
+
+                    if [Self::SCRAM_SHA_256, Self::SCRAM_SHA_256_PLUS].contains(&selected_mechanism)
+                    {
+                        *state = SASLState::ScramClientFirstReceived;
+                    } else {
+                        todo!("unexpected method")
                     }
-                };
 
-                let mut success = false;
-                let resp = {
-                    // this should never block
-                    let mut state = self.state.lock().await;
-                    match *state {
-                        ScramState::Initial => {
-                            // initial response, client_first
-                            let resp = msg.into_sasl_initial_response()?;
-                            // parse into client_first
-                            let client_first = resp
-                                .data
-                                .as_ref()
-                                .ok_or_else(|| {
-                                    PgWireError::InvalidScramMessage(
-                                        "Empty client-first".to_owned(),
-                                    )
-                                })
-                                .and_then(|data| {
-                                    ClientFirst::try_new(String::from_utf8_lossy(data).as_ref())
-                                })?;
-                            // dbg!(&client_first);
+                    msg = PasswordMessageFamily::SASLInitialResponse(sasl_initial_response);
+                } else {
+                    let sasl_response = msg.into_sasl_response()?;
+                    msg = PasswordMessageFamily::SASLResponse(sasl_response);
+                }
 
-                            // create server_first and send
-                            let mut new_nonce = client_first.nonce.clone();
-                            new_nonce.push_str(random_nonce().as_str());
+                // SCRAM authentication
+                if state.is_scram() {
+                    let (resp, new_state) = self
+                        .scram
+                        .process_scram_message(client, msg, &state)
+                        .await?;
+                    client
+                        .send(PgWireBackendMessage::Authentication(resp))
+                        .await?;
+                    *state = new_state;
+                }
 
-                            let server_first = ServerFirst::new(
-                                new_nonce,
-                                STANDARD.encode(
-                                    salt_and_salted_pass
-                                        .salt
-                                        .as_ref()
-                                        .expect("Salt required for SCRAM auth source"),
-                                ),
-                                self.iterations,
-                            );
-                            let server_first_message = server_first.message();
-
-                            *state = ScramState::ServerFirstSent(
-                                salt_and_salted_pass,
-                                client_first.channel_binding(),
-                                format!("{},{}", client_first.bare(), &server_first_message),
-                            );
-                            Authentication::SASLContinue(Bytes::from(server_first_message))
-                        }
-                        ScramState::ServerFirstSent(
-                            _,
-                            ref channel_binding_prefix,
-                            ref partial_auth_msg,
-                        ) => {
-                            // second response, client_final
-                            let resp = msg.into_sasl_response()?;
-                            let client_final =
-                                ClientFinal::try_new(String::from_utf8_lossy(&resp.data).as_ref())?;
-                            // dbg!(&client_final);
-
-                            let channel_binding =
-                                self.compute_channel_binding(channel_binding_prefix);
-                            client_final.validate_channel_binding(&channel_binding)?;
-
-                            let salted_password = salt_and_salted_pass.password;
-                            let client_key = hmac(salted_password.as_ref(), b"Client Key");
-                            let stored_key = h(client_key.as_ref());
-                            let auth_msg =
-                                format!("{},{}", partial_auth_msg, client_final.without_proof());
-                            let client_signature = hmac(stored_key.as_ref(), auth_msg.as_bytes());
-
-                            let computed_client_proof = STANDARD.encode(
-                                xor(client_key.as_ref(), client_signature.as_ref()).as_slice(),
-                            );
-
-                            if computed_client_proof == client_final.proof {
-                                let server_key = hmac(salted_password.as_ref(), b"Server Key");
-                                let server_signature =
-                                    hmac(server_key.as_ref(), auth_msg.as_bytes());
-                                let server_final =
-                                    ServerFinalSuccess::new(STANDARD.encode(server_signature));
-                                success = true;
-                                Authentication::SASLFinal(Bytes::from(server_final.message()))
-                            } else {
-                                let login_info = LoginInfo::from_client_info(client);
-                                return Err(PgWireError::InvalidPassword(
-                                    login_info.user().map(|x| x.to_owned()).unwrap_or_default(),
-                                ));
-                            }
-                        }
-                    }
-                };
-
-                client
-                    .send(PgWireBackendMessage::Authentication(resp))
-                    .await?;
-
-                if success {
+                if matches!(*state, SASLState::Finished) {
                     super::finish_authentication(client, self.parameter_provider.as_ref()).await?;
                 }
             }
@@ -229,14 +282,16 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
     }
 }
 
-impl<A, P> SASLScramAuthStartupHandler<A, P> {
+impl<A, P> SASLAuthStartupHandler<A, P> {
     pub fn new(auth_db: Arc<A>, parameter_provider: Arc<P>) -> Self {
-        SASLScramAuthStartupHandler {
-            auth_db,
+        SASLAuthStartupHandler {
             parameter_provider,
-            state: Mutex::new(ScramState::Initial),
-            server_cert_sig: None,
-            iterations: 4096,
+            state: Mutex::new(SASLState::Initial),
+            scram: ScramAuth {
+                auth_db,
+                server_cert_sig: None,
+                iterations: 4096,
+            },
         }
     }
 
@@ -247,7 +302,7 @@ impl<A, P> SASLScramAuthStartupHandler<A, P> {
     /// certificate as server certificate.
     pub fn configure_certificate(&mut self, certs_pem: &[u8]) -> PgWireResult<()> {
         let sig = compute_cert_signature(certs_pem)?;
-        self.server_cert_sig = Some(Arc::new(STANDARD.encode(sig)));
+        self.scram.server_cert_sig = Some(Arc::new(STANDARD.encode(sig)));
         Ok(())
     }
 
@@ -260,7 +315,7 @@ impl<A, P> SASLScramAuthStartupHandler<A, P> {
     /// cleartext password, or before storing hashed password. And this number
     /// should be identical to your `AuthSource` implementation.
     pub fn set_iterations(&mut self, iterations: usize) {
-        self.iterations = iterations;
+        self.scram.iterations = iterations;
     }
 }
 
