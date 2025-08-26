@@ -22,7 +22,7 @@ pub trait StartupHandler: Send + Sync {
         message: PgWireFrontendMessage,
     ) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
+        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 }
@@ -141,7 +141,7 @@ impl LoginInfo<'_> {
 /// authentication, salt is not required, while in md5pass, a 4-byte salt is
 /// needed.
 #[async_trait]
-pub trait AuthSource: Send + Sync {
+pub trait AuthSource: Send + Sync + Debug {
     /// Get password from the `AuthSource`.
     ///
     /// `Password` has a an optional salt field when it's hashed.
@@ -252,5 +252,5 @@ where
 pub mod cleartext;
 pub mod md5pass;
 pub mod noop;
-#[cfg(feature = "scram")]
-pub mod scram;
+#[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+pub mod sasl;

@@ -39,8 +39,6 @@ jobs:
       run: cargo clippy --no-default-features --features server-api-ring -- -D warnings
     - name: Lint client api
       run: cargo clippy --features client-api-aws-lc-rs -- -D warnings
-    - name: Lint scram
-      run: cargo clippy --features scram -- -D warnings
 
   test:
     name: Test
@@ -62,11 +60,8 @@ jobs:
       run: cargo test --no-default-features
     - name: Run tests without tls
       run: cargo test --no-default-features --features server-api
-    - name: Run tests on additional scram+ring feature set
-      run: cargo test --no-default-features --features server-api-ring,scram
-    - name: Run tests on additional scram+aws-lc-rs feature set
-      if: runner.os != 'Windows'
-      run: cargo test --features scram
+    - name: Run tests on additional ring feature set
+      run: cargo test --no-default-features --features server-api-ring
     - name: Run tests for client api
       if: runner.os != 'Windows'
       run: cargo test --features client-api-aws-lc-rs
@@ -105,4 +100,3 @@ jobs:
     - run: cargo build --no-default-features
     - run: cargo build --no-default-features --features server-api
     - run: cargo build --no-default-features --features server-api-ring
-    - run: cargo build --features scram

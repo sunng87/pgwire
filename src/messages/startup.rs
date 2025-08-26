@@ -287,53 +287,38 @@ impl Message for PasswordMessageFamily {
 
 impl PasswordMessageFamily {
     /// Coerce the raw message into `Password`
-    ///
-    /// # Panics
-    ///
-    /// Panic when the message is already coerced into concrete type.
     pub fn into_password(self) -> PgWireResult<Password> {
-        if let PasswordMessageFamily::Raw(mut body) = self {
-            let len = body.len() + 4;
-            Password::decode_body(&mut body, len, &DecodeContext::default())
-        } else {
-            unreachable!(
-                "Do not coerce password message when it has a concrete type {:?}",
-                self
-            )
+        match self {
+            PasswordMessageFamily::Raw(mut body) => {
+                let len = body.len() + 4;
+                Password::decode_body(&mut body, len, &DecodeContext::default())
+            }
+            PasswordMessageFamily::Password(pass) => Ok(pass),
+            _ => Err(PgWireError::FailedToCoercePasswordMessage),
         }
     }
 
     /// Coerce the raw message into `SASLInitialResponse`
-    ///
-    /// # Panics
-    ///
-    /// Panic when the message is already coerced into concrete type.
     pub fn into_sasl_initial_response(self) -> PgWireResult<SASLInitialResponse> {
-        if let PasswordMessageFamily::Raw(mut body) = self {
-            let len = body.len() + 4;
-            SASLInitialResponse::decode_body(&mut body, len, &DecodeContext::default())
-        } else {
-            unreachable!(
-                "Do not coerce password message when it has a concrete type {:?}",
-                self
-            )
+        match self {
+            PasswordMessageFamily::Raw(mut body) => {
+                let len = body.len() + 4;
+                SASLInitialResponse::decode_body(&mut body, len, &DecodeContext::default())
+            }
+            PasswordMessageFamily::SASLInitialResponse(msg) => Ok(msg),
+            _ => Err(PgWireError::FailedToCoercePasswordMessage),
         }
     }
 
     /// Coerce the raw message into `SASLResponse`
-    ///
-    /// # Panics
-    ///
-    /// Panic when the message is already coerced into concrete type.
     pub fn into_sasl_response(self) -> PgWireResult<SASLResponse> {
-        if let PasswordMessageFamily::Raw(mut body) = self {
-            let len = body.len() + 4;
-            SASLResponse::decode_body(&mut body, len, &DecodeContext::default())
-        } else {
-            unreachable!(
-                "Do not coerce password message when it has a concrete type {:?}",
-                self
-            )
+        match self {
+            PasswordMessageFamily::Raw(mut body) => {
+                let len = body.len() + 4;
+                SASLResponse::decode_body(&mut body, len, &DecodeContext::default())
+            }
+            PasswordMessageFamily::SASLResponse(msg) => Ok(msg),
+            _ => Err(PgWireError::FailedToCoercePasswordMessage),
         }
     }
 }

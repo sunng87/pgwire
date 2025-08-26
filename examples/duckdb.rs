@@ -26,6 +26,7 @@ pub struct DuckDBBackend {
     query_parser: Arc<NoopQueryParser>,
 }
 
+#[derive(Debug)]
 struct DummyAuthSource;
 
 #[async_trait]

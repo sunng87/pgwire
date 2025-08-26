@@ -10,7 +10,8 @@ use tokio::net::TcpListener;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 
-use pgwire::api::auth::scram::{gen_salted_password, SASLScramAuthStartupHandler};
+use pgwire::api::auth::sasl::scram::{gen_salted_password, ScramAuth};
+use pgwire::api::auth::sasl::SASLAuthStartupHandler;
 use pgwire::api::auth::{
     AuthSource, DefaultServerParameterProvider, LoginInfo, Password, StartupHandler,
 };
@@ -24,6 +25,7 @@ pub fn random_salt() -> Vec<u8> {
 
 const ITERATIONS: usize = 4096;
 
+#[derive(Debug)]
 struct DummyAuthDB;
 
 #[async_trait]
@@ -61,14 +63,13 @@ struct DummyProcessorFactory {
 
 impl PgWireServerHandlers for DummyProcessorFactory {
     fn startup_handler(&self) -> Arc<impl StartupHandler> {
-        let mut authenticator = SASLScramAuthStartupHandler::new(
-            Arc::new(DummyAuthDB),
-            Arc::new(DefaultServerParameterProvider::default()),
-        );
-        authenticator.set_iterations(ITERATIONS);
-        authenticator
-            .configure_certificate(self.cert.as_ref())
-            .unwrap();
+        let mut scram = ScramAuth::new(Arc::new(DummyAuthDB));
+        scram.set_iterations(ITERATIONS);
+        scram.configure_certificate(self.cert.as_ref()).unwrap();
+
+        let authenticator =
+            SASLAuthStartupHandler::new(Arc::new(DefaultServerParameterProvider::default()))
+                .with_scram(scram);
 
         Arc::new(authenticator)
     }
