@@ -30,6 +30,10 @@ pub enum PgWireError {
     InvalidAuthenticationMessageCode(i32),
     #[error("Invalid password message type, failed to coerce")]
     FailedToCoercePasswordMessage,
+    #[error("Invalid SASL state")]
+    InvalidSASLState,
+    #[error("Unsupported SASL authentication method {0}")]
+    UnsupportedSASLAuthMethod(String),
     #[error(transparent)]
     IoError(#[from] std::io::Error),
     #[error("Portal not found for name: {0}")]
@@ -266,6 +270,12 @@ impl From<PgWireError> for ErrorInfo {
             }
             PgWireError::FailedToCoercePasswordMessage => {
                 ErrorInfo::new("FATAL".to_owned(), "XX000".to_owned(), error.to_string())
+            }
+            PgWireError::InvalidSASLState => {
+                ErrorInfo::new("FATAL".to_owned(), "XX000".to_owned(), error.to_string())
+            }
+            PgWireError::UnsupportedSASLAuthMethod(_) => {
+                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
             }
             PgWireError::IoError(_) => {
                 ErrorInfo::new("FATAL".to_owned(), "58030".to_owned(), error.to_string())

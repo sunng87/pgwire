@@ -252,5 +252,5 @@ where
 pub mod cleartext;
 pub mod md5pass;
 pub mod noop;
-#[cfg(feature = "scram")]
-pub mod scram;
+#[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+pub mod sasl;

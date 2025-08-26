@@ -53,8 +53,22 @@ percent-encoding = { version = "2.0", optional = true }
 
 [features]
 default = ["server-api-aws-lc-rs"]
-_ring = ["dep:ring", "tokio-rustls/ring", "dep:rustls-pki-types"]
-_aws-lc-rs = ["dep:aws-lc-rs", "tokio-rustls/aws-lc-rs", "dep:rustls-pki-types"]
+_ring = [
+  "dep:ring",
+  "tokio-rustls/ring",
+  "dep:rustls-pki-types",
+  "dep:base64",
+  "dep:stringprep",
+  "dep:x509-certificate",
+]
+_aws-lc-rs = [
+  "dep:aws-lc-rs",
+  "tokio-rustls/aws-lc-rs",
+  "dep:rustls-pki-types",
+  "dep:base64",
+  "dep:stringprep",
+  "dep:x509-certificate"
+]
 server-api = [
     "dep:tokio",
     "dep:tokio-util",
@@ -80,7 +94,6 @@ client-api = [
 ]
 client-api-ring = ["client-api", "_ring", "dep:rustls-pki-types"]
 client-api-aws-lc-rs = ["client-api", "_aws-lc-rs", "dep:rustls-pki-types"]
-scram = ["dep:base64", "dep:stringprep", "dep:x509-certificate"]
 _duckdb = []
 _sqlite = []
 _bundled = ["duckdb/bundled", "rusqlite/bundled"]
@@ -139,7 +152,7 @@ required-features = ["server-api-aws-lc-rs"]
 
 [[example]]
 name = "scram"
-required-features = ["server-api-aws-lc-rs", "scram"]
+required-features = ["server-api-aws-lc-rs"]
 
 [[example]]
 name = "transaction"
