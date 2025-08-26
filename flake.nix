@@ -2,7 +2,7 @@
   description = "Development environment flake";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     fenix = {
       url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -46,7 +46,8 @@
             curl
             gnuplot ## for cargo bench
             pythonEnv
-            postgresql
+            postgresql_18
+
             babashka
             nodejs_24
             go
