@@ -10,7 +10,8 @@ use tokio::net::TcpListener;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 
-use pgwire::api::auth::scram::{gen_salted_password, SASLScramAuthStartupHandler};
+use pgwire::api::auth::sasl::scram::gen_salted_password;
+use pgwire::api::auth::sasl::SASLAuthStartupHandler;
 use pgwire::api::auth::{
     AuthSource, DefaultServerParameterProvider, LoginInfo, Password, StartupHandler,
 };
@@ -61,7 +62,7 @@ struct DummyProcessorFactory {
 
 impl PgWireServerHandlers for DummyProcessorFactory {
     fn startup_handler(&self) -> Arc<impl StartupHandler> {
-        let mut authenticator = SASLScramAuthStartupHandler::new(
+        let mut authenticator = SASLAuthStartupHandler::new(
             Arc::new(DummyAuthDB),
             Arc::new(DefaultServerParameterProvider::default()),
         );
