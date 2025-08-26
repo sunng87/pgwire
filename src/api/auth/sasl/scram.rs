@@ -23,12 +23,45 @@ use aws_lc_rs::{digest, hmac, pbkdf2};
 use ring::{digest, hmac, pbkdf2};
 
 #[derive(Debug)]
-pub struct ScramAuth<A> {
-    pub(crate) auth_db: Arc<A>,
+pub struct ScramAuth {
+    pub(crate) auth_db: Arc<dyn AuthSource>,
     /// base64 encoded certificate signature for tls-server-end-point channel binding
     pub(crate) server_cert_sig: Option<Arc<String>>,
     /// iterations
     pub(crate) iterations: usize,
+}
+
+impl ScramAuth {
+    pub fn new(auth_db: Arc<dyn AuthSource>) -> ScramAuth {
+        ScramAuth {
+            auth_db,
+            server_cert_sig: None,
+            iterations: 4096,
+        }
+    }
+
+    /// enable channel binding (SCRAM-SHA-256-PLUS) by configuring server
+    /// certificate.
+    ///
+    /// Original pem data is required here. We will decode pem and use the first
+    /// certificate as server certificate.
+    pub fn configure_certificate(&mut self, certs_pem: &[u8]) -> PgWireResult<()> {
+        let sig = compute_cert_signature(certs_pem)?;
+        self.server_cert_sig = Some(Arc::new(STANDARD.encode(sig)));
+        Ok(())
+    }
+
+    /// Set password hash iteration count, according to SCRAM RFC, a minimal of
+    /// 4096 is required.
+    ///
+    /// Note that this implementation does not hash password, it just tells
+    /// client to hash with this iteration count. You have to implement password
+    /// hashing in your `AuthSource` implementation, either after fetching
+    /// cleartext password, or before storing hashed password. And this number
+    /// should be identical to your `AuthSource` implementation.
+    pub fn set_iterations(&mut self, iterations: usize) {
+        self.iterations = iterations;
+    }
 }
 
 /// Compute salted password from raw password as defined in
@@ -52,7 +85,7 @@ pub fn random_nonce() -> String {
     STANDARD.encode(rand::random::<[u8; 18]>())
 }
 
-impl<A: AuthSource> ScramAuth<A> {
+impl ScramAuth {
     fn compute_channel_binding(&self, client_channel_binding: &str) -> String {
         if client_channel_binding.starts_with("p=tls-server-end-point") {
             format!(

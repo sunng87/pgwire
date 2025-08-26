@@ -12,7 +12,8 @@ use tokio::net::TcpListener;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 
-use pgwire::api::auth::scram::{gen_salted_password, SASLScramAuthStartupHandler};
+use pgwire::api::auth::sasl::scram::{gen_salted_password, ScramAuth};
+use pgwire::api::auth::sasl::SASLAuthStartupHandler;
 use pgwire::api::auth::{
     AuthSource, DefaultServerParameterProvider, LoginInfo, Password, StartupHandler,
 };
@@ -28,6 +29,7 @@ use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 
 const ITERATIONS: usize = 4096;
+#[derive(Debug)]
 struct DummyAuthSource;
 
 #[async_trait]
@@ -224,11 +226,12 @@ impl PgWireServerHandlers for DummyDatabaseFactory {
     }
 
     fn startup_handler(&self) -> Arc<impl StartupHandler> {
-        let mut authenticator = SASLScramAuthStartupHandler::new(
-            Arc::new(DummyAuthSource),
-            Arc::new(DefaultServerParameterProvider::default()),
-        );
-        authenticator.set_iterations(ITERATIONS);
+        let mut scram = ScramAuth::new(Arc::new(DummyAuthSource));
+        scram.set_iterations(ITERATIONS);
+
+        let authenticator =
+            SASLAuthStartupHandler::new(Arc::new(DefaultServerParameterProvider::default()))
+                .with_scram(scram);
 
         Arc::new(authenticator)
     }

@@ -141,7 +141,7 @@ impl LoginInfo<'_> {
 /// authentication, salt is not required, while in md5pass, a 4-byte salt is
 /// needed.
 #[async_trait]
-pub trait AuthSource: Send + Sync {
+pub trait AuthSource: Send + Sync + Debug {
     /// Get password from the `AuthSource`.
     ///
     /// `Password` has a an optional salt field when it's hashed.

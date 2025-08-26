@@ -2,12 +2,10 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use base64::engine::general_purpose::STANDARD;
-use base64::Engine;
 use futures::{Sink, SinkExt};
 use tokio::sync::Mutex;
 
-use crate::api::auth::{AuthSource, Password};
+use crate::api::auth::Password;
 use crate::api::{ClientInfo, PgWireConnectionState};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::{Authentication, PasswordMessageFamily};
@@ -38,32 +36,16 @@ impl SASLState {
 }
 
 #[derive(Debug)]
-pub struct SASLAuthStartupHandler<A, P> {
+pub struct SASLAuthStartupHandler<P> {
     parameter_provider: Arc<P>,
     /// state of the SASL auth
     state: Mutex<SASLState>,
     /// scram configuration
-    scram: scram::ScramAuth<A>,
-}
-
-impl<A, P> SASLAuthStartupHandler<A, P> {
-    const SCRAM_SHA_256: &str = "SCRAM-SHA-256";
-    const SCRAM_SHA_256_PLUS: &str = "SCRAM-SHA-256-PLUS";
-
-    fn supported_mechanisms(&self) -> Vec<String> {
-        if self.scram.server_cert_sig.is_some() {
-            vec![
-                Self::SCRAM_SHA_256.to_owned(),
-                Self::SCRAM_SHA_256_PLUS.to_owned(),
-            ]
-        } else {
-            vec![Self::SCRAM_SHA_256.to_owned()]
-        }
-    }
+    scram: Option<scram::ScramAuth>,
 }
 
 #[async_trait]
-impl<A: AuthSource, P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<A, P> {
+impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
     async fn on_startup<C>(
         &self,
         client: &mut C,
@@ -109,14 +91,17 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler for SASLAuthStart
 
                 // SCRAM authentication
                 if state.is_scram() {
-                    let (resp, new_state) = self
-                        .scram
-                        .process_scram_message(client, msg, &state)
-                        .await?;
-                    client
-                        .send(PgWireBackendMessage::Authentication(resp))
-                        .await?;
-                    *state = new_state;
+                    if let Some(scram) = &self.scram {
+                        let (resp, new_state) =
+                            scram.process_scram_message(client, msg, &state).await?;
+                        client
+                            .send(PgWireBackendMessage::Authentication(resp))
+                            .await?;
+                        *state = new_state;
+                    } else {
+                        // scram is not configured
+                        return Err(PgWireError::UnsupportedSASLAuthMethod("SCRAM".to_string()));
+                    }
                 }
 
                 if matches!(*state, SASLState::Finished) {
@@ -130,39 +115,34 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler for SASLAuthStart
     }
 }
 
-impl<A, P> SASLAuthStartupHandler<A, P> {
-    pub fn new(auth_db: Arc<A>, parameter_provider: Arc<P>) -> Self {
+impl<P> SASLAuthStartupHandler<P> {
+    pub fn new(parameter_provider: Arc<P>) -> Self {
         SASLAuthStartupHandler {
             parameter_provider,
             state: Mutex::new(SASLState::Initial),
-            scram: scram::ScramAuth {
-                auth_db,
-                server_cert_sig: None,
-                iterations: 4096,
-            },
+            scram: None,
         }
     }
 
-    /// enable channel binding (SCRAM-SHA-256-PLUS) by configuring server
-    /// certificate.
-    ///
-    /// Original pem data is required here. We will decode pem and use the first
-    /// certificate as server certificate.
-    pub fn configure_certificate(&mut self, certs_pem: &[u8]) -> PgWireResult<()> {
-        let sig = scram::compute_cert_signature(certs_pem)?;
-        self.scram.server_cert_sig = Some(Arc::new(STANDARD.encode(sig)));
-        Ok(())
+    pub fn with_scram(mut self, scram_auth: scram::ScramAuth) -> Self {
+        self.scram = Some(scram_auth);
+        self
     }
 
-    /// Set password hash iteration count, according to SCRAM RFC, a minimal of
-    /// 4096 is required.
-    ///
-    /// Note that this implementation does not hash password, it just tells
-    /// client to hash with this iteration count. You have to implement password
-    /// hashing in your `AuthSource` implementation, either after fetching
-    /// cleartext password, or before storing hashed password. And this number
-    /// should be identical to your `AuthSource` implementation.
-    pub fn set_iterations(&mut self, iterations: usize) {
-        self.scram.iterations = iterations;
+    const SCRAM_SHA_256: &str = "SCRAM-SHA-256";
+    const SCRAM_SHA_256_PLUS: &str = "SCRAM-SHA-256-PLUS";
+
+    fn supported_mechanisms(&self) -> Vec<String> {
+        let mut mechanisms = vec![];
+
+        if let Some(scram) = &self.scram {
+            mechanisms.push(Self::SCRAM_SHA_256.to_owned());
+
+            if scram.server_cert_sig.is_some() {
+                mechanisms.push(Self::SCRAM_SHA_256_PLUS.to_owned());
+            }
+        }
+
+        mechanisms
     }
 }
