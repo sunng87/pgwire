@@ -34,10 +34,10 @@ this library.
     - [x] No authentication
     - [x] Clear-text password authentication
     - [x] Md5 Password authentication
-    - [x] SASL SCRAM authentication (optional feature `server-api-scram-ring` or
-          `server-api-scram-aws-lc-rs`)
+    - [x] SASL SCRAM authentication
       - [x] SCRAM-SHA-256
       - [x] SCRAM-SHA-256-PLUS
+    - [ ] SASL OAUTH
   - [x] Simple Query and Response
   - [x] Extended Query and Response
     - [x] Parse
