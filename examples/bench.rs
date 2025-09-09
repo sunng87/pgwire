@@ -6,6 +6,7 @@ use futures::StreamExt;
 use tokio::net::TcpListener;
 
 use pgwire::api::query::SimpleQueryHandler;
+use pgwire::api::results::BoxRowStream;
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response};
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
 use pgwire::error::PgWireResult;
@@ -15,11 +16,11 @@ pub struct DummyProcessor;
 
 #[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
-    async fn do_query<'a, C>(
+    async fn do_query<C>(
         &self,
         _client: &mut C,
         _query: &str,
-    ) -> PgWireResult<Vec<Response<'a>>>
+    ) -> PgWireResult<Vec<Response<BoxRowStream>>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -59,7 +60,7 @@ impl SimpleQueryHandler for DummyProcessor {
 
         Ok(vec![Response::Query(QueryResponse::new(
             schema,
-            data_row_stream,
+            Box::new(data_row_stream),
         ))])
     }
 }

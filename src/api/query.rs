@@ -8,17 +8,18 @@ use futures::stream::StreamExt;
 use super::portal::Portal;
 use super::results::{into_row_description, Tag};
 use super::stmt::{NoopQueryParser, QueryParser, StoredStatement};
-use super::store::PortalStore;
+use super::store::{PortalStore, PortalSuspendedResult};
 use super::{copy, ClientInfo, ClientPortalStore, DEFAULT_NAME};
 use crate::api::results::{
-    DescribePortalResponse, DescribeResponse, DescribeStatementResponse, QueryResponse, Response,
+    BoxRowStream, DescribePortalResponse, DescribeResponse, DescribeStatementResponse,
+    QueryResponse, Response,
 };
 use crate::api::PgWireConnectionState;
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::data::{NoData, ParameterDescription};
 use crate::messages::extendedquery::{
     Bind, BindComplete, Close, CloseComplete, Describe, Execute, Flush, Parse, ParseComplete,
-    Sync as PgSync, TARGET_TYPE_BYTE_PORTAL, TARGET_TYPE_BYTE_STATEMENT,
+    PortalSuspended, Sync as PgSync, TARGET_TYPE_BYTE_PORTAL, TARGET_TYPE_BYTE_STATEMENT,
 };
 use crate::messages::response::{
     EmptyQueryResponse, NoticeResponse, ReadyForQuery, TransactionStatus,
@@ -43,6 +44,7 @@ pub trait SimpleQueryHandler: Send + Sync {
     async fn on_query<C>(&self, client: &mut C, query: Query) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalSuspendedResult: PortalSuspendedResult<BoxRowStream>,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -55,6 +57,7 @@ pub trait SimpleQueryHandler: Send + Sync {
     async fn _on_query<C>(&self, client: &mut C, query: Query) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalSuspendedResult: PortalSuspendedResult<BoxRowStream>,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -135,7 +138,11 @@ pub trait SimpleQueryHandler: Send + Sync {
     }
 
     /// Provide your query implementation using the incoming query string.
-    async fn do_query<'a, C>(&self, client: &mut C, query: &str) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<C>(
+        &self,
+        client: &mut C,
+        query: &str,
+    ) -> PgWireResult<Vec<Response<BoxRowStream>>>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -208,6 +215,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::PortalStore: PortalStore<Statement = Self::Statement>,
+        C::PortalSuspendedResult: PortalSuspendedResult<BoxRowStream>,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -222,6 +230,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::PortalStore: PortalStore<Statement = Self::Statement>,
+        C::PortalSuspendedResult: PortalSuspendedResult<BoxRowStream>,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -234,18 +243,29 @@ pub trait ExtendedQueryHandler: Send + Sync {
         client.set_state(super::PgWireConnectionState::QueryInProgress);
 
         let portal_name = message.name.as_deref().unwrap_or(DEFAULT_NAME);
+        let max_rows = message.max_rows as usize;
+
         if let Some(portal) = client.portal_store().get_portal(portal_name) {
-            match self
-                .do_query(client, portal.as_ref(), message.max_rows as usize)
-                .await?
-            {
+            match self.do_query(client, portal.as_ref(), max_rows).await? {
                 Response::EmptyQuery => {
                     client
                         .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
                         .await?;
                 }
                 Response::Query(results) => {
-                    send_query_response(client, results, false).await?;
+                    if max_rows > 0 {
+                        if let Some(suspended_results) =
+                            send_suspended_query_response(client, results, max_rows).await?
+                        {
+                            client
+                                .portal_suspended_result()
+                                .put_result(portal_name, Arc::new(suspended_results));
+                            client.portal_store().put_portal(portal);
+                            client.set_state(PgWireConnectionState::PortalSuspended);
+                        }
+                    } else {
+                        send_query_response(client, results, false).await?;
+                    }
                 }
                 Response::Execution(tag) => {
                     send_execution_response(client, tag).await?;
@@ -279,7 +299,10 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 }
             }
 
-            if !matches!(client.state(), PgWireConnectionState::CopyInProgress(_)) {
+            if !matches!(
+                client.state(),
+                PgWireConnectionState::CopyInProgress(_) | PgWireConnectionState::PortalSuspended
+            ) {
                 client.set_state(super::PgWireConnectionState::ReadyForQuery);
                 client.set_transaction_status(transaction_status);
             };
@@ -396,6 +419,51 @@ pub trait ExtendedQueryHandler: Send + Sync {
         Ok(())
     }
 
+    /// Called when client sends `execute` command on a suspended portal.
+    ///
+    /// The default implementation handles execution of suspended portals by
+    /// retrieving cached results and sending them to the client.
+    async fn on_suspended_execute<C>(&self, client: &mut C, message: Execute) -> PgWireResult<()>
+    where
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
+        C::PortalSuspendedResult: PortalSuspendedResult<BoxRowStream>,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        let name = message.name.as_deref().unwrap_or(DEFAULT_NAME);
+        let max_rows = message.max_rows as usize;
+
+        if let Some(cached_result) = client.portal_suspended_result().get_result(name) {
+            let mut rows = 0;
+            let mut data_rows = cached_result.lock_data_rows().await;
+
+            while max_rows == 0 || rows < max_rows {
+                if let Some(row) = data_rows.next().await {
+                    let row = row?;
+                    client.feed(PgWireBackendMessage::DataRow(row)).await?;
+                    rows += 1;
+                } else {
+                    client.portal_suspended_result().rm_result(name);
+
+                    let tag = Tag::new("SELECT").with_rows(rows);
+                    client
+                        .send(PgWireBackendMessage::CommandComplete(tag.into()))
+                        .await?;
+                    client.set_state(super::PgWireConnectionState::ReadyForQuery);
+                    return Ok(());
+                }
+            }
+
+            client
+                .send(PgWireBackendMessage::PortalSuspended(PortalSuspended))
+                .await?;
+            Ok(())
+        } else {
+            Err(PgWireError::PortalNotFound(name.to_owned()))
+        }
+    }
+
     /// Return resultset metadata without actually executing statement
     async fn do_describe_statement<C>(
         &self,
@@ -426,12 +494,12 @@ pub trait ExtendedQueryHandler: Send + Sync {
     /// - `client`: Information of the client sending the query
     /// - `portal`: Statement and parameters for the query
     /// - `max_rows`: Max requested rows of the query
-    async fn do_query<'a, C>(
+    async fn do_query<C>(
         &self,
         client: &mut C,
         portal: &Portal<Self::Statement>,
         max_rows: usize,
-    ) -> PgWireResult<Response<'a>>
+    ) -> PgWireResult<Response<BoxRowStream>>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::PortalStore: PortalStore<Statement = Self::Statement>,
@@ -446,17 +514,18 @@ pub trait ExtendedQueryHandler: Send + Sync {
 /// decribed statement/portal before.
 pub async fn send_query_response<C>(
     client: &mut C,
-    results: QueryResponse<'_>,
+    results: QueryResponse<BoxRowStream>,
     send_describe: bool,
 ) -> PgWireResult<()>
 where
-    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C::PortalSuspendedResult: PortalSuspendedResult<BoxRowStream>,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
     let command_tag = results.command_tag().to_owned();
     let row_schema = results.row_schema();
-    let mut data_rows = results.data_rows();
+    let mut data_rows = results.lock_data_rows().await;
 
     // Simple query has row_schema in query response. For extended query,
     // row_schema is returned as response of `Describe`.
@@ -480,6 +549,44 @@ where
         .await?;
 
     Ok(())
+}
+
+pub async fn send_suspended_query_response<C>(
+    client: &mut C,
+    results: QueryResponse<BoxRowStream>,
+    max_rows: usize,
+) -> PgWireResult<Option<QueryResponse<BoxRowStream>>>
+where
+    C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C::PortalSuspendedResult: PortalSuspendedResult<BoxRowStream>,
+    C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+{
+    let command_tag = results.command_tag().to_owned();
+    let mut data_rows = results.lock_data_rows().await;
+
+    let mut rows = 0;
+    while max_rows == 0 || rows < max_rows {
+        if let Some(row) = data_rows.next().await {
+            let row = row?;
+            rows += 1;
+            client.feed(PgWireBackendMessage::DataRow(row)).await?;
+        } else {
+            let tag = Tag::new(&command_tag).with_rows(rows);
+            client
+                .send(PgWireBackendMessage::CommandComplete(tag.into()))
+                .await?;
+            return Ok(None);
+        }
+    }
+
+    drop(data_rows);
+
+    client
+        .send(PgWireBackendMessage::PortalSuspended(PortalSuspended))
+        .await?;
+
+    Ok(Some(results))
 }
 
 /// Helper function to send a ReadyForQuery response.
@@ -554,12 +661,12 @@ impl ExtendedQueryHandler for super::NoopHandler {
         Arc::new(NoopQueryParser)
     }
 
-    async fn do_query<'a, C>(
+    async fn do_query<C>(
         &self,
         client: &mut C,
         _portal: &Portal<Self::Statement>,
         _max_rows: usize,
-    ) -> PgWireResult<Response<'a>>
+    ) -> PgWireResult<Response<BoxRowStream>>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -602,7 +709,11 @@ impl ExtendedQueryHandler for super::NoopHandler {
 
 #[async_trait]
 impl SimpleQueryHandler for super::NoopHandler {
-    async fn do_query<'a, C>(&self, client: &mut C, _query: &str) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<C>(
+        &self,
+        client: &mut C,
+        _query: &str,
+    ) -> PgWireResult<Vec<Response<BoxRowStream>>>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,

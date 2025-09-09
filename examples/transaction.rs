@@ -8,7 +8,9 @@ use tokio::net::TcpListener;
 
 use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::query::SimpleQueryHandler;
-use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
+use pgwire::api::results::{
+    BoxRowStream, DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag,
+};
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
 use pgwire::error::ErrorInfo;
 use pgwire::error::{PgWireError, PgWireResult};
@@ -47,7 +49,11 @@ impl NoopStartupHandler for DummyProcessor {
 
 #[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
-    async fn do_query<'a, C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<C>(
+        &self,
+        _client: &mut C,
+        query: &str,
+    ) -> PgWireResult<Vec<Response<BoxRowStream>>>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -70,7 +76,10 @@ impl SimpleQueryHandler for DummyProcessor {
                     encoder.finish()
                 };
                 let data_row_stream = stream::iter(vec![row]);
-                Response::Query(QueryResponse::new(schema, data_row_stream))
+                Response::Query(QueryResponse::new(
+                    schema,
+                    Box::new(data_row_stream) as BoxRowStream,
+                ))
             }
             _ => Response::Error(Box::new(ErrorInfo::new(
                 "FATAL".to_string(),

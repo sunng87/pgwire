@@ -143,9 +143,14 @@ impl<T: 'static, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
 
 impl<T, S> ClientPortalStore for Framed<T, PgWireMessageServerCodec<S>> {
     type PortalStore = <DefaultClient<S> as ClientPortalStore>::PortalStore;
+    type PortalSuspendedResult = <DefaultClient<S> as ClientPortalStore>::PortalSuspendedResult;
 
     fn portal_store(&self) -> &Self::PortalStore {
         self.codec().client_info.portal_store()
+    }
+
+    fn portal_suspended_result(&self) -> &Self::PortalSuspendedResult {
+        self.codec().client_info.portal_suspended_result()
     }
 }
 
@@ -236,6 +241,20 @@ where
                 _ => {}
             }
         }
+        PgWireConnectionState::PortalSuspended => match message {
+            PgWireFrontendMessage::Execute(execute) => {
+                extended_query_handler
+                    .on_suspended_execute(socket, execute)
+                    .await?;
+            }
+            PgWireFrontendMessage::Sync(sync) => {
+                extended_query_handler.on_sync(socket, sync).await?;
+            }
+            PgWireFrontendMessage::Close(close) => {
+                extended_query_handler.on_close(socket, close).await?;
+            }
+            _ => {}
+        },
         _ => {
             // query or query in progress
             match message {

@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
 use super::portal::Portal;
+use super::results::QueryResponse;
 use super::stmt::StoredStatement;
 
 pub trait PortalStore: Send + Sync {
@@ -59,5 +60,49 @@ impl<S: Clone + Send + Sync> PortalStore for MemPortalStore<S> {
     fn get_portal(&self, name: &str) -> Option<Arc<Portal<Self::Statement>>> {
         let guard = self.portals.read().unwrap();
         guard.get(name).cloned()
+    }
+}
+
+pub trait PortalSuspendedResult<RowStream> {
+    fn put_result(&self, name: &str, result: Arc<QueryResponse<RowStream>>);
+
+    fn rm_result(&self, name: &str);
+
+    fn get_result(&self, name: &str) -> Option<Arc<QueryResponse<RowStream>>>;
+
+    fn take_result(&self, name: &str) -> Option<Arc<QueryResponse<RowStream>>>;
+}
+
+#[derive(Default, new)]
+pub struct MemPortalSuspendedResult<RowStream> {
+    #[new(default)]
+    results: RwLock<BTreeMap<String, Arc<QueryResponse<RowStream>>>>,
+}
+
+impl<RowStream> std::fmt::Debug for MemPortalSuspendedResult<RowStream> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MemPortalSuspendedResult")
+    }
+}
+
+impl<RowStream> PortalSuspendedResult<RowStream> for MemPortalSuspendedResult<RowStream> {
+    fn put_result(&self, name: &str, result: Arc<QueryResponse<RowStream>>) {
+        let mut guard = self.results.write().unwrap();
+        guard.insert(name.to_owned(), result);
+    }
+
+    fn rm_result(&self, name: &str) {
+        let mut guard = self.results.write().unwrap();
+        guard.remove(name);
+    }
+
+    fn get_result(&self, name: &str) -> Option<Arc<QueryResponse<RowStream>>> {
+        let guard = self.results.read().unwrap();
+        guard.get(name).cloned()
+    }
+
+    fn take_result(&self, name: &str) -> Option<Arc<QueryResponse<RowStream>>> {
+        let mut guard = self.results.write().unwrap();
+        guard.remove(name)
     }
 }

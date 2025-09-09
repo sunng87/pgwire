@@ -20,8 +20,8 @@ use pgwire::api::auth::{
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
-    DataRowEncoder, DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse,
-    Response, Tag,
+    BoxRowStream, DataRowEncoder, DescribePortalResponse, DescribeStatementResponse, FieldInfo,
+    QueryResponse, Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
@@ -81,7 +81,11 @@ impl DummyDatabase {
 
 #[async_trait]
 impl SimpleQueryHandler for DummyDatabase {
-    async fn do_query<'a, C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<C>(
+        &self,
+        _client: &mut C,
+        query: &str,
+    ) -> PgWireResult<Vec<Response<BoxRowStream>>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -120,7 +124,7 @@ impl SimpleQueryHandler for DummyDatabase {
 
             Ok(vec![Response::Query(QueryResponse::new(
                 schema,
-                data_row_stream,
+                Box::new(data_row_stream),
             ))])
         } else {
             Ok(vec![Response::Execution(Tag::new("OK").with_rows(1))])
@@ -137,12 +141,12 @@ impl ExtendedQueryHandler for DummyDatabase {
         self.query_parser.clone()
     }
 
-    async fn do_query<'a, C>(
+    async fn do_query<C>(
         &self,
         _client: &mut C,
         portal: &Portal<Self::Statement>,
         _max_rows: usize,
-    ) -> PgWireResult<Response<'a>>
+    ) -> PgWireResult<Response<BoxRowStream>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -180,7 +184,10 @@ impl ExtendedQueryHandler for DummyDatabase {
                 encoder.finish()
             });
 
-            Ok(Response::Query(QueryResponse::new(schema, data_row_stream)))
+            Ok(Response::Query(QueryResponse::new(
+                schema,
+                Box::new(data_row_stream),
+            )))
         } else {
             Ok(Response::Execution(Tag::new("OK").with_rows(1)))
         }

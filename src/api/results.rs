@@ -2,11 +2,9 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use bytes::{BufMut, BytesMut};
-use futures::{
-    stream::{BoxStream, StreamExt},
-    Stream,
-};
+use futures::Stream;
 use postgres_types::{IsNull, Oid, ToSql, Type};
+use tokio::sync::{Mutex, MutexGuard};
 
 use crate::{
     error::{ErrorInfo, PgWireResult},
@@ -148,23 +146,31 @@ pub(crate) fn into_row_description(fields: &[FieldInfo]) -> RowDescription {
     RowDescription::new(fields.iter().map(Into::into).collect())
 }
 
-pub struct QueryResponse<'a> {
+pub type BoxRowStream = Box<dyn Stream<Item = PgWireResult<DataRow>> + Send + Sync + Unpin>;
+
+pub struct QueryResponse<RowStream> {
     command_tag: String,
     row_schema: Arc<Vec<FieldInfo>>,
-    data_rows: BoxStream<'a, PgWireResult<DataRow>>,
+    data_rows: Arc<Mutex<RowStream>>,
 }
 
-impl<'a> QueryResponse<'a> {
+impl<RowStream> Debug for QueryResponse<RowStream> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QueryResponse")
+            .field("command_tag", &self.command_tag)
+            .field("row_schema", &self.row_schema)
+            .finish()
+    }
+}
+
+impl<RowStream> QueryResponse<RowStream> {
     /// Create `QueryResponse` from column schemas and stream of data row.
     /// Sets "SELECT" as the command tag.
-    pub fn new<S>(field_defs: Arc<Vec<FieldInfo>>, row_stream: S) -> QueryResponse<'a>
-    where
-        S: Stream<Item = PgWireResult<DataRow>> + Send + Unpin + 'a,
-    {
+    pub fn new(field_defs: Arc<Vec<FieldInfo>>, row_stream: RowStream) -> QueryResponse<RowStream> {
         QueryResponse {
             command_tag: "SELECT".to_owned(),
             row_schema: field_defs,
-            data_rows: row_stream.boxed(),
+            data_rows: Arc::new(Mutex::new(row_stream)),
         }
     }
 
@@ -183,9 +189,9 @@ impl<'a> QueryResponse<'a> {
         self.row_schema.clone()
     }
 
-    /// Get owned `BoxStream` of data rows
-    pub fn data_rows(self) -> BoxStream<'a, PgWireResult<DataRow>> {
-        self.data_rows
+    /// Get access to data rows stream
+    pub async fn lock_data_rows(&self) -> MutexGuard<'_, RowStream> {
+        self.data_rows.lock().await
     }
 }
 
@@ -352,9 +358,9 @@ pub struct CopyResponse {
 /// * CopyIn: response for a copy-in request
 /// * CopyOut: response for a copy-out request
 /// * CopuBoth: response for a copy-both request
-pub enum Response<'a> {
+pub enum Response<RowStream> {
     EmptyQuery,
-    Query(QueryResponse<'a>),
+    Query(QueryResponse<RowStream>),
     Execution(Tag),
     TransactionStart(Tag),
     TransactionEnd(Tag),
