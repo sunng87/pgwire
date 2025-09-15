@@ -37,7 +37,6 @@ pub enum PgWireConnectionState {
     QueryInProgress,
     CopyInProgress(bool),
     AwaitingSync,
-    PortalSuspended,
 }
 
 /// Describe a client information holder

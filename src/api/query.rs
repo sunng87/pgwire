@@ -240,6 +240,14 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let portal_name = message.name.as_deref().unwrap_or(DEFAULT_NAME);
         let max_rows = message.max_rows as usize;
 
+        if client
+            .portal_suspended_result()
+            .get_result(portal_name)
+            .is_some()
+        {
+            return self.on_suspended_execute(client, message).await;
+        }
+
         if let Some(portal) = client.portal_store().get_portal(portal_name) {
             match self.do_query(client, portal.as_ref(), max_rows).await? {
                 Response::EmptyQuery => {
@@ -256,7 +264,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
                                 .portal_suspended_result()
                                 .put_result(portal_name, Arc::new(suspended_results));
                             client.portal_store().put_portal(portal);
-                            client.set_state(PgWireConnectionState::PortalSuspended);
                         }
                     } else {
                         send_query_response(client, results, false).await?;
@@ -294,10 +301,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 }
             }
 
-            if !matches!(
-                client.state(),
-                PgWireConnectionState::CopyInProgress(_) | PgWireConnectionState::PortalSuspended
-            ) {
+            if !matches!(client.state(), PgWireConnectionState::CopyInProgress(_)) {
                 client.set_state(super::PgWireConnectionState::ReadyForQuery);
                 client.set_transaction_status(transaction_status);
             };
@@ -445,7 +449,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                     client
                         .send(PgWireBackendMessage::CommandComplete(tag.into()))
                         .await?;
-                    client.set_state(super::PgWireConnectionState::ReadyForQuery);
+                    client.set_state(PgWireConnectionState::ReadyForQuery);
                     return Ok(());
                 }
             }
@@ -453,6 +457,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
             client
                 .send(PgWireBackendMessage::PortalSuspended(PortalSuspended))
                 .await?;
+            client.set_state(PgWireConnectionState::ReadyForQuery);
             Ok(())
         } else {
             Err(PgWireError::PortalNotFound(name.to_owned()))
@@ -580,6 +585,7 @@ where
     client
         .send(PgWireBackendMessage::PortalSuspended(PortalSuspended))
         .await?;
+    client.set_state(PgWireConnectionState::ReadyForQuery);
 
     Ok(Some(results))
 }

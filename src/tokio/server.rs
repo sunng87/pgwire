@@ -241,20 +241,6 @@ where
                 _ => {}
             }
         }
-        PgWireConnectionState::PortalSuspended => match message {
-            PgWireFrontendMessage::Execute(execute) => {
-                extended_query_handler
-                    .on_suspended_execute(socket, execute)
-                    .await?;
-            }
-            PgWireFrontendMessage::Sync(sync) => {
-                extended_query_handler.on_sync(socket, sync).await?;
-            }
-            PgWireFrontendMessage::Close(close) => {
-                extended_query_handler.on_close(socket, close).await?;
-            }
-            _ => {}
-        },
         _ => {
             // query or query in progress
             match message {
