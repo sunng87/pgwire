@@ -19,11 +19,7 @@ pub struct GluesqlProcessor {
 
 #[async_trait]
 impl SimpleQueryHandler for GluesqlProcessor {
-    async fn do_query<C>(
-        &self,
-        _client: &mut C,
-        query: &str,
-    ) -> PgWireResult<Vec<Response<BoxRowStream>>>
+    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -154,7 +150,7 @@ impl SimpleQueryHandler for GluesqlProcessor {
                             unimplemented!()
                         }
                     })
-                    .collect::<Result<Vec<Response<BoxRowStream>>, PgWireError>>()
+                    .collect::<Result<Vec<Response>, PgWireError>>()
             })
     }
 }

@@ -8,7 +8,6 @@ pub use postgres_types::Type;
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use rustls_pki_types::CertificateDer;
 
-use crate::api::results::BoxRowStream;
 use crate::error::PgWireError;
 use crate::messages::response::TransactionStatus;
 use crate::messages::startup::SecretKey;
@@ -95,7 +94,7 @@ pub struct DefaultClient<S> {
     pub transaction_status: TransactionStatus,
     pub metadata: HashMap<String, String>,
     pub portal_store: store::MemPortalStore<S>,
-    pub suspended_portal_results: store::MemPortalSuspendedResult<BoxRowStream>,
+    pub suspended_portal_results: store::MemPortalSuspendedResult,
 }
 
 impl<S> ClientInfo for DefaultClient<S> {
@@ -171,7 +170,7 @@ impl<S> DefaultClient<S> {
 
 impl<S> ClientPortalStore for DefaultClient<S> {
     type PortalStore = store::MemPortalStore<S>;
-    type PortalSuspendedResult = store::MemPortalSuspendedResult<BoxRowStream>;
+    type PortalSuspendedResult = store::MemPortalSuspendedResult;
 
     fn portal_store(&self) -> &Self::PortalStore {
         &self.portal_store

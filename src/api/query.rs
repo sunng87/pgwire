@@ -11,8 +11,7 @@ use super::stmt::{NoopQueryParser, QueryParser, StoredStatement};
 use super::store::{PortalStore, PortalSuspendedResult};
 use super::{copy, ClientInfo, ClientPortalStore, DEFAULT_NAME};
 use crate::api::results::{
-    BoxRowStream, DescribePortalResponse, DescribeResponse, DescribeStatementResponse,
-    QueryResponse, Response,
+    DescribePortalResponse, DescribeResponse, DescribeStatementResponse, QueryResponse, Response,
 };
 use crate::api::PgWireConnectionState;
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
@@ -44,7 +43,7 @@ pub trait SimpleQueryHandler: Send + Sync {
     async fn on_query<C>(&self, client: &mut C, query: Query) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-        C::PortalSuspendedResult: PortalSuspendedResult<BoxRowStream>,
+        C::PortalSuspendedResult: PortalSuspendedResult,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -57,7 +56,7 @@ pub trait SimpleQueryHandler: Send + Sync {
     async fn _on_query<C>(&self, client: &mut C, query: Query) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-        C::PortalSuspendedResult: PortalSuspendedResult<BoxRowStream>,
+        C::PortalSuspendedResult: PortalSuspendedResult,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -138,11 +137,7 @@ pub trait SimpleQueryHandler: Send + Sync {
     }
 
     /// Provide your query implementation using the incoming query string.
-    async fn do_query<C>(
-        &self,
-        client: &mut C,
-        query: &str,
-    ) -> PgWireResult<Vec<Response<BoxRowStream>>>
+    async fn do_query<C>(&self, client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -215,7 +210,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::PortalStore: PortalStore<Statement = Self::Statement>,
-        C::PortalSuspendedResult: PortalSuspendedResult<BoxRowStream>,
+        C::PortalSuspendedResult: PortalSuspendedResult,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -230,7 +225,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::PortalStore: PortalStore<Statement = Self::Statement>,
-        C::PortalSuspendedResult: PortalSuspendedResult<BoxRowStream>,
+        C::PortalSuspendedResult: PortalSuspendedResult,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -427,7 +422,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::PortalStore: PortalStore<Statement = Self::Statement>,
-        C::PortalSuspendedResult: PortalSuspendedResult<BoxRowStream>,
+        C::PortalSuspendedResult: PortalSuspendedResult,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -499,7 +494,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         client: &mut C,
         portal: &Portal<Self::Statement>,
         max_rows: usize,
-    ) -> PgWireResult<Response<BoxRowStream>>
+    ) -> PgWireResult<Response>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::PortalStore: PortalStore<Statement = Self::Statement>,
@@ -514,12 +509,12 @@ pub trait ExtendedQueryHandler: Send + Sync {
 /// decribed statement/portal before.
 pub async fn send_query_response<C>(
     client: &mut C,
-    results: QueryResponse<BoxRowStream>,
+    results: QueryResponse,
     send_describe: bool,
 ) -> PgWireResult<()>
 where
     C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-    C::PortalSuspendedResult: PortalSuspendedResult<BoxRowStream>,
+    C::PortalSuspendedResult: PortalSuspendedResult,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
@@ -553,12 +548,12 @@ where
 
 pub async fn send_suspended_query_response<C>(
     client: &mut C,
-    results: QueryResponse<BoxRowStream>,
+    results: QueryResponse,
     max_rows: usize,
-) -> PgWireResult<Option<QueryResponse<BoxRowStream>>>
+) -> PgWireResult<Option<QueryResponse>>
 where
     C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-    C::PortalSuspendedResult: PortalSuspendedResult<BoxRowStream>,
+    C::PortalSuspendedResult: PortalSuspendedResult,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
@@ -666,7 +661,7 @@ impl ExtendedQueryHandler for super::NoopHandler {
         client: &mut C,
         _portal: &Portal<Self::Statement>,
         _max_rows: usize,
-    ) -> PgWireResult<Response<BoxRowStream>>
+    ) -> PgWireResult<Response>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -709,11 +704,7 @@ impl ExtendedQueryHandler for super::NoopHandler {
 
 #[async_trait]
 impl SimpleQueryHandler for super::NoopHandler {
-    async fn do_query<C>(
-        &self,
-        client: &mut C,
-        _query: &str,
-    ) -> PgWireResult<Vec<Response<BoxRowStream>>>
+    async fn do_query<C>(&self, client: &mut C, _query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,

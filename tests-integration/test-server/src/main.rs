@@ -20,8 +20,8 @@ use pgwire::api::auth::{
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
-    BoxRowStream, DataRowEncoder, DescribePortalResponse, DescribeStatementResponse, FieldInfo,
-    QueryResponse, Response, Tag,
+    DataRowEncoder, DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse,
+    Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
@@ -81,11 +81,7 @@ impl DummyDatabase {
 
 #[async_trait]
 impl SimpleQueryHandler for DummyDatabase {
-    async fn do_query<C>(
-        &self,
-        _client: &mut C,
-        query: &str,
-    ) -> PgWireResult<Vec<Response<BoxRowStream>>>
+    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -146,7 +142,7 @@ impl ExtendedQueryHandler for DummyDatabase {
         _client: &mut C,
         portal: &Portal<Self::Statement>,
         _max_rows: usize,
-    ) -> PgWireResult<Response<BoxRowStream>>
+    ) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {

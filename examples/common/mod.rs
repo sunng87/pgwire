@@ -6,9 +6,7 @@ use futures::{stream, Sink, StreamExt};
 
 use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::query::SimpleQueryHandler;
-use pgwire::api::results::{
-    BoxRowStream, DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag,
-};
+use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
 use pgwire::api::{ClientInfo, Type};
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
@@ -41,11 +39,7 @@ impl NoopStartupHandler for DummyProcessor {
 
 #[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
-    async fn do_query<C>(
-        &self,
-        _client: &mut C,
-        query: &str,
-    ) -> PgWireResult<Vec<Response<BoxRowStream>>>
+    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {

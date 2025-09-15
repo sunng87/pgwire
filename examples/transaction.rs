@@ -49,11 +49,7 @@ impl NoopStartupHandler for DummyProcessor {
 
 #[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
-    async fn do_query<C>(
-        &self,
-        _client: &mut C,
-        query: &str,
-    ) -> PgWireResult<Vec<Response<BoxRowStream>>>
+    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,

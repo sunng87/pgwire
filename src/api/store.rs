@@ -63,30 +63,30 @@ impl<S: Clone + Send + Sync> PortalStore for MemPortalStore<S> {
     }
 }
 
-pub trait PortalSuspendedResult<RowStream> {
-    fn put_result(&self, name: &str, result: Arc<QueryResponse<RowStream>>);
+pub trait PortalSuspendedResult {
+    fn put_result(&self, name: &str, result: Arc<QueryResponse>);
 
     fn rm_result(&self, name: &str);
 
-    fn get_result(&self, name: &str) -> Option<Arc<QueryResponse<RowStream>>>;
+    fn get_result(&self, name: &str) -> Option<Arc<QueryResponse>>;
 
-    fn take_result(&self, name: &str) -> Option<Arc<QueryResponse<RowStream>>>;
+    fn take_result(&self, name: &str) -> Option<Arc<QueryResponse>>;
 }
 
 #[derive(Default, new)]
-pub struct MemPortalSuspendedResult<RowStream> {
+pub struct MemPortalSuspendedResult {
     #[new(default)]
-    results: RwLock<BTreeMap<String, Arc<QueryResponse<RowStream>>>>,
+    results: RwLock<BTreeMap<String, Arc<QueryResponse>>>,
 }
 
-impl<RowStream> std::fmt::Debug for MemPortalSuspendedResult<RowStream> {
+impl std::fmt::Debug for MemPortalSuspendedResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "MemPortalSuspendedResult")
     }
 }
 
-impl<RowStream> PortalSuspendedResult<RowStream> for MemPortalSuspendedResult<RowStream> {
-    fn put_result(&self, name: &str, result: Arc<QueryResponse<RowStream>>) {
+impl PortalSuspendedResult for MemPortalSuspendedResult {
+    fn put_result(&self, name: &str, result: Arc<QueryResponse>) {
         let mut guard = self.results.write().unwrap();
         guard.insert(name.to_owned(), result);
     }
@@ -96,12 +96,12 @@ impl<RowStream> PortalSuspendedResult<RowStream> for MemPortalSuspendedResult<Ro
         guard.remove(name);
     }
 
-    fn get_result(&self, name: &str) -> Option<Arc<QueryResponse<RowStream>>> {
+    fn get_result(&self, name: &str) -> Option<Arc<QueryResponse>> {
         let guard = self.results.read().unwrap();
         guard.get(name).cloned()
     }
 
-    fn take_result(&self, name: &str) -> Option<Arc<QueryResponse<RowStream>>> {
+    fn take_result(&self, name: &str) -> Option<Arc<QueryResponse>> {
         let mut guard = self.results.write().unwrap();
         guard.remove(name)
     }

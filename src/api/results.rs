@@ -148,13 +148,13 @@ pub(crate) fn into_row_description(fields: &[FieldInfo]) -> RowDescription {
 
 pub type BoxRowStream = Box<dyn Stream<Item = PgWireResult<DataRow>> + Send + Sync + Unpin>;
 
-pub struct QueryResponse<RowStream> {
+pub struct QueryResponse {
     command_tag: String,
     row_schema: Arc<Vec<FieldInfo>>,
-    data_rows: Arc<Mutex<RowStream>>,
+    data_rows: Arc<Mutex<BoxRowStream>>,
 }
 
-impl<RowStream> Debug for QueryResponse<RowStream> {
+impl Debug for QueryResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("QueryResponse")
             .field("command_tag", &self.command_tag)
@@ -163,10 +163,10 @@ impl<RowStream> Debug for QueryResponse<RowStream> {
     }
 }
 
-impl<RowStream> QueryResponse<RowStream> {
+impl QueryResponse {
     /// Create `QueryResponse` from column schemas and stream of data row.
     /// Sets "SELECT" as the command tag.
-    pub fn new(field_defs: Arc<Vec<FieldInfo>>, row_stream: RowStream) -> QueryResponse<RowStream> {
+    pub fn new(field_defs: Arc<Vec<FieldInfo>>, row_stream: BoxRowStream) -> QueryResponse {
         QueryResponse {
             command_tag: "SELECT".to_owned(),
             row_schema: field_defs,
@@ -190,7 +190,7 @@ impl<RowStream> QueryResponse<RowStream> {
     }
 
     /// Get access to data rows stream
-    pub async fn lock_data_rows(&self) -> MutexGuard<'_, RowStream> {
+    pub async fn lock_data_rows(&self) -> MutexGuard<'_, BoxRowStream> {
         self.data_rows.lock().await
     }
 }
@@ -358,9 +358,9 @@ pub struct CopyResponse {
 /// * CopyIn: response for a copy-in request
 /// * CopyOut: response for a copy-out request
 /// * CopuBoth: response for a copy-both request
-pub enum Response<RowStream> {
+pub enum Response {
     EmptyQuery,
-    Query(QueryResponse<RowStream>),
+    Query(QueryResponse),
     Execution(Tag),
     TransactionStart(Tag),
     TransactionEnd(Tag),

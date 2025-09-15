@@ -47,11 +47,7 @@ impl AuthSource for DummyAuthSource {
 
 #[async_trait]
 impl SimpleQueryHandler for SqliteBackend {
-    async fn do_query<C>(
-        &self,
-        _client: &mut C,
-        query: &str,
-    ) -> PgWireResult<Vec<Response<BoxRowStream>>>
+    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -210,7 +206,7 @@ impl ExtendedQueryHandler for SqliteBackend {
         _client: &mut C,
         portal: &Portal<Self::Statement>,
         _max_rows: usize,
-    ) -> PgWireResult<Response<BoxRowStream>>
+    ) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {

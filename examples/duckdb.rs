@@ -13,8 +13,7 @@ use pgwire::api::auth::{
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
-    BoxRowStream, DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse,
-    Response, Tag,
+    DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse, Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
@@ -46,11 +45,7 @@ impl AuthSource for DummyAuthSource {
 
 #[async_trait]
 impl SimpleQueryHandler for DuckDBBackend {
-    async fn do_query<C>(
-        &self,
-        _client: &mut C,
-        query: &str,
-    ) -> PgWireResult<Vec<Response<BoxRowStream>>>
+    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -163,7 +158,7 @@ impl ExtendedQueryHandler for DuckDBBackend {
         _client: &mut C,
         portal: &Portal<Self::Statement>,
         _max_rows: usize,
-    ) -> PgWireResult<Response<BoxRowStream>>
+    ) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
