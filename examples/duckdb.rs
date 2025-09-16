@@ -70,7 +70,7 @@ impl SimpleQueryHandler for DuckDBBackend {
                 .collect::<Vec<_>>();
             Ok(vec![Response::Query(QueryResponse::new(
                 header,
-                Box::new(stream::iter(data.into_iter())),
+                Box::pin(stream::iter(data.into_iter())),
             ))])
         } else {
             conn.execute(query, params![])
@@ -190,7 +190,7 @@ impl ExtendedQueryHandler for DuckDBBackend {
 
             Ok(Response::Query(QueryResponse::new(
                 header,
-                Box::new(stream::iter(data.into_iter())),
+                Box::pin(stream::iter(data.into_iter())),
             )))
         } else {
             stmt.execute::<&[&dyn duckdb::ToSql]>(params_ref.as_ref())

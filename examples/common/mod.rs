@@ -65,7 +65,7 @@ impl SimpleQueryHandler for DummyProcessor {
 
             Ok(vec![Response::Query(QueryResponse::new(
                 schema,
-                Box::new(data_row_stream),
+                Box::pin(data_row_stream),
             ))])
         } else {
             Ok(vec![Response::Execution(Tag::new("OK").with_rows(1))])

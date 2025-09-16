@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use bytes::{BufMut, BytesMut};
@@ -146,12 +147,12 @@ pub(crate) fn into_row_description(fields: &[FieldInfo]) -> RowDescription {
     RowDescription::new(fields.iter().map(Into::into).collect())
 }
 
-pub type BoxRowStream = Box<dyn Stream<Item = PgWireResult<DataRow>> + Send + Sync + Unpin>;
+pub type SendableRowStream = Pin<Box<dyn Stream<Item = PgWireResult<DataRow>> + Send>>;
 
 pub struct QueryResponse {
     command_tag: String,
     row_schema: Arc<Vec<FieldInfo>>,
-    data_rows: Arc<Mutex<BoxRowStream>>,
+    data_rows: Mutex<SendableRowStream>,
 }
 
 impl Debug for QueryResponse {
@@ -166,11 +167,11 @@ impl Debug for QueryResponse {
 impl QueryResponse {
     /// Create `QueryResponse` from column schemas and stream of data row.
     /// Sets "SELECT" as the command tag.
-    pub fn new(field_defs: Arc<Vec<FieldInfo>>, row_stream: BoxRowStream) -> QueryResponse {
+    pub fn new(field_defs: Arc<Vec<FieldInfo>>, row_stream: SendableRowStream) -> QueryResponse {
         QueryResponse {
             command_tag: "SELECT".to_owned(),
             row_schema: field_defs,
-            data_rows: Arc::new(Mutex::new(row_stream)),
+            data_rows: Mutex::new(row_stream),
         }
     }
 
@@ -190,7 +191,7 @@ impl QueryResponse {
     }
 
     /// Get access to data rows stream
-    pub async fn lock_data_rows(&self) -> MutexGuard<'_, BoxRowStream> {
+    pub async fn lock_data_rows(&self) -> MutexGuard<'_, SendableRowStream> {
         self.data_rows.lock().await
     }
 }

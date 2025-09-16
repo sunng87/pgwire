@@ -9,7 +9,7 @@ use tokio::net::TcpListener;
 use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::query::SimpleQueryHandler;
 use pgwire::api::results::{
-    BoxRowStream, DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag,
+    DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, SendableRowStream, Tag,
 };
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
 use pgwire::error::ErrorInfo;
@@ -74,7 +74,7 @@ impl SimpleQueryHandler for DummyProcessor {
                 let data_row_stream = stream::iter(vec![row]);
                 Response::Query(QueryResponse::new(
                     schema,
-                    Box::new(data_row_stream) as BoxRowStream,
+                    Box::pin(data_row_stream) as SendableRowStream,
                 ))
             }
             _ => Response::Error(Box::new(ErrorInfo::new(

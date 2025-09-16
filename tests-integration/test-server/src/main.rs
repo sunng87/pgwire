@@ -120,7 +120,7 @@ impl SimpleQueryHandler for DummyDatabase {
 
             Ok(vec![Response::Query(QueryResponse::new(
                 schema,
-                Box::new(data_row_stream),
+                Box::pin(data_row_stream),
             ))])
         } else {
             Ok(vec![Response::Execution(Tag::new("OK").with_rows(1))])
@@ -182,7 +182,7 @@ impl ExtendedQueryHandler for DummyDatabase {
 
             Ok(Response::Query(QueryResponse::new(
                 schema,
-                Box::new(data_row_stream),
+                Box::pin(data_row_stream),
             )))
         } else {
             Ok(Response::Execution(Tag::new("OK").with_rows(1)))

@@ -7,7 +7,7 @@ use tokio::net::TcpListener;
 
 use pgwire::api::query::SimpleQueryHandler;
 use pgwire::api::results::{
-    BoxRowStream, DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag,
+    DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, SendableRowStream, Tag,
 };
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
 use pgwire::error::{PgWireError, PgWireResult};
@@ -129,7 +129,7 @@ impl SimpleQueryHandler for GluesqlProcessor {
 
                             Ok(Response::Query(QueryResponse::new(
                                 fields,
-                                Box::new(stream::iter(results.into_iter())) as BoxRowStream,
+                                Box::pin(stream::iter(results.into_iter())) as SendableRowStream,
                             )))
                         }
                         Payload::Insert(rows) => Ok(Response::Execution(

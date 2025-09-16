@@ -14,8 +14,8 @@ use pgwire::api::auth::{
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
-    BoxRowStream, DataRowEncoder, DescribePortalResponse, DescribeStatementResponse, FieldInfo,
-    QueryResponse, Response, Tag,
+    DataRowEncoder, DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse,
+    Response, SendableRowStream, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
@@ -62,7 +62,7 @@ impl SimpleQueryHandler for SqliteBackend {
                     let s = encode_row_data(rows, header.clone());
                     vec![Response::Query(QueryResponse::new(
                         header,
-                        Box::new(s) as BoxRowStream,
+                        Box::pin(s) as SendableRowStream,
                     ))]
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
@@ -226,7 +226,7 @@ impl ExtendedQueryHandler for SqliteBackend {
             stmt.query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
                 .map(|rows| {
                     let s = encode_row_data(rows, header.clone());
-                    Response::Query(QueryResponse::new(header, Box::new(s) as BoxRowStream))
+                    Response::Query(QueryResponse::new(header, Box::pin(s) as SendableRowStream))
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {
