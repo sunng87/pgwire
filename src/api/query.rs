@@ -240,15 +240,15 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let portal_name = message.name.as_deref().unwrap_or(DEFAULT_NAME);
         let max_rows = message.max_rows as usize;
 
-        if client
-            .portal_suspended_result()
-            .get_result(portal_name)
-            .is_some()
-        {
-            return self.on_suspended_execute(client, message).await;
-        }
+        if let Some(results) = client.portal_suspended_result().take_result(portal_name) {
+            if send_suspended_query_response(client, &results, max_rows).await? {
+                client
+                    .portal_suspended_result()
+                    .put_result(portal_name, results);
+            }
 
-        if let Some(portal) = client.portal_store().get_portal(portal_name) {
+            Ok(())
+        } else if let Some(portal) = client.portal_store().get_portal(portal_name) {
             match self.do_query(client, portal.as_ref(), max_rows).await? {
                 Response::EmptyQuery => {
                     client
@@ -257,13 +257,10 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 }
                 Response::Query(results) => {
                     if max_rows > 0 {
-                        if let Some(suspended_results) =
-                            send_suspended_query_response(client, results, max_rows).await?
-                        {
+                        if send_suspended_query_response(client, &results, max_rows).await? {
                             client
                                 .portal_suspended_result()
-                                .put_result(portal_name, Arc::new(suspended_results));
-                            client.portal_store().put_portal(portal);
+                                .put_result(portal_name, results);
                         }
                     } else {
                         send_query_response(client, results, false).await?;
@@ -280,7 +277,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
                     send_execution_response(client, tag).await?;
                     transaction_status = transaction_status.to_idle_state();
                 }
-
                 Response::Error(err) => {
                     client
                         .send(PgWireBackendMessage::ErrorResponse((*err).into()))
@@ -418,52 +414,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
         Ok(())
     }
 
-    /// Called when client sends `execute` command on a suspended portal.
-    ///
-    /// The default implementation handles execution of suspended portals by
-    /// retrieving cached results and sending them to the client.
-    async fn on_suspended_execute<C>(&self, client: &mut C, message: Execute) -> PgWireResult<()>
-    where
-        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-        C::PortalStore: PortalStore<Statement = Self::Statement>,
-        C::PortalSuspendedResult: PortalSuspendedResult,
-        C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
-    {
-        let name = message.name.as_deref().unwrap_or(DEFAULT_NAME);
-        let max_rows = message.max_rows as usize;
-
-        if let Some(cached_result) = client.portal_suspended_result().get_result(name) {
-            let mut rows = 0;
-            let mut data_rows = cached_result.lock_data_rows().await;
-
-            while max_rows == 0 || rows < max_rows {
-                if let Some(row) = data_rows.next().await {
-                    let row = row?;
-                    client.feed(PgWireBackendMessage::DataRow(row)).await?;
-                    rows += 1;
-                } else {
-                    client.portal_suspended_result().rm_result(name);
-
-                    let tag = Tag::new("SELECT").with_rows(rows);
-                    client
-                        .send(PgWireBackendMessage::CommandComplete(tag.into()))
-                        .await?;
-                    client.set_state(PgWireConnectionState::ReadyForQuery);
-                    return Ok(());
-                }
-            }
-
-            client
-                .send(PgWireBackendMessage::PortalSuspended(PortalSuspended))
-                .await?;
-            client.set_state(PgWireConnectionState::ReadyForQuery);
-            Ok(())
-        } else {
-            Err(PgWireError::PortalNotFound(name.to_owned()))
-        }
-    }
-
     /// Return resultset metadata without actually executing statement
     async fn do_describe_statement<C>(
         &self,
@@ -553,41 +503,43 @@ where
 
 pub async fn send_suspended_query_response<C>(
     client: &mut C,
-    results: QueryResponse,
+    results: &QueryResponse,
     max_rows: usize,
-) -> PgWireResult<Option<QueryResponse>>
+) -> PgWireResult<bool>
 where
     C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
     C::PortalSuspendedResult: PortalSuspendedResult,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
-    let command_tag = results.command_tag().to_owned();
     let mut data_rows = results.lock_data_rows().await;
 
     let mut rows = 0;
+    let mut suspended = true;
     while max_rows == 0 || rows < max_rows {
         if let Some(row) = data_rows.next().await {
             let row = row?;
-            rows += 1;
             client.feed(PgWireBackendMessage::DataRow(row)).await?;
+            rows += 1;
         } else {
-            let tag = Tag::new(&command_tag).with_rows(rows);
-            client
-                .send(PgWireBackendMessage::CommandComplete(tag.into()))
-                .await?;
-            return Ok(None);
+            suspended = false;
+            break;
         }
     }
 
-    drop(data_rows);
-
-    client
-        .send(PgWireBackendMessage::PortalSuspended(PortalSuspended))
-        .await?;
+    if suspended {
+        client
+            .send(PgWireBackendMessage::PortalSuspended(PortalSuspended))
+            .await?;
+    } else {
+        let tag = Tag::new(results.command_tag()).with_rows(rows);
+        client
+            .send(PgWireBackendMessage::CommandComplete(tag.into()))
+            .await?;
+    }
     client.set_state(PgWireConnectionState::ReadyForQuery);
 
-    Ok(Some(results))
+    Ok(suspended)
 }
 
 /// Helper function to send a ReadyForQuery response.

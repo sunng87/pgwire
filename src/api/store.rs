@@ -64,44 +64,24 @@ impl<S: Clone + Send + Sync> PortalStore for MemPortalStore<S> {
 }
 
 pub trait PortalSuspendedResult {
-    fn put_result(&self, name: &str, result: Arc<QueryResponse>);
+    fn put_result(&self, name: &str, result: QueryResponse);
 
-    fn rm_result(&self, name: &str);
-
-    fn get_result(&self, name: &str) -> Option<Arc<QueryResponse>>;
-
-    fn take_result(&self, name: &str) -> Option<Arc<QueryResponse>>;
+    fn take_result(&self, name: &str) -> Option<QueryResponse>;
 }
 
-#[derive(Default, new)]
+#[derive(Debug, Default, new)]
 pub struct MemPortalSuspendedResult {
     #[new(default)]
-    results: RwLock<BTreeMap<String, Arc<QueryResponse>>>,
-}
-
-impl std::fmt::Debug for MemPortalSuspendedResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "MemPortalSuspendedResult")
-    }
+    results: RwLock<BTreeMap<String, QueryResponse>>,
 }
 
 impl PortalSuspendedResult for MemPortalSuspendedResult {
-    fn put_result(&self, name: &str, result: Arc<QueryResponse>) {
+    fn put_result(&self, name: &str, result: QueryResponse) {
         let mut guard = self.results.write().unwrap();
         guard.insert(name.to_owned(), result);
     }
 
-    fn rm_result(&self, name: &str) {
-        let mut guard = self.results.write().unwrap();
-        guard.remove(name);
-    }
-
-    fn get_result(&self, name: &str) -> Option<Arc<QueryResponse>> {
-        let guard = self.results.read().unwrap();
-        guard.get(name).cloned()
-    }
-
-    fn take_result(&self, name: &str) -> Option<Arc<QueryResponse>> {
+    fn take_result(&self, name: &str) -> Option<QueryResponse> {
         let mut guard = self.results.write().unwrap();
         guard.remove(name)
     }
