@@ -6,7 +6,9 @@ use gluesql::prelude::*;
 use tokio::net::TcpListener;
 
 use pgwire::api::query::SimpleQueryHandler;
-use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
+use pgwire::api::results::{
+    DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, SendableRowStream, Tag,
+};
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
@@ -17,7 +19,7 @@ pub struct GluesqlProcessor {
 
 #[async_trait]
 impl SimpleQueryHandler for GluesqlProcessor {
-    async fn do_query<'a, C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -127,7 +129,7 @@ impl SimpleQueryHandler for GluesqlProcessor {
 
                             Ok(Response::Query(QueryResponse::new(
                                 fields,
-                                stream::iter(results.into_iter()),
+                                Box::pin(stream::iter(results.into_iter())) as SendableRowStream,
                             )))
                         }
                         Payload::Insert(rows) => Ok(Response::Execution(

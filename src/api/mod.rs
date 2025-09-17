@@ -72,8 +72,11 @@ pub trait ClientInfo {
 /// Client Portal Store
 pub trait ClientPortalStore {
     type PortalStore;
+    type PortalSuspendedResult;
 
     fn portal_store(&self) -> &Self::PortalStore;
+
+    fn portal_suspended_result(&self) -> &Self::PortalSuspendedResult;
 }
 
 pub const METADATA_USER: &str = "user";
@@ -90,6 +93,7 @@ pub struct DefaultClient<S> {
     pub transaction_status: TransactionStatus,
     pub metadata: HashMap<String, String>,
     pub portal_store: store::MemPortalStore<S>,
+    pub suspended_portal_results: store::MemPortalSuspendedResult,
 }
 
 impl<S> ClientInfo for DefaultClient<S> {
@@ -158,15 +162,21 @@ impl<S> DefaultClient<S> {
             transaction_status: TransactionStatus::Idle,
             metadata: HashMap::new(),
             portal_store: store::MemPortalStore::new(),
+            suspended_portal_results: store::MemPortalSuspendedResult::new(),
         }
     }
 }
 
 impl<S> ClientPortalStore for DefaultClient<S> {
     type PortalStore = store::MemPortalStore<S>;
+    type PortalSuspendedResult = store::MemPortalSuspendedResult;
 
     fn portal_store(&self) -> &Self::PortalStore {
         &self.portal_store
+    }
+
+    fn portal_suspended_result(&self) -> &Self::PortalSuspendedResult {
+        &self.suspended_portal_results
     }
 }
 

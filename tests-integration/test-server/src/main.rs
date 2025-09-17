@@ -81,7 +81,7 @@ impl DummyDatabase {
 
 #[async_trait]
 impl SimpleQueryHandler for DummyDatabase {
-    async fn do_query<'a, C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -120,7 +120,7 @@ impl SimpleQueryHandler for DummyDatabase {
 
             Ok(vec![Response::Query(QueryResponse::new(
                 schema,
-                data_row_stream,
+                Box::pin(data_row_stream),
             ))])
         } else {
             Ok(vec![Response::Execution(Tag::new("OK").with_rows(1))])
@@ -137,12 +137,12 @@ impl ExtendedQueryHandler for DummyDatabase {
         self.query_parser.clone()
     }
 
-    async fn do_query<'a, C>(
+    async fn do_query<C>(
         &self,
         _client: &mut C,
         portal: &Portal<Self::Statement>,
         _max_rows: usize,
-    ) -> PgWireResult<Response<'a>>
+    ) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -180,7 +180,10 @@ impl ExtendedQueryHandler for DummyDatabase {
                 encoder.finish()
             });
 
-            Ok(Response::Query(QueryResponse::new(schema, data_row_stream)))
+            Ok(Response::Query(QueryResponse::new(
+                schema,
+                Box::pin(data_row_stream),
+            )))
         } else {
             Ok(Response::Execution(Tag::new("OK").with_rows(1)))
         }

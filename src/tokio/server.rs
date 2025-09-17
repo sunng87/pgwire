@@ -143,9 +143,14 @@ impl<T: 'static, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
 
 impl<T, S> ClientPortalStore for Framed<T, PgWireMessageServerCodec<S>> {
     type PortalStore = <DefaultClient<S> as ClientPortalStore>::PortalStore;
+    type PortalSuspendedResult = <DefaultClient<S> as ClientPortalStore>::PortalSuspendedResult;
 
     fn portal_store(&self) -> &Self::PortalStore {
         self.codec().client_info.portal_store()
+    }
+
+    fn portal_suspended_result(&self) -> &Self::PortalSuspendedResult {
+        self.codec().client_info.portal_suspended_result()
     }
 }
 

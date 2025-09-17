@@ -45,7 +45,7 @@ impl AuthSource for DummyAuthSource {
 
 #[async_trait]
 impl SimpleQueryHandler for DuckDBBackend {
-    async fn do_query<'a, C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -70,7 +70,7 @@ impl SimpleQueryHandler for DuckDBBackend {
                 .collect::<Vec<_>>();
             Ok(vec![Response::Query(QueryResponse::new(
                 header,
-                stream::iter(data.into_iter()),
+                Box::pin(stream::iter(data.into_iter())),
             ))])
         } else {
             conn.execute(query, params![])
@@ -153,12 +153,12 @@ impl ExtendedQueryHandler for DuckDBBackend {
         self.query_parser.clone()
     }
 
-    async fn do_query<'a, C>(
+    async fn do_query<C>(
         &self,
         _client: &mut C,
         portal: &Portal<Self::Statement>,
         _max_rows: usize,
-    ) -> PgWireResult<Response<'a>>
+    ) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -190,7 +190,7 @@ impl ExtendedQueryHandler for DuckDBBackend {
 
             Ok(Response::Query(QueryResponse::new(
                 header,
-                stream::iter(data.into_iter()),
+                Box::pin(stream::iter(data.into_iter())),
             )))
         } else {
             stmt.execute::<&[&dyn duckdb::ToSql]>(params_ref.as_ref())

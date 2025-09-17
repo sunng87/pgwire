@@ -15,7 +15,7 @@ use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
     DataRowEncoder, DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse,
-    Response, Tag,
+    Response, SendableRowStream, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
@@ -47,7 +47,7 @@ impl AuthSource for DummyAuthSource {
 
 #[async_trait]
 impl SimpleQueryHandler for SqliteBackend {
-    async fn do_query<'a, C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -60,7 +60,10 @@ impl SimpleQueryHandler for SqliteBackend {
             stmt.query(())
                 .map(|rows| {
                     let s = encode_row_data(rows, header.clone());
-                    vec![Response::Query(QueryResponse::new(header, s))]
+                    vec![Response::Query(QueryResponse::new(
+                        header,
+                        Box::pin(s) as SendableRowStream,
+                    ))]
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {
@@ -198,12 +201,12 @@ impl ExtendedQueryHandler for SqliteBackend {
         self.query_parser.clone()
     }
 
-    async fn do_query<'a, C>(
+    async fn do_query<C>(
         &self,
         _client: &mut C,
         portal: &Portal<Self::Statement>,
         _max_rows: usize,
-    ) -> PgWireResult<Response<'a>>
+    ) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -223,7 +226,7 @@ impl ExtendedQueryHandler for SqliteBackend {
             stmt.query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
                 .map(|rows| {
                     let s = encode_row_data(rows, header.clone());
-                    Response::Query(QueryResponse::new(header, s))
+                    Response::Query(QueryResponse::new(header, Box::pin(s) as SendableRowStream))
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {

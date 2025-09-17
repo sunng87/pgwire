@@ -39,7 +39,7 @@ impl NoopStartupHandler for DummyProcessor {
 
 #[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
-    async fn do_query<'a, C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -65,7 +65,7 @@ impl SimpleQueryHandler for DummyProcessor {
 
             Ok(vec![Response::Query(QueryResponse::new(
                 schema,
-                data_row_stream,
+                Box::pin(data_row_stream),
             ))])
         } else {
             Ok(vec![Response::Execution(Tag::new("OK").with_rows(1))])
