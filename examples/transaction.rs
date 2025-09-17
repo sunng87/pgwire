@@ -12,8 +12,7 @@ use pgwire::api::results::{
     DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, SendableRowStream, Tag,
 };
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
-use pgwire::error::ErrorInfo;
-use pgwire::error::{PgWireError, PgWireResult};
+use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::response::NoticeResponse;
 use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 use pgwire::tokio::process_socket;

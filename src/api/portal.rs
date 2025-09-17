@@ -3,13 +3,14 @@ use std::sync::Arc;
 use bytes::Bytes;
 use postgres_types::FromSqlOwned;
 
-use crate::{
-    api::Type,
-    error::{PgWireError, PgWireResult},
-    messages::{data::FORMAT_CODE_BINARY, extendedquery::Bind},
-};
+use crate::api::Type;
+use crate::error::{PgWireError, PgWireResult};
+use crate::messages::data::FORMAT_CODE_BINARY;
+use crate::messages::extendedquery::Bind;
 
-use super::{results::FieldFormat, stmt::StoredStatement, DEFAULT_NAME};
+use super::results::FieldFormat;
+use super::stmt::StoredStatement;
+use super::DEFAULT_NAME;
 
 /// Represent a prepared sql statement and its parameters bound by a `Bind`
 /// request.

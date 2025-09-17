@@ -4,8 +4,9 @@ use async_trait::async_trait;
 use futures::Sink;
 use postgres_types::Type;
 
+use crate::error::PgWireResult;
 use crate::messages::extendedquery::Parse;
-use crate::{error::PgWireResult, messages::PgWireBackendMessage};
+use crate::messages::PgWireBackendMessage;
 
 use super::{ClientInfo, DEFAULT_NAME};
 

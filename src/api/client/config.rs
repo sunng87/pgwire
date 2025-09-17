@@ -12,10 +12,9 @@ use std::ops::Deref;
 use std::os::unix::ffi::OsStrExt;
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
-use std::str;
 use std::str::FromStr;
 use std::time::Duration;
-use std::{fmt, iter, mem};
+use std::{fmt, iter, mem, str};
 
 use crate::error::PgWireClientError;
 

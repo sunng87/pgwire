@@ -1,8 +1,6 @@
 use bytes::{Buf, BufMut, BytesMut};
 
-use super::codec;
-use super::DecodeContext;
-use super::Message;
+use super::{codec, DecodeContext, Message};
 use crate::error::{PgWireError, PgWireResult};
 
 #[non_exhaustive]

@@ -1,10 +1,9 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use futures::stream;
-use futures::Stream;
-use rusqlite::Rows;
-use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
+use futures::{stream, Stream};
+use rusqlite::types::ValueRef;
+use rusqlite::{Connection, Rows, Statement, ToSql};
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::md5pass::{hash_md5_password, Md5PasswordAuthStartupHandler};
