@@ -106,7 +106,7 @@ impl SimpleQueryHandler for DummyDatabase {
                 ),
                 (Some(2), None, None, None, None),
             ];
-            let data_row_stream = stream::iter(data.into_iter()).map(move |r| {
+            let data_row_stream = stream::iter(data).map(move |r| {
                 let mut encoder = DataRowEncoder::new(schema_ref.clone());
 
                 encoder.encode_field(&r.0)?;
@@ -168,7 +168,7 @@ impl ExtendedQueryHandler for DummyDatabase {
             ];
             let schema = Arc::new(self.schema(&portal.result_column_format));
             let schema_ref = schema.clone();
-            let data_row_stream = stream::iter(data.into_iter()).map(move |r| {
+            let data_row_stream = stream::iter(data).map(move |r| {
                 let mut encoder = DataRowEncoder::new(schema_ref.clone());
 
                 encoder.encode_field(&r.0)?;

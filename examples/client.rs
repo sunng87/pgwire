@@ -27,12 +27,8 @@ pub async fn main() {
         .remove(0);
 
     let mut reader = result.into_data_rows_reader();
-    loop {
-        if let Some(mut row) = reader.next_row() {
-            let value = row.next_value::<i8>();
-            println!("{:?}", value);
-        } else {
-            break;
-        };
+    while let Some(mut row) = reader.next_row() {
+        let value = row.next_value::<i8>();
+        println!("{:?}", value);
     }
 }

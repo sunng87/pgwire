@@ -19,7 +19,7 @@ use super::SASLState;
 
 #[cfg(feature = "_aws-lc-rs")]
 use aws_lc_rs::{digest, hmac, pbkdf2};
-#[cfg(feature = "_ring")]
+#[cfg(all(feature = "_ring", not(feature = "_aws-lc-rs")))]
 use ring::{digest, hmac, pbkdf2};
 
 #[derive(Debug)]

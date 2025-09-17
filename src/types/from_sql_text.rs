@@ -201,9 +201,9 @@ mod tests {
 
     #[test]
     fn test_from_sql_text_for_f64() {
-        let sql_text = "3.14".as_bytes();
+        let sql_text = "1.23".as_bytes();
         let result = f64::from_sql_text(&Type::FLOAT8, sql_text).unwrap();
-        assert_eq!(result, 3.14);
+        assert_eq!(result, 1.23);
     }
 
     #[test]
@@ -217,11 +217,11 @@ mod tests {
     fn test_from_sql_text_for_bool() {
         let sql_text = "t".as_bytes();
         let result = bool::from_sql_text(&Type::BOOL, sql_text).unwrap();
-        assert_eq!(result, true);
+        assert!(result);
 
         let sql_text = "f".as_bytes();
         let result = bool::from_sql_text(&Type::BOOL, sql_text).unwrap();
-        assert_eq!(result, false);
+        assert!(!result);
     }
 
     #[test]
@@ -255,9 +255,9 @@ mod tests {
 
     #[test]
     fn test_from_sql_text_for_option_f64() {
-        let sql_text = "3.14".as_bytes();
+        let sql_text = "1.23".as_bytes();
         let result = Option::<f64>::from_sql_text(&Type::FLOAT8, sql_text).unwrap();
-        assert_eq!(result, Some(3.14));
+        assert_eq!(result, Some(1.23));
 
         let sql_text = "".as_bytes();
         let result = Option::<f64>::from_sql_text(&Type::FLOAT8, sql_text).unwrap();
