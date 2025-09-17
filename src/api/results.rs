@@ -7,14 +7,12 @@ use futures::Stream;
 use postgres_types::{IsNull, Oid, ToSql, Type};
 use tokio::sync::{Mutex, MutexGuard};
 
-use crate::{
-    error::{ErrorInfo, PgWireResult},
-    messages::{
-        data::{DataRow, FieldDescription, RowDescription, FORMAT_CODE_BINARY, FORMAT_CODE_TEXT},
-        response::CommandComplete,
-    },
-    types::ToSqlText,
+use crate::error::{ErrorInfo, PgWireResult};
+use crate::messages::data::{
+    DataRow, FieldDescription, RowDescription, FORMAT_CODE_BINARY, FORMAT_CODE_TEXT,
 };
+use crate::messages::response::CommandComplete;
+use crate::types::ToSqlText;
 
 #[derive(Debug, Eq, PartialEq)]
 pub struct Tag {

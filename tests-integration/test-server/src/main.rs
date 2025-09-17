@@ -4,8 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
-use futures::stream;
-use futures::StreamExt;
+use futures::{stream, StreamExt};
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::net::TcpListener;
@@ -106,7 +105,7 @@ impl SimpleQueryHandler for DummyDatabase {
                 ),
                 (Some(2), None, None, None, None),
             ];
-            let data_row_stream = stream::iter(data.into_iter()).map(move |r| {
+            let data_row_stream = stream::iter(data).map(move |r| {
                 let mut encoder = DataRowEncoder::new(schema_ref.clone());
 
                 encoder.encode_field(&r.0)?;
@@ -168,7 +167,7 @@ impl ExtendedQueryHandler for DummyDatabase {
             ];
             let schema = Arc::new(self.schema(&portal.result_column_format));
             let schema_ref = schema.clone();
-            let data_row_stream = stream::iter(data.into_iter()).map(move |r| {
+            let data_row_stream = stream::iter(data).map(move |r| {
                 let mut encoder = DataRowEncoder::new(schema_ref.clone());
 
                 encoder.encode_field(&r.0)?;

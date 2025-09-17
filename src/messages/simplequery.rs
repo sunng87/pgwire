@@ -1,8 +1,6 @@
 use bytes::BytesMut;
 
-use super::codec;
-use super::DecodeContext;
-use super::Message;
+use super::{codec, DecodeContext, Message};
 use crate::error::PgWireResult;
 
 /// A sql query sent from frontend to backend.

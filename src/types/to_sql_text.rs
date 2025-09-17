@@ -1,5 +1,6 @@
+use std::error::Error;
+use std::fmt;
 use std::time::SystemTime;
-use std::{error::Error, fmt};
 
 use bytes::{BufMut, BytesMut};
 use chrono::offset::Utc;

@@ -1,10 +1,7 @@
 use bytes::{Buf, BufMut};
 
-use super::{
-    codec,
-    startup::{self, SecretKey},
-    DecodeContext, Message,
-};
+use super::startup::{self, SecretKey};
+use super::{codec, DecodeContext, Message};
 use crate::error::{PgWireError, PgWireResult};
 
 #[non_exhaustive]

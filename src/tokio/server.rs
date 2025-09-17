@@ -15,15 +15,13 @@ use tokio_util::codec::{Decoder, Encoder, Framed};
 use crate::api::auth::StartupHandler;
 use crate::api::cancel::CancelHandler;
 use crate::api::copy::CopyHandler;
-use crate::api::query::SimpleQueryHandler;
-use crate::api::query::{send_ready_for_query, ExtendedQueryHandler};
+use crate::api::query::{send_ready_for_query, ExtendedQueryHandler, SimpleQueryHandler};
 use crate::api::{
     ClientInfo, ClientPortalStore, DefaultClient, ErrorHandler, PgWireConnectionState,
     PgWireServerHandlers,
 };
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
-use crate::messages::response::{GssEncResponse, ReadyForQuery};
-use crate::messages::response::{SslResponse, TransactionStatus};
+use crate::messages::response::{GssEncResponse, ReadyForQuery, SslResponse, TransactionStatus};
 use crate::messages::startup::{GssEncRequest, SecretKey, SslRequest};
 use crate::messages::{
     DecodeContext, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,

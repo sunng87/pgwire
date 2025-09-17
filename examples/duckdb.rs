@@ -1,8 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use arrow_pg::datatypes::arrow_schema_to_pg_fields;
-use arrow_pg::datatypes::encode_recordbatch;
-use arrow_pg::datatypes::into_pg_type;
+use arrow_pg::datatypes::{arrow_schema_to_pg_fields, encode_recordbatch, into_pg_type};
 use async_trait::async_trait;
 use duckdb::{params, Connection, Statement, ToSql};
 use futures::stream;
@@ -190,7 +188,7 @@ impl ExtendedQueryHandler for DuckDBBackend {
 
             Ok(Response::Query(QueryResponse::new(
                 header,
-                Box::pin(stream::iter(data.into_iter())),
+                Box::pin(stream::iter(data)),
             )))
         } else {
             stmt.execute::<&[&dyn duckdb::ToSql]>(params_ref.as_ref())

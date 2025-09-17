@@ -656,24 +656,26 @@ mod test {
 
         let mut row_description = RowDescription::default();
 
-        let mut f1 = FieldDescription::default();
-        f1.name = "id".into();
-        f1.table_id = 1001;
-        f1.column_id = 10001;
-        f1.type_id = 1083;
-        f1.type_size = 4;
-        f1.type_modifier = -1;
-        f1.format_code = FORMAT_CODE_TEXT;
+        let f1 = FieldDescription {
+            name: "id".into(),
+            table_id: 1001,
+            column_id: 10001,
+            type_id: 1083,
+            type_size: 4,
+            type_modifier: -1,
+            format_code: FORMAT_CODE_TEXT,
+        };
         row_description.fields.push(f1);
 
-        let mut f2 = FieldDescription::default();
-        f2.name = "name".into();
-        f2.table_id = 1001;
-        f2.column_id = 10001;
-        f2.type_id = 1099;
-        f2.type_size = -1;
-        f2.type_modifier = -1;
-        f2.format_code = FORMAT_CODE_TEXT;
+        let f2 = FieldDescription {
+            name: "name".into(),
+            table_id: 1001,
+            column_id: 10001,
+            type_id: 1099,
+            type_size: -1,
+            type_modifier: -1,
+            format_code: FORMAT_CODE_TEXT,
+        };
         row_description.fields.push(f2);
 
         roundtrip!(row_description, RowDescription, &ctx);

@@ -129,7 +129,7 @@ impl SimpleQueryHandler for GluesqlProcessor {
 
                             Ok(Response::Query(QueryResponse::new(
                                 fields,
-                                Box::pin(stream::iter(results.into_iter())) as SendableRowStream,
+                                Box::pin(stream::iter(results)) as SendableRowStream,
                             )))
                         }
                         Payload::Insert(rows) => Ok(Response::Execution(

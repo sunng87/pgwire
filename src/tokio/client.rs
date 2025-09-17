@@ -273,10 +273,8 @@ pub(crate) async fn ssl_handshake(
     config: &Config,
     tls_connector: Option<TlsConnector>,
 ) -> PgWireClientResult<ClientSocket> {
-    use crate::{
-        api::client::config::{SslMode, SslNegotiation},
-        messages::response::SslResponse,
-    };
+    use crate::api::client::config::{SslMode, SslNegotiation};
+    use crate::messages::response::SslResponse;
 
     // ssl is disabled on client side
     if config.ssl_mode == SslMode::Disable {
