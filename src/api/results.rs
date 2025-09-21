@@ -165,11 +165,14 @@ impl Debug for QueryResponse {
 impl QueryResponse {
     /// Create `QueryResponse` from column schemas and stream of data row.
     /// Sets "SELECT" as the command tag.
-    pub fn new(field_defs: Arc<Vec<FieldInfo>>, row_stream: SendableRowStream) -> QueryResponse {
+    pub fn new<S>(field_defs: Arc<Vec<FieldInfo>>, row_stream: S) -> QueryResponse
+    where
+        S: Stream<Item = PgWireResult<DataRow>> + Send + 'static,
+    {
         QueryResponse {
             command_tag: "SELECT".to_owned(),
             row_schema: field_defs,
-            data_rows: Mutex::new(row_stream),
+            data_rows: Mutex::new(Box::pin(row_stream)),
         }
     }
 
