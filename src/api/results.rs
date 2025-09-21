@@ -5,7 +5,6 @@ use std::sync::Arc;
 use bytes::{BufMut, BytesMut};
 use futures::Stream;
 use postgres_types::{IsNull, Oid, ToSql, Type};
-use tokio::sync::{Mutex, MutexGuard};
 
 use crate::error::{ErrorInfo, PgWireResult};
 use crate::messages::data::{
@@ -14,7 +13,7 @@ use crate::messages::data::{
 use crate::messages::response::CommandComplete;
 use crate::types::ToSqlText;
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Tag {
     command: String,
     oid: Option<Oid>,
@@ -150,7 +149,7 @@ pub type SendableRowStream = Pin<Box<dyn Stream<Item = PgWireResult<DataRow>> + 
 pub struct QueryResponse {
     command_tag: String,
     row_schema: Arc<Vec<FieldInfo>>,
-    data_rows: Mutex<SendableRowStream>,
+    data_rows: SendableRowStream,
 }
 
 impl Debug for QueryResponse {
@@ -169,7 +168,7 @@ impl QueryResponse {
         QueryResponse {
             command_tag: "SELECT".to_owned(),
             row_schema: field_defs,
-            data_rows: Mutex::new(row_stream),
+            data_rows: row_stream,
         }
     }
 
@@ -189,8 +188,12 @@ impl QueryResponse {
     }
 
     /// Get access to data rows stream
-    pub async fn lock_data_rows(&self) -> MutexGuard<'_, SendableRowStream> {
-        self.data_rows.lock().await
+    pub fn data_rows(&self) -> &SendableRowStream {
+        &self.data_rows
+    }
+
+    pub fn take_data_rows(self) -> SendableRowStream {
+        self.data_rows
     }
 }
 

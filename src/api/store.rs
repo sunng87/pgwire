@@ -2,7 +2,6 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
 use super::portal::Portal;
-use super::results::QueryResponse;
 use super::stmt::StoredStatement;
 
 pub trait PortalStore: Send + Sync {
@@ -60,29 +59,5 @@ impl<S: Clone + Send + Sync> PortalStore for MemPortalStore<S> {
     fn get_portal(&self, name: &str) -> Option<Arc<Portal<Self::Statement>>> {
         let guard = self.portals.read().unwrap();
         guard.get(name).cloned()
-    }
-}
-
-pub trait PortalSuspendedResult {
-    fn put_result(&self, name: &str, result: QueryResponse);
-
-    fn take_result(&self, name: &str) -> Option<QueryResponse>;
-}
-
-#[derive(Debug, Default, new)]
-pub struct MemPortalSuspendedResult {
-    #[new(default)]
-    results: RwLock<BTreeMap<String, QueryResponse>>,
-}
-
-impl PortalSuspendedResult for MemPortalSuspendedResult {
-    fn put_result(&self, name: &str, result: QueryResponse) {
-        let mut guard = self.results.write().unwrap();
-        guard.insert(name.to_owned(), result);
-    }
-
-    fn take_result(&self, name: &str) -> Option<QueryResponse> {
-        let mut guard = self.results.write().unwrap();
-        guard.remove(name)
     }
 }

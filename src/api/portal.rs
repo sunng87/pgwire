@@ -1,8 +1,11 @@
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use bytes::Bytes;
 use postgres_types::FromSqlOwned;
+use tokio::sync::Mutex;
 
+use crate::api::results::SendableRowStream;
 use crate::api::Type;
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::data::FORMAT_CODE_BINARY;
@@ -15,13 +18,33 @@ use super::DEFAULT_NAME;
 /// Represent a prepared sql statement and its parameters bound by a `Bind`
 /// request.
 #[non_exhaustive]
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct Portal<S> {
     pub name: String,
     pub statement: Arc<StoredStatement<S>>,
     pub parameter_format: Format,
     pub parameters: Vec<Option<Bytes>>,
     pub result_column_format: Format,
+    pub state: Arc<Mutex<PortalExecutionState>>,
+}
+
+#[derive(Default)]
+pub enum PortalExecutionState {
+    #[default]
+    Initial,
+    // tag and data stream
+    Suspended((String, SendableRowStream)),
+    Finished,
+}
+
+impl Debug for PortalExecutionState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PortalExecutionState::Initial => write!(f, "Initial"),
+            PortalExecutionState::Finished => write!(f, "Finished"),
+            PortalExecutionState::Suspended(_) => write!(f, "Suspended"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -93,6 +116,7 @@ impl<S: Clone> Portal<S> {
             parameter_format: param_format,
             parameters: bind.parameters.clone(),
             result_column_format: result_format,
+            state: Arc::new(Mutex::new(PortalExecutionState::Initial)),
         })
     }
 
@@ -130,6 +154,10 @@ impl<S: Clone> Portal<S> {
             // Null
             Ok(None)
         }
+    }
+
+    pub fn state(&self) -> Arc<Mutex<PortalExecutionState>> {
+        self.state.clone()
     }
 }
 
