@@ -59,10 +59,7 @@ impl SimpleQueryHandler for SqliteBackend {
             stmt.query(())
                 .map(|rows| {
                     let s = encode_row_data(rows, header.clone());
-                    vec![Response::Query(QueryResponse::new(
-                        header,
-                        Box::pin(s) as SendableRowStream,
-                    ))]
+                    vec![Response::Query(QueryResponse::new(header, s))]
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {
@@ -223,7 +220,7 @@ impl ExtendedQueryHandler for SqliteBackend {
             stmt.query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
                 .map(|rows| {
                     let s = encode_row_data(rows, header.clone());
-                    Response::Query(QueryResponse::new(header, Box::pin(s) as SendableRowStream))
+                    Response::Query(QueryResponse::new(header, s))
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {
