@@ -15,7 +15,7 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         pythonEnv = pkgs.python3.withPackages (ps: with ps; [
-          psycopg
+          psycopg-c
           psycopg2
         ]);
         buildInputs = with pkgs; [
@@ -23,7 +23,9 @@
           duckdb.dev
           duckdb.lib
           sqlite.dev
+          sqlite.out
           openssl.out
+          libpq
         ];
       in
       {
@@ -46,7 +48,7 @@
             curl
             gnuplot ## for cargo bench
             pythonEnv
-            postgresql_18
+            postgresql_18.out
 
             babashka
             nodejs_24
