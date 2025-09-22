@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::ops::DerefMut;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -8,8 +9,9 @@ use futures::stream::StreamExt;
 use super::portal::Portal;
 use super::results::{into_row_description, Tag};
 use super::stmt::{NoopQueryParser, QueryParser, StoredStatement};
-use super::store::{PortalStore, PortalSuspendedResult};
+use super::store::PortalStore;
 use super::{copy, ClientInfo, ClientPortalStore, DEFAULT_NAME};
+use crate::api::portal::PortalExecutionState;
 use crate::api::results::{
     DescribePortalResponse, DescribeResponse, DescribeStatementResponse, QueryResponse, Response,
 };
@@ -43,7 +45,6 @@ pub trait SimpleQueryHandler: Send + Sync {
     async fn on_query<C>(&self, client: &mut C, query: Query) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-        C::PortalSuspendedResult: PortalSuspendedResult,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -56,7 +57,6 @@ pub trait SimpleQueryHandler: Send + Sync {
     async fn _on_query<C>(&self, client: &mut C, query: Query) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-        C::PortalSuspendedResult: PortalSuspendedResult,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -86,8 +86,8 @@ pub trait SimpleQueryHandler: Send + Sync {
                             .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
                             .await?;
                     }
-                    Response::Query(results) => {
-                        send_query_response(client, results, true).await?;
+                    Response::Query(mut results) => {
+                        send_query_response(client, &mut results, true).await?;
                     }
                     Response::Execution(tag) => {
                         send_execution_response(client, tag).await?;
@@ -210,7 +210,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::PortalStore: PortalStore<Statement = Self::Statement>,
-        C::PortalSuspendedResult: PortalSuspendedResult,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -225,7 +224,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::PortalStore: PortalStore<Statement = Self::Statement>,
-        C::PortalSuspendedResult: PortalSuspendedResult,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -240,60 +238,71 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let portal_name = message.name.as_deref().unwrap_or(DEFAULT_NAME);
         let max_rows = message.max_rows as usize;
 
-        if let Some(results) = client.portal_suspended_result().take_result(portal_name) {
-            if send_suspended_query_response(client, &results, max_rows).await? {
-                client
-                    .portal_suspended_result()
-                    .put_result(portal_name, results);
-            }
-
-            Ok(())
-        } else if let Some(portal) = client.portal_store().get_portal(portal_name) {
-            match self.do_query(client, portal.as_ref(), max_rows).await? {
-                Response::EmptyQuery => {
-                    client
-                        .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
-                        .await?;
-                }
-                Response::Query(results) => {
-                    if max_rows > 0 {
-                        if send_suspended_query_response(client, &results, max_rows).await? {
+        if let Some(portal) = client.portal_store().get_portal(portal_name) {
+            let portal_state_lock = portal.state();
+            let mut portal_state = portal_state_lock.lock().await;
+            match portal_state.deref_mut() {
+                PortalExecutionState::Initial => {
+                    match self.do_query(client, portal.as_ref(), max_rows).await? {
+                        Response::EmptyQuery => {
                             client
-                                .portal_suspended_result()
-                                .put_result(portal_name, results);
+                                .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
+                                .await?;
                         }
-                    } else {
-                        send_query_response(client, results, false).await?;
+                        Response::Query(mut results) => {
+                            if max_rows > 0 {
+                                if send_partial_query_response(client, &mut results, max_rows)
+                                    .await?
+                                {
+                                    *portal_state = PortalExecutionState::Suspended(results);
+                                } else {
+                                    *portal_state = PortalExecutionState::Finished;
+                                }
+                            } else {
+                                send_query_response(client, &mut results, false).await?;
+                            }
+                        }
+                        Response::Execution(tag) => {
+                            send_execution_response(client, tag).await?;
+                        }
+                        Response::TransactionStart(tag) => {
+                            send_execution_response(client, tag).await?;
+                            transaction_status = transaction_status.to_in_transaction_state();
+                        }
+                        Response::TransactionEnd(tag) => {
+                            send_execution_response(client, tag).await?;
+                            transaction_status = transaction_status.to_idle_state();
+                        }
+                        Response::Error(err) => {
+                            client
+                                .send(PgWireBackendMessage::ErrorResponse((*err).into()))
+                                .await?;
+                            transaction_status = transaction_status.to_error_state();
+                        }
+                        Response::CopyIn(result) => {
+                            client.set_state(PgWireConnectionState::CopyInProgress(true));
+                            copy::send_copy_in_response(client, result).await?;
+                        }
+                        Response::CopyOut(result) => {
+                            client.set_state(PgWireConnectionState::CopyInProgress(true));
+                            copy::send_copy_out_response(client, result).await?;
+                        }
+                        Response::CopyBoth(result) => {
+                            client.set_state(PgWireConnectionState::CopyInProgress(true));
+                            copy::send_copy_both_response(client, result).await?;
+                        }
                     }
                 }
-                Response::Execution(tag) => {
-                    send_execution_response(client, tag).await?;
+                PortalExecutionState::Suspended(results) => {
+                    let has_more = send_partial_query_response(client, results, max_rows).await?;
+                    if !has_more {
+                        *portal_state = PortalExecutionState::Finished;
+                    }
                 }
-                Response::TransactionStart(tag) => {
-                    send_execution_response(client, tag).await?;
-                    transaction_status = transaction_status.to_in_transaction_state();
-                }
-                Response::TransactionEnd(tag) => {
-                    send_execution_response(client, tag).await?;
-                    transaction_status = transaction_status.to_idle_state();
-                }
-                Response::Error(err) => {
-                    client
-                        .send(PgWireBackendMessage::ErrorResponse((*err).into()))
-                        .await?;
-                    transaction_status = transaction_status.to_error_state();
-                }
-                Response::CopyIn(result) => {
-                    client.set_state(PgWireConnectionState::CopyInProgress(true));
-                    copy::send_copy_in_response(client, result).await?;
-                }
-                Response::CopyOut(result) => {
-                    client.set_state(PgWireConnectionState::CopyInProgress(true));
-                    copy::send_copy_out_response(client, result).await?;
-                }
-                Response::CopyBoth(result) => {
-                    client.set_state(PgWireConnectionState::CopyInProgress(true));
-                    copy::send_copy_both_response(client, result).await?;
+                PortalExecutionState::Finished => {
+                    // no data
+                    client.send(PgWireBackendMessage::NoData(NoData)).await?;
+                    client.set_state(PgWireConnectionState::ReadyForQuery);
                 }
             }
 
@@ -464,18 +473,17 @@ pub trait ExtendedQueryHandler: Send + Sync {
 /// decribed statement/portal before.
 pub async fn send_query_response<C>(
     client: &mut C,
-    results: QueryResponse,
+    results: &mut QueryResponse,
     send_describe: bool,
 ) -> PgWireResult<()>
 where
     C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-    C::PortalSuspendedResult: PortalSuspendedResult,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
     let command_tag = results.command_tag().to_owned();
     let row_schema = results.row_schema();
-    let mut data_rows = results.lock_data_rows().await;
+    let data_rows = results.data_rows();
 
     // Simple query has row_schema in query response. For extended query,
     // row_schema is returned as response of `Describe`.
@@ -501,18 +509,18 @@ where
     Ok(())
 }
 
-pub async fn send_suspended_query_response<C>(
+pub async fn send_partial_query_response<C>(
     client: &mut C,
-    results: &QueryResponse,
+    results: &mut QueryResponse,
     max_rows: usize,
 ) -> PgWireResult<bool>
 where
     C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-    C::PortalSuspendedResult: PortalSuspendedResult,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
-    let mut data_rows = results.lock_data_rows().await;
+    let tag = results.command_tag().to_string();
+    let data_rows = results.data_rows();
 
     let mut rows = 0;
     let mut suspended = true;
@@ -532,7 +540,7 @@ where
             .send(PgWireBackendMessage::PortalSuspended(PortalSuspended))
             .await?;
     } else {
-        let tag = Tag::new(results.command_tag()).with_rows(rows);
+        let tag = Tag::new(&tag).with_rows(rows);
         client
             .send(PgWireBackendMessage::CommandComplete(tag.into()))
             .await?;
