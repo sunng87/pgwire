@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Added
+
+- Portal suspension support, aka server-side cursor in extended query. This
+  feature allows client to send `Execute` with a `max_row` property to limit how
+  many rows to return. Client can send further `Execute` against the same portal
+  until all rows returned. [#303]
+
+### Changed
+
+- Simplified and removed lifetime specifier from `Response` and
+  `QueryResponse`. Breaking change.
+- Changed SCRAM authentication implementation. SASL is now a framework to
+  support multiple authentication mechanisms. Breaking change. [#302]
+- Added `Send` to client in `StartupHandler`.
+- Added `Debug` requirement for `AuthSource`.
+
+### Removed
+
+- `scram` feature is removed, it's enabled with either of `ring` or `aws-lc-rs`
+  is on.
+
 ## [0.32.1] - 2025-08-12
 
 ### Fixed
