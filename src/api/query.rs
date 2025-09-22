@@ -302,7 +302,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 PortalExecutionState::Finished => {
                     // no data
                     client.send(PgWireBackendMessage::NoData(NoData)).await?;
-                    client.set_state(PgWireConnectionState::ReadyForQuery);
                 }
             }
 
@@ -477,7 +476,7 @@ pub async fn send_query_response<C>(
     send_describe: bool,
 ) -> PgWireResult<()>
 where
-    C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C: Sink<PgWireBackendMessage> + Unpin,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
@@ -515,7 +514,7 @@ pub async fn send_partial_query_response<C>(
     max_rows: usize,
 ) -> PgWireResult<bool>
 where
-    C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C: Sink<PgWireBackendMessage> + Unpin,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
@@ -545,7 +544,6 @@ where
             .send(PgWireBackendMessage::CommandComplete(tag.into()))
             .await?;
     }
-    client.set_state(PgWireConnectionState::ReadyForQuery);
 
     Ok(suspended)
 }
@@ -556,7 +554,7 @@ pub async fn send_ready_for_query<C>(
     transaction_status: TransactionStatus,
 ) -> PgWireResult<()>
 where
-    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C: Sink<PgWireBackendMessage> + Unpin,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
@@ -571,7 +569,7 @@ where
 /// Helper function to send response for DMLs.
 pub async fn send_execution_response<C>(client: &mut C, tag: Tag) -> PgWireResult<()>
 where
-    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C: Sink<PgWireBackendMessage> + Unpin,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
@@ -588,7 +586,7 @@ pub async fn send_describe_response<C, DR>(
     describe_response: &DR,
 ) -> PgWireResult<()>
 where
-    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C: Sink<PgWireBackendMessage> + Unpin,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     DR: DescribeResponse,

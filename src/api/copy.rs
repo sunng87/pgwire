@@ -42,7 +42,7 @@ pub trait CopyHandler: Send + Sync {
 
 pub async fn send_copy_in_response<C>(client: &mut C, resp: CopyResponse) -> PgWireResult<()>
 where
-    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C: Sink<PgWireBackendMessage> + Unpin,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
@@ -55,7 +55,7 @@ where
 
 pub async fn send_copy_out_response<C>(client: &mut C, resp: CopyResponse) -> PgWireResult<()>
 where
-    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C: Sink<PgWireBackendMessage> + Unpin,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
@@ -68,7 +68,7 @@ where
 
 pub async fn send_copy_both_response<C>(client: &mut C, resp: CopyResponse) -> PgWireResult<()>
 where
-    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C: Sink<PgWireBackendMessage> + Unpin,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
