@@ -191,12 +191,8 @@ impl QueryResponse {
     }
 
     /// Get access to data rows stream
-    pub fn data_rows(&self) -> &SendableRowStream {
-        &self.data_rows
-    }
-
-    pub fn take_data_rows(self) -> SendableRowStream {
-        self.data_rows
+    pub fn data_rows(&mut self) -> &mut SendableRowStream {
+        &mut self.data_rows
     }
 }
 

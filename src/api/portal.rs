@@ -5,7 +5,7 @@ use bytes::Bytes;
 use postgres_types::FromSqlOwned;
 use tokio::sync::Mutex;
 
-use crate::api::results::SendableRowStream;
+use crate::api::results::QueryResponse;
 use crate::api::Type;
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::data::FORMAT_CODE_BINARY;
@@ -28,23 +28,13 @@ pub struct Portal<S> {
     pub state: Arc<Mutex<PortalExecutionState>>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub enum PortalExecutionState {
     #[default]
     Initial,
     // tag and data stream
-    Suspended((String, SendableRowStream)),
+    Suspended(QueryResponse),
     Finished,
-}
-
-impl Debug for PortalExecutionState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PortalExecutionState::Initial => write!(f, "Initial"),
-            PortalExecutionState::Finished => write!(f, "Finished"),
-            PortalExecutionState::Suspended(_) => write!(f, "Suspended"),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default)]

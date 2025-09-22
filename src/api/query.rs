@@ -14,7 +14,6 @@ use super::{copy, ClientInfo, ClientPortalStore, DEFAULT_NAME};
 use crate::api::portal::PortalExecutionState;
 use crate::api::results::{
     DescribePortalResponse, DescribeResponse, DescribeStatementResponse, QueryResponse, Response,
-    SendableRowStream,
 };
 use crate::api::PgWireConnectionState;
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
@@ -87,8 +86,8 @@ pub trait SimpleQueryHandler: Send + Sync {
                             .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
                             .await?;
                     }
-                    Response::Query(results) => {
-                        send_query_response(client, results, true).await?;
+                    Response::Query(mut results) => {
+                        send_query_response(client, &mut results, true).await?;
                     }
                     Response::Execution(tag) => {
                         send_execution_response(client, tag).await?;
@@ -250,28 +249,17 @@ pub trait ExtendedQueryHandler: Send + Sync {
                                 .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
                                 .await?;
                         }
-                        Response::Query(results) => {
+                        Response::Query(mut results) => {
                             if max_rows > 0 {
-                                let tag = results.command_tag().to_string();
-                                let mut data_rows = results.take_data_rows();
-
-                                if send_partial_query_response(
-                                    client,
-                                    &mut data_rows,
-                                    &tag,
-                                    max_rows,
-                                )
-                                .await?
+                                if send_partial_query_response(client, &mut results, max_rows)
+                                    .await?
                                 {
-                                    *portal_state = PortalExecutionState::Suspended((
-                                        tag.to_string(),
-                                        data_rows,
-                                    ));
+                                    *portal_state = PortalExecutionState::Suspended(results);
                                 } else {
                                     *portal_state = PortalExecutionState::Finished;
                                 }
                             } else {
-                                send_query_response(client, results, false).await?;
+                                send_query_response(client, &mut results, false).await?;
                             }
                         }
                         Response::Execution(tag) => {
@@ -305,9 +293,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
                         }
                     }
                 }
-                PortalExecutionState::Suspended((tag, data_rows)) => {
-                    let has_more =
-                        send_partial_query_response(client, data_rows, tag, max_rows).await?;
+                PortalExecutionState::Suspended(results) => {
+                    let has_more = send_partial_query_response(client, results, max_rows).await?;
                     if !has_more {
                         *portal_state = PortalExecutionState::Finished;
                     }
@@ -486,7 +473,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
 /// decribed statement/portal before.
 pub async fn send_query_response<C>(
     client: &mut C,
-    results: QueryResponse,
+    results: &mut QueryResponse,
     send_describe: bool,
 ) -> PgWireResult<()>
 where
@@ -496,7 +483,7 @@ where
 {
     let command_tag = results.command_tag().to_owned();
     let row_schema = results.row_schema();
-    let mut data_rows = results.take_data_rows();
+    let data_rows = results.data_rows();
 
     // Simple query has row_schema in query response. For extended query,
     // row_schema is returned as response of `Describe`.
@@ -524,8 +511,7 @@ where
 
 pub async fn send_partial_query_response<C>(
     client: &mut C,
-    data_rows: &mut SendableRowStream,
-    tag: &str,
+    results: &mut QueryResponse,
     max_rows: usize,
 ) -> PgWireResult<bool>
 where
@@ -533,6 +519,9 @@ where
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
+    let tag = results.command_tag().to_string();
+    let data_rows = results.data_rows();
+
     let mut rows = 0;
     let mut suspended = true;
     while max_rows == 0 || rows < max_rows {
@@ -551,7 +540,7 @@ where
             .send(PgWireBackendMessage::PortalSuspended(PortalSuspended))
             .await?;
     } else {
-        let tag = Tag::new(tag).with_rows(rows);
+        let tag = Tag::new(&tag).with_rows(rows);
         client
             .send(PgWireBackendMessage::CommandComplete(tag.into()))
             .await?;
