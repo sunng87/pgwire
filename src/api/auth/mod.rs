@@ -150,7 +150,7 @@ pub trait AuthSource: Send + Sync + Debug {
 
 pub async fn protocol_negotiation<C>(client: &mut C, startup_message: &Startup) -> PgWireResult<()>
 where
-    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
+    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
@@ -182,8 +182,7 @@ where
 
 pub fn save_startup_parameters_to_metadata<C>(client: &mut C, startup_message: &Startup)
 where
-    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
-    C::Error: Debug,
+    C: ClientInfo,
 {
     client.metadata_mut().extend(
         startup_message
@@ -198,7 +197,7 @@ pub(crate) async fn finish_authentication0<C, P>(
     server_parameter_provider: &P,
 ) -> PgWireResult<()>
 where
-    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
+    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     P: ServerParameterProvider,
@@ -232,7 +231,7 @@ pub async fn finish_authentication<C, P>(
     server_parameter_provider: &P,
 ) -> PgWireResult<()>
 where
-    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
+    C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     P: ServerParameterProvider,
