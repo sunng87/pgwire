@@ -7,6 +7,7 @@ use postgres_types::Oid;
 use crate::api::results::{FieldInfo, Tag};
 use crate::error::{ErrorInfo, PgWireClientError, PgWireClientResult};
 use crate::messages::data::{DataRow, RowDescription};
+use crate::messages::extendedquery::{Bind, Close, Execute, Flush, Parse, Sync};
 use crate::messages::response::{CommandComplete, EmptyQueryResponse, ReadyForQuery};
 use crate::messages::simplequery::Query;
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
@@ -97,6 +98,47 @@ pub trait SimpleQueryHandler: Send {
         client: &mut C,
         message: ReadyForQuery,
     ) -> PgWireClientResult<Vec<Self::QueryResponse>>
+    where
+        C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+}
+
+#[async_trait]
+pub trait ExtendedQueryHandler: Send {
+    type QueryResponse;
+
+    // TODO: do we need to cover message building here, to pass raw message or
+    // pass statement name and id?
+    async fn parse<C>(&mut self, client: &mut C, query: Parse) -> PgWireClientResult<()>
+    where
+        C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+
+    async fn bind<C>(&mut self, client: &mut C, bind: Bind) -> PgWireClientResult<()>
+    where
+        C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+
+    async fn execute<C>(
+        &mut self,
+        client: &mut C,
+        execute: Execute,
+    ) -> PgWireClientResult<Self::QueryResponse>
+    where
+        C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+
+    async fn close<C>(&mut self, client: &mut C, close: Close) -> PgWireClientResult<()>
+    where
+        C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+
+    async fn sync<C>(&mut self, client: &mut C, sync: Sync) -> PgWireClientResult<()>
+    where
+        C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+
+    async fn flush<C>(&mut self, client: &mut C, flush: Flush) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
