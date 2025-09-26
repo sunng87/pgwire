@@ -65,8 +65,8 @@ jobs:
     - name: Run tests for client api
       if: runner.os != 'Windows'
       run: cargo test --features client-api-aws-lc-rs
-    - name: Run check on duckdb and sqlite example
-      run: cargo check --all-targets --features _duckdb,_sqlite,_bundled
+    - name: Run check sqlite example
+      run: cargo check --all-targets --features _sqlite,_bundled
 
   integration:
     name: Integration tests

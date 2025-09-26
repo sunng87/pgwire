@@ -20,8 +20,6 @@
         ]);
         buildInputs = with pkgs; [
           llvmPackages.libclang
-          duckdb.dev
-          duckdb.lib
           sqlite.dev
           sqlite.out
           openssl.out
@@ -62,8 +60,6 @@
             export CXX=clang++
             export SQLITE3_LIB_DIR="${pkgs.sqlite.dev}/lib"
             export SQLITE3_INCLUDE_DIR="${pkgs.sqlite.dev}/include"
-            export DUCKDB_LIB_DIR="${pkgs.duckdb.lib}/lib"
-            export DUCKDB_INCLUDE_DIR="${pkgs.duckdb.dev}/include"
           '';
         };
       });

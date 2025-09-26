@@ -97,9 +97,8 @@ client-api = [
 ]
 client-api-ring = ["client-api", "_ring", "dep:rustls-pki-types"]
 client-api-aws-lc-rs = ["client-api", "_aws-lc-rs", "dep:rustls-pki-types"]
-_duckdb = []
 _sqlite = []
-_bundled = ["duckdb/bundled", "rusqlite/bundled"]
+_bundled = ["rusqlite/bundled"]
 
 [dev-dependencies]
 tokio = { version = "1.19", features = [
@@ -110,9 +109,6 @@ tokio = { version = "1.19", features = [
 ] }
 rustls-pki-types = { version = "1.10" }
 rusqlite = { version = "0.37.0", features = ["column_decltype"] }
-## for duckdb example
-duckdb = { version = "~1.4" }
-arrow-pg = "0.6"
 
 ## for loading custom cert files
 rustls-pemfile = "2.0"
@@ -151,10 +147,6 @@ required-features = ["server-api-aws-lc-rs"]
 [[example]]
 name = "sqlite"
 required-features = ["server-api-aws-lc-rs", "_sqlite"]
-
-[[example]]
-name = "duckdb"
-required-features = ["server-api-aws-lc-rs", "_duckdb"]
 
 [[example]]
 name = "copy"
