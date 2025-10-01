@@ -22,9 +22,7 @@ use crate::messages::extendedquery::{
     Bind, BindComplete, Close, CloseComplete, Describe, Execute, Flush, Parse, ParseComplete,
     PortalSuspended, Sync as PgSync, TARGET_TYPE_BYTE_PORTAL, TARGET_TYPE_BYTE_STATEMENT,
 };
-use crate::messages::response::{
-    EmptyQueryResponse, NoticeResponse, ReadyForQuery, TransactionStatus,
-};
+use crate::messages::response::{EmptyQueryResponse, ReadyForQuery, TransactionStatus};
 use crate::messages::simplequery::Query;
 use crate::messages::PgWireBackendMessage;
 
@@ -622,7 +620,7 @@ impl ExtendedQueryHandler for super::NoopHandler {
 
     async fn do_query<C>(
         &self,
-        client: &mut C,
+        _client: &mut C,
         _portal: &Portal<Self::Statement>,
         _max_rows: usize,
     ) -> PgWireResult<Response>
@@ -631,16 +629,11 @@ impl ExtendedQueryHandler for super::NoopHandler {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        client
-            .send(PgWireBackendMessage::NoticeResponse(NoticeResponse::from(
-                ErrorInfo::new(
-                    "NOTICE".to_owned(),
-                    "01000".to_owned(),
-                    "This is a demo handler for extended query.".to_string(),
-                ),
-            )))
-            .await?;
-        Ok(Response::Execution(Tag::new("OK")))
+        Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+            "FATAL".to_owned(),
+            "08P01".to_owned(),
+            "This feature is not implemented.".to_string(),
+        ))))
     }
 
     async fn do_describe_statement<C>(
@@ -668,21 +661,16 @@ impl ExtendedQueryHandler for super::NoopHandler {
 
 #[async_trait]
 impl SimpleQueryHandler for super::NoopHandler {
-    async fn do_query<C>(&self, client: &mut C, _query: &str) -> PgWireResult<Vec<Response>>
+    async fn do_query<C>(&self, _client: &mut C, _query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        client
-            .send(PgWireBackendMessage::NoticeResponse(NoticeResponse::from(
-                ErrorInfo::new(
-                    "NOTICE".to_owned(),
-                    "01000".to_owned(),
-                    "This is a demo handler for simple query.".to_string(),
-                ),
-            )))
-            .await?;
-        Ok(vec![Response::Execution(Tag::new("OK"))])
+        Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+            "FATAL".to_owned(),
+            "08P01".to_owned(),
+            "This feature is not implemented.".to_string(),
+        ))))
     }
 }
