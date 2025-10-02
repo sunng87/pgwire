@@ -5,16 +5,22 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "pg_type_chrono")]
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Offset, Utc};
+#[cfg(feature = "pg_type_serde_json")]
+use postgres_types::Json;
 use postgres_types::Type;
 #[cfg(feature = "pg_type_rust_decimal")]
 use rust_decimal::Decimal;
+#[cfg(feature = "pg_type_serde_json")]
+use serde::Deserialize;
+#[cfg(feature = "pg_type_serde_json")]
+use serde_json::Value;
 
-pub trait FromSqlText: fmt::Debug {
+pub trait FromSqlText<'a>: fmt::Debug {
     /// Converts value from postgres text format to rust.
     ///
     /// This trait is modelled after `FromSql` from postgres-types, which is
     /// for binary encoding.
-    fn from_sql_text(ty: &Type, input: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
+    fn from_sql_text(ty: &Type, input: &'a [u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized;
 }
@@ -23,7 +29,7 @@ fn to_str(f: &[u8]) -> Result<&str, Box<dyn Error + Sync + Send>> {
     std::str::from_utf8(f).map_err(Into::into)
 }
 
-impl FromSqlText for bool {
+impl<'a> FromSqlText<'a> for bool {
     fn from_sql_text(_ty: &Type, input: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
@@ -36,7 +42,7 @@ impl FromSqlText for bool {
     }
 }
 
-impl FromSqlText for String {
+impl<'a> FromSqlText<'a> for String {
     fn from_sql_text(_ty: &Type, input: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
@@ -47,7 +53,7 @@ impl FromSqlText for String {
 
 macro_rules! impl_from_sql_text {
     ($t:ty) => {
-        impl FromSqlText for $t {
+        impl<'a> FromSqlText<'a> for $t {
             fn from_sql_text(
                 _ty: &Type,
                 input: &[u8],
@@ -68,7 +74,7 @@ impl_from_sql_text!(f64);
 impl_from_sql_text!(char);
 
 #[cfg(feature = "pg_type_rust_decimal")]
-impl FromSqlText for Decimal {
+impl<'a> FromSqlText<'a> for Decimal {
     fn from_sql_text(_ty: &Type, input: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
@@ -77,7 +83,7 @@ impl FromSqlText for Decimal {
     }
 }
 
-impl FromSqlText for Vec<u8> {
+impl<'a> FromSqlText<'a> for Vec<u8> {
     fn from_sql_text(_ty: &Type, input: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
@@ -91,7 +97,7 @@ impl FromSqlText for Vec<u8> {
 }
 
 #[cfg(feature = "pg_type_chrono")]
-impl FromSqlText for SystemTime {
+impl<'a> FromSqlText<'a> for SystemTime {
     fn from_sql_text(_ty: &Type, value: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
@@ -105,7 +111,7 @@ impl FromSqlText for SystemTime {
 }
 
 #[cfg(feature = "pg_type_chrono")]
-impl FromSqlText for DateTime<FixedOffset> {
+impl<'a> FromSqlText<'a> for DateTime<FixedOffset> {
     fn from_sql_text(ty: &Type, value: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
@@ -135,7 +141,7 @@ impl FromSqlText for DateTime<FixedOffset> {
 }
 
 #[cfg(feature = "pg_type_chrono")]
-impl FromSqlText for NaiveDate {
+impl<'a> FromSqlText<'a> for NaiveDate {
     fn from_sql_text(_ty: &Type, value: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
@@ -146,7 +152,7 @@ impl FromSqlText for NaiveDate {
 }
 
 #[cfg(feature = "pg_type_chrono")]
-impl FromSqlText for NaiveTime {
+impl<'a> FromSqlText<'a> for NaiveTime {
     fn from_sql_text(_ty: &Type, value: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
@@ -157,7 +163,7 @@ impl FromSqlText for NaiveTime {
 }
 
 #[cfg(feature = "pg_type_chrono")]
-impl FromSqlText for NaiveDateTime {
+impl<'a> FromSqlText<'a> for NaiveDateTime {
     fn from_sql_text(_ty: &Type, value: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
@@ -167,11 +173,33 @@ impl FromSqlText for NaiveDateTime {
     }
 }
 
-impl<T> FromSqlText for Option<T>
+#[cfg(feature = "pg_type_serde_json")]
+impl<'a, T: Deserialize<'a> + fmt::Debug> FromSqlText<'a> for Json<T> {
+    fn from_sql_text(_ty: &Type, input: &'a [u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
+        serde_json::de::from_slice::<T>(input)
+            .map(Json)
+            .map_err(Into::into)
+    }
+}
+
+#[cfg(feature = "pg_type_serde_json")]
+impl<'a> FromSqlText<'a> for Value {
+    fn from_sql_text(_ty: &Type, input: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
+        serde_json::de::from_slice::<Value>(input).map_err(Into::into)
+    }
+}
+
+impl<'a, T> FromSqlText<'a> for Option<T>
 where
-    T: FromSqlText,
+    T: FromSqlText<'a>,
 {
-    fn from_sql_text(ty: &Type, input: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
+    fn from_sql_text(ty: &Type, input: &'a [u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
     {

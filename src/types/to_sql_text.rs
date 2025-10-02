@@ -9,9 +9,15 @@ use chrono::offset::Utc;
 #[cfg(feature = "pg_type_chrono")]
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
 use lazy_regex::{lazy_regex, Lazy, Regex};
+#[cfg(feature = "pg_type_serde_json")]
+use postgres_types::Json;
 use postgres_types::{IsNull, Kind, Type};
 #[cfg(feature = "pg_type_rust_decimal")]
 use rust_decimal::Decimal;
+#[cfg(feature = "pg_type_serde_json")]
+use serde::Serialize;
+#[cfg(feature = "pg_type_serde_json")]
+use serde_json::Value;
 
 pub static QUOTE_CHECK: Lazy<Regex> = lazy_regex!(r#"^$|["{},\\\s]|^null$"#i);
 pub static QUOTE_ESCAPE: Lazy<Regex> = lazy_regex!(r#"(["\\])"#);
@@ -271,6 +277,36 @@ impl ToSqlText for Decimal {
         };
 
         out.put_slice(fmt.as_bytes());
+        Ok(IsNull::No)
+    }
+}
+
+#[cfg(feature = "pg_type_serde_json")]
+impl<T: Serialize + fmt::Debug> ToSqlText for Json<T> {
+    fn to_sql_text(
+        &self,
+        _ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
+        serde_json::ser::to_writer(out.writer(), &self.0)?;
+        Ok(IsNull::No)
+    }
+}
+
+#[cfg(feature = "pg_type_serde_json")]
+impl ToSqlText for Value {
+    fn to_sql_text(
+        &self,
+        _ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
+        serde_json::ser::to_writer(out.writer(), &self)?;
         Ok(IsNull::No)
     }
 }

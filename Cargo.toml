@@ -44,19 +44,18 @@ aws-lc-rs = { version = "1.7", optional = true }
 stringprep = { version = "0.1.2", optional = true }
 x509-certificate = { version = "0.25", optional = true }
 ## types
-postgres-types = { version = "0.2", features = [
-  "with-chrono-0_4",
-  "array-impls",
-], optional = true }
+postgres-types = { version = "0.2", features = ["array-impls"], optional = true }
 chrono = { version = "0.4", features = ["std"], optional = true }
 rust_decimal = { version = "1.35", features = ["db-postgres"], optional = true }
+serde = { version = "1", optional = true }
+serde_json = { version = "1", optional = true }
 lazy-regex = { version = "3.3", default-features = false, features = ["lite"] }
 ## config
 percent-encoding = { version = "2.0", optional = true }
 
 [features]
 default = ["server-api-aws-lc-rs", "pg_ext_types"]
-pg_ext_types = ["pg_type_chrono", "pg_type_rust_decimal"]
+pg_ext_types = ["pg_type_chrono", "pg_type_rust_decimal", "pg_type_serde_json"]
 _ring = [
   "dep:ring",
   "tokio-rustls/ring",
@@ -96,8 +95,9 @@ client-api = [
 ]
 client-api-ring = ["client-api", "_ring", "dep:rustls-pki-types"]
 client-api-aws-lc-rs = ["client-api", "_aws-lc-rs", "dep:rustls-pki-types"]
-pg_type_chrono = ["dep:chrono"]
+pg_type_chrono = ["dep:chrono", "postgres-types/with-chrono-0_4"]
 pg_type_rust_decimal = ["dep:rust_decimal"]
+pg_type_serde_json = ["dep:serde", "dep:serde_json", "postgres-types/with-serde_json-1"]
 _sqlite = []
 _bundled = ["rusqlite/bundled"]
 
