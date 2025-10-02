@@ -43,7 +43,7 @@ impl DataRowDecoder<'_> {
     /// Get value from data row
     pub fn next_value<T>(&mut self) -> PgWireClientResult<Option<T>>
     where
-        T: FromSqlOwned + FromSqlText,
+        T: FromSqlOwned + for<'a> FromSqlText<'a>,
     {
         if let Some(field_info) = self.fields.get(self.read_index) {
             // advance read index
