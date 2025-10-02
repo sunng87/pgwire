@@ -1,9 +1,12 @@
 use std::error::Error;
 use std::fmt;
+#[cfg(feature = "pg_type_chrono")]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+#[cfg(feature = "pg_type_chrono")]
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Offset, Utc};
-use postgres_types::{Type, WrongType};
+use postgres_types::Type;
+#[cfg(feature = "pg_type_rust_decimal")]
 use rust_decimal::Decimal;
 
 pub trait FromSqlText: fmt::Debug {
@@ -64,6 +67,7 @@ impl_from_sql_text!(f32);
 impl_from_sql_text!(f64);
 impl_from_sql_text!(char);
 
+#[cfg(feature = "pg_type_rust_decimal")]
 impl FromSqlText for Decimal {
     fn from_sql_text(_ty: &Type, input: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
@@ -86,6 +90,7 @@ impl FromSqlText for Vec<u8> {
     }
 }
 
+#[cfg(feature = "pg_type_chrono")]
 impl FromSqlText for SystemTime {
     fn from_sql_text(_ty: &Type, value: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
@@ -99,6 +104,7 @@ impl FromSqlText for SystemTime {
     }
 }
 
+#[cfg(feature = "pg_type_chrono")]
 impl FromSqlText for DateTime<FixedOffset> {
     fn from_sql_text(ty: &Type, value: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
@@ -121,11 +127,14 @@ impl FromSqlText for DateTime<FixedOffset> {
                 let datetime = NaiveDateTime::parse_from_str(to_str(value)?, fmt)?;
                 Ok(DateTime::from_naive_utc_and_offset(datetime, Utc.fix()))
             }
-            _ => Err(Box::new(WrongType::new::<DateTime<Utc>>(ty.clone()))),
+            _ => Err(Box::new(postgres_types::WrongType::new::<DateTime<Utc>>(
+                ty.clone(),
+            ))),
         }
     }
 }
 
+#[cfg(feature = "pg_type_chrono")]
 impl FromSqlText for NaiveDate {
     fn from_sql_text(_ty: &Type, value: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
@@ -136,6 +145,7 @@ impl FromSqlText for NaiveDate {
     }
 }
 
+#[cfg(feature = "pg_type_chrono")]
 impl FromSqlText for NaiveTime {
     fn from_sql_text(_ty: &Type, value: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
@@ -146,6 +156,7 @@ impl FromSqlText for NaiveTime {
     }
 }
 
+#[cfg(feature = "pg_type_chrono")]
 impl FromSqlText for NaiveDateTime {
     fn from_sql_text(_ty: &Type, value: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
     where

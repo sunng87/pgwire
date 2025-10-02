@@ -1,12 +1,16 @@
 use std::error::Error;
 use std::fmt;
+#[cfg(feature = "pg_type_chrono")]
 use std::time::SystemTime;
 
 use bytes::{BufMut, BytesMut};
+#[cfg(feature = "pg_type_chrono")]
 use chrono::offset::Utc;
+#[cfg(feature = "pg_type_chrono")]
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
 use lazy_regex::{lazy_regex, Lazy, Regex};
-use postgres_types::{IsNull, Kind, Type, WrongType};
+use postgres_types::{IsNull, Kind, Type};
+#[cfg(feature = "pg_type_rust_decimal")]
 use rust_decimal::Decimal;
 
 pub static QUOTE_CHECK: Lazy<Regex> = lazy_regex!(r#"^$|["{},\\\s]|^null$"#i);
@@ -153,6 +157,7 @@ impl<const N: usize> ToSqlText for [u8; N] {
     }
 }
 
+#[cfg(feature = "pg_type_chrono")]
 impl ToSqlText for SystemTime {
     fn to_sql_text(
         &self,
@@ -166,6 +171,7 @@ impl ToSqlText for SystemTime {
     }
 }
 
+#[cfg(feature = "pg_type_chrono")]
 impl<Tz: TimeZone> ToSqlText for DateTime<Tz>
 where
     Tz::Offset: std::fmt::Display,
@@ -181,13 +187,16 @@ where
             Type::DATE | Type::DATE_ARRAY => "%Y-%m-%d",
             Type::TIME | Type::TIME_ARRAY => "%H:%M:%S%.6f",
             Type::TIMETZ | Type::TIMETZ_ARRAY => "%H:%M:%S%.6f%:::z",
-            _ => Err(Box::new(WrongType::new::<DateTime<Tz>>(ty.clone())))?,
+            _ => Err(Box::new(postgres_types::WrongType::new::<DateTime<Tz>>(
+                ty.clone(),
+            )))?,
         };
         out.put_slice(self.format(fmt).to_string().as_bytes());
         Ok(IsNull::No)
     }
 }
 
+#[cfg(feature = "pg_type_chrono")]
 impl ToSqlText for NaiveDateTime {
     fn to_sql_text(
         &self,
@@ -198,13 +207,16 @@ impl ToSqlText for NaiveDateTime {
             Type::TIMESTAMP | Type::TIMESTAMP_ARRAY => "%Y-%m-%d %H:%M:%S%.6f",
             Type::DATE | Type::DATE_ARRAY => "%Y-%m-%d",
             Type::TIME | Type::TIME_ARRAY => "%H:%M:%S%.6f",
-            _ => Err(Box::new(WrongType::new::<NaiveDateTime>(ty.clone())))?,
+            _ => Err(Box::new(postgres_types::WrongType::new::<NaiveDateTime>(
+                ty.clone(),
+            )))?,
         };
         out.put_slice(self.format(fmt).to_string().as_bytes());
         Ok(IsNull::No)
     }
 }
 
+#[cfg(feature = "pg_type_chrono")]
 impl ToSqlText for NaiveDate {
     fn to_sql_text(
         &self,
@@ -213,7 +225,9 @@ impl ToSqlText for NaiveDate {
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let fmt = match *ty {
             Type::DATE | Type::DATE_ARRAY => self.format("%Y-%m-%d").to_string(),
-            _ => Err(Box::new(WrongType::new::<NaiveDate>(ty.clone())))?,
+            _ => Err(Box::new(postgres_types::WrongType::new::<NaiveDate>(
+                ty.clone(),
+            )))?,
         };
 
         out.put_slice(fmt.as_bytes());
@@ -221,6 +235,7 @@ impl ToSqlText for NaiveDate {
     }
 }
 
+#[cfg(feature = "pg_type_chrono")]
 impl ToSqlText for NaiveTime {
     fn to_sql_text(
         &self,
@@ -229,13 +244,16 @@ impl ToSqlText for NaiveTime {
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let fmt = match *ty {
             Type::TIME | Type::TIME_ARRAY => self.format("%H:%M:%S%.6f").to_string(),
-            _ => Err(Box::new(WrongType::new::<NaiveTime>(ty.clone())))?,
+            _ => Err(Box::new(postgres_types::WrongType::new::<NaiveTime>(
+                ty.clone(),
+            )))?,
         };
         out.put_slice(fmt.as_bytes());
         Ok(IsNull::No)
     }
 }
 
+#[cfg(feature = "pg_type_rust_decimal")]
 impl ToSqlText for Decimal {
     fn to_sql_text(
         &self,
@@ -247,7 +265,9 @@ impl ToSqlText for Decimal {
     {
         let fmt = match *ty {
             Type::NUMERIC | Type::NUMERIC_ARRAY => self.to_string(),
-            _ => Err(Box::new(WrongType::new::<Decimal>(ty.clone())))?,
+            _ => Err(Box::new(postgres_types::WrongType::new::<Decimal>(
+                ty.clone(),
+            )))?,
         };
 
         out.put_slice(fmt.as_bytes());
@@ -299,9 +319,11 @@ impl<T: ToSqlText, const N: usize> ToSqlText for [T; N] {
 #[cfg(test)]
 mod test {
     use super::*;
+    #[cfg(feature = "pg_type_chrono")]
     use chrono::offset::FixedOffset;
 
     #[test]
+    #[cfg(feature = "pg_type_chrono")]
     fn test_date_time_format() {
         let date = NaiveDate::from_ymd_opt(2023, 3, 5).unwrap();
         let mut buf = BytesMut::new();
@@ -351,6 +373,7 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "pg_type_chrono")]
     fn test_array() {
         let date = &[
             NaiveDate::from_ymd_opt(2023, 3, 5).unwrap(),

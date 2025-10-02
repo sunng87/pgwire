@@ -373,7 +373,6 @@ pub enum Response {
 
 #[cfg(test)]
 mod test {
-    use std::time::SystemTime;
 
     use super::*;
 
@@ -391,7 +390,10 @@ mod test {
     }
 
     #[test]
+    #[cfg(feature = "pg_type_chrono")]
     fn test_data_row_encoder() {
+        use std::time::SystemTime;
+
         let schema = Arc::new(vec![
             FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Text),
             FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text),
