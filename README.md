@@ -166,6 +166,8 @@ application development, you can use
   building, deploying and maintaining data products.
 * [restate](https://github.com/restatedev/restate) Framework for building
   resilient workflow
+* [pg_catalog](https://github.com/ybrs/pg_catalog) Provides a postgres
+compatibility layer for custom databases.
 
 Submit a pull request if your project isn't listed here.
 
