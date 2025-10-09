@@ -647,7 +647,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sni_is_exposed_from_tls_connection() {
+    async fn server_name_metadata_is_set_from_tls_sni() {
         // set up TLS server
         let server_cfg = load_test_server_config().expect("server config");
         let acceptor = TlsAcceptor::from(Arc::new(server_cfg));
@@ -660,9 +660,20 @@ mod tests {
         tokio::spawn(async move {
             let (tcp, _) = listener.accept().await.unwrap();
             let tls = acceptor.accept(tcp).await.unwrap();
-            let (_, conn) = tls.get_ref();
-            let sni = conn.server_name().map(|s| s.to_string());
-            let _ = tx.send(sni);
+
+            // mimic production path: capture SNI then add to client_info metadata as `server_name`
+            let sni = {
+                let (_, conn) = tls.get_ref();
+                conn.server_name().map(|s| s.to_string())
+            };
+            let peer = tls.get_ref().0.peer_addr().unwrap();
+            let mut ci = DefaultClient::new(peer, true);
+            if let Some(s) = sni {
+                ci.metadata_mut().insert("server_name".to_string(), s);
+            }
+            let framed = Framed::new(BufStream::new(tls), PgWireMessageServerCodec::new(ci));
+            let server_name = framed.metadata().get("server_name").cloned();
+            let _ = tx.send(server_name);
         });
 
         // connect as TLS client with SNI=localhost
@@ -671,8 +682,8 @@ mod tests {
         let server_name = rustls_pki_types::ServerName::try_from("localhost").unwrap();
         let _ = connector.connect(server_name, tcp).await.unwrap();
 
-        // verify server observed SNI
-        let observed = rx.await.expect("sni from server");
+        // verify server observed SNI and stored as `server_name`
+        let observed = rx.await.expect("server_name from server");
         assert_eq!(observed.as_deref(), Some("localhost"));
     }
 }
