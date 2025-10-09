@@ -629,19 +629,25 @@ mod tests {
     }
 
     fn make_test_client_connector() -> Result<TlsConnector, IOError> {
-        use rustls_pemfile::certs;
-        use rustls_pki_types::CertificateDer;
-
-        let mut roots = rustls::RootCertStore::empty();
-        let root_der = certs(&mut BufReader::new(File::open("examples/ssl/server.crt")?))
-            .collect::<Result<Vec<CertificateDer>, _>>()?;
-        for der in root_der {
-            // ignore errors to keep test simple if duplicates occur
-            let _ = roots.add(der);
+        // For this unit test we are only validating SNI plumbing, not cert validation.
+        // Use a custom verifier that accepts any certificate.
+        struct NoCertVerifier;
+        impl rustls::client::danger::ServerCertVerifier for NoCertVerifier {
+            fn verify_server_cert(
+                &self,
+                _end_entity: &rustls::pki_types::CertificateDer<'_>,
+                _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+                _server_name: &rustls::pki_types::ServerName<'_>,
+                _ocsp_response: &[u8],
+                _now: rustls::pki_types::UnixTime,
+            ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+                Ok(rustls::client::danger::ServerCertVerified::assertion())
+            }
         }
 
         let cfg = rustls::ClientConfig::builder()
-            .with_root_certificates(roots)
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(NoCertVerifier))
             .with_no_client_auth();
         Ok(TlsConnector::from(Arc::new(cfg)))
     }
