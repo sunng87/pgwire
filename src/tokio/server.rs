@@ -540,7 +540,7 @@ where
         {
             if let Some(tls_acceptor) = tls_acceptor {
                 // mention the use of ssl
-                let client_info = DefaultClient::new(addr, true);
+                let mut client_info = DefaultClient::new(addr, true);
 
                 let ssl_socket = tokio::select! {
                     _ = &mut startup_timeout => {
@@ -555,6 +555,17 @@ where
                 // check alpn for direct ssl connection
                 if ssl == SslNegotiationType::Direct {
                     check_alpn_for_direct_ssl(&ssl_socket)?;
+                }
+
+                // capture SNI (server name) from the underlying TLS connection and store in metadata
+                let sni = {
+                    let (_, conn) = ssl_socket.get_ref();
+                    conn.server_name().map(|s| s.to_string())
+                };
+                if let Some(s) = sni {
+                    client_info
+                        .metadata_mut()
+                        .insert("server_name".to_string(), s);
                 }
 
                 let mut socket = Framed::new(
@@ -582,5 +593,86 @@ where
 
         #[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]
         Ok(())
+    }
+}
+
+#[cfg(all(test, any(feature = "_ring", feature = "_aws-lc-rs")))]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::{BufReader, Error as IOError};
+    use std::sync::Arc;
+    use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
+    use tokio_rustls::rustls;
+    use tokio_rustls::TlsAcceptor;
+    use tokio_rustls::TlsConnector;
+
+    fn load_test_server_config() -> Result<rustls::ServerConfig, IOError> {
+        use rustls_pemfile::{certs, pkcs8_private_keys};
+        use rustls_pki_types::{CertificateDer, PrivateKeyDer};
+
+        let certs = certs(&mut BufReader::new(File::open("examples/ssl/server.crt")?))
+            .collect::<Result<Vec<CertificateDer>, _>>()?;
+        let key = pkcs8_private_keys(&mut BufReader::new(File::open("examples/ssl/server.key")?))
+            .map(|key| key.map(PrivateKeyDer::from))
+            .collect::<Result<Vec<PrivateKeyDer>, _>>()?
+            .remove(0);
+
+        let mut cfg = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+        // ALPN is optional for this test; SNI extraction doesn't depend on it.
+        cfg.alpn_protocols = vec![super::POSTGRESQL_ALPN_NAME.to_vec()];
+        Ok(cfg)
+    }
+
+    fn make_test_client_connector() -> Result<TlsConnector, IOError> {
+        use rustls_pemfile::certs;
+        use rustls_pki_types::CertificateDer;
+
+        let mut roots = rustls::RootCertStore::empty();
+        let root_der = certs(&mut BufReader::new(File::open("examples/ssl/server.crt")?))
+            .collect::<Result<Vec<CertificateDer>, _>>()?;
+        for der in root_der {
+            // ignore errors to keep test simple if duplicates occur
+            let _ = roots.add(der);
+        }
+
+        let cfg = rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        Ok(TlsConnector::from(Arc::new(cfg)))
+    }
+
+    #[tokio::test]
+    async fn sni_is_exposed_from_tls_connection() {
+        // set up TLS server
+        let server_cfg = load_test_server_config().expect("server config");
+        let acceptor = TlsAcceptor::from(Arc::new(server_cfg));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let (tx, rx) = oneshot::channel::<Option<String>>();
+
+        // spawn server task
+        tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let tls = acceptor.accept(tcp).await.unwrap();
+            let (_, conn) = tls.get_ref();
+            let sni = conn.server_name().map(|s| s.to_string());
+            let _ = tx.send(sni);
+        });
+
+        // connect as TLS client with SNI=localhost
+        let connector = make_test_client_connector().expect("client connector");
+        let tcp = TcpStream::connect(addr).await.unwrap();
+        let server_name = rustls_pki_types::ServerName::try_from("localhost").unwrap();
+        let _ = connector.connect(server_name, tcp).await.unwrap();
+
+        // verify server observed SNI
+        let observed = rx.await.expect("sni from server");
+        assert_eq!(observed.as_deref(), Some("localhost"));
     }
 }
