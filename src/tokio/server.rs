@@ -624,7 +624,7 @@ mod tests {
             .with_single_cert(certs, key)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
         // ALPN is optional for this test; SNI extraction doesn't depend on it.
-        cfg.alpn_protocols = vec![super::POSTGRESQL_ALPN_NAME.to_vec()];
+        cfg.alpn_protocols = vec![crate::tokio::POSTGRESQL_ALPN_NAME.to_vec()];
         Ok(cfg)
     }
 
@@ -667,7 +667,7 @@ mod tests {
                 conn.server_name().map(|s| s.to_string())
             };
             let peer = tls.get_ref().0.peer_addr().unwrap();
-            let mut ci = DefaultClient::new(peer, true);
+            let mut ci: DefaultClient<()> = DefaultClient::new(peer, true);
             if let Some(s) = sni {
                 ci.metadata_mut().insert("server_name".to_string(), s);
             }
