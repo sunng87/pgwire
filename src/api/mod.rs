@@ -65,6 +65,8 @@ pub trait ClientInfo {
 
     fn metadata_mut(&mut self) -> &mut HashMap<String, String>;
 
+    fn sni_server_name(&self) -> Option<&str>;
+
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     fn client_certificates<'a>(&self) -> Option<&[CertificateDer<'a>]>;
 }
@@ -89,6 +91,7 @@ pub struct DefaultClient<S> {
     pub state: PgWireConnectionState,
     pub transaction_status: TransactionStatus,
     pub metadata: HashMap<String, String>,
+    pub sni_server_name: Option<String>,
     pub portal_store: store::MemPortalStore<S>,
 }
 
@@ -141,6 +144,10 @@ impl<S> ClientInfo for DefaultClient<S> {
         self.transaction_status = new_status
     }
 
+    fn sni_server_name(&self) -> Option<&str> {
+        self.sni_server_name.as_deref()
+    }
+
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     fn client_certificates<'a>(&self) -> Option<&[CertificateDer<'a>]> {
         None
@@ -157,6 +164,7 @@ impl<S> DefaultClient<S> {
             state: PgWireConnectionState::default(),
             transaction_status: TransactionStatus::Idle,
             metadata: HashMap::new(),
+            sni_server_name: None,
             portal_store: store::MemPortalStore::new(),
         }
     }
