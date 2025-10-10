@@ -126,6 +126,10 @@ impl<T: 'static, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
             .set_transaction_status(new_status);
     }
 
+    fn sni_server_name(&self) -> Option<&str> {
+        self.codec().client_info.sni_server_name()
+    }
+
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     fn client_certificates<'a>(&self) -> Option<&[CertificateDer<'a>]> {
         if !self.is_secure() {
@@ -557,15 +561,13 @@ where
                     check_alpn_for_direct_ssl(&ssl_socket)?;
                 }
 
-                // capture SNI (server name) from the underlying TLS connection and store in metadata
+                // capture SNI (server name) from the underlying TLS connection
                 let sni = {
                     let (_, conn) = ssl_socket.get_ref();
                     conn.server_name().map(|s| s.to_string())
                 };
                 if let Some(s) = sni {
-                    client_info
-                        .metadata_mut()
-                        .insert("server_name".to_string(), s);
+                    client_info.sni_server_name = Some(s);
                 }
 
                 let mut socket = Framed::new(
@@ -708,7 +710,7 @@ mod tests {
         tokio::spawn(async move {
             let tls = acceptor.accept(server_io).await.unwrap();
 
-            // mimic production path: capture SNI then add to client_info metadata as `server_name`
+            // mimic production path: capture SNI and store on client_info
             let sni = {
                 let (_, conn) = tls.get_ref();
                 conn.server_name().map(|s| s.to_string())
@@ -716,10 +718,10 @@ mod tests {
             let peer: SocketAddr = "127.0.0.1:0".parse().unwrap();
             let mut ci: DefaultClient<()> = DefaultClient::new(peer, true);
             if let Some(s) = sni {
-                ci.metadata_mut().insert("server_name".to_string(), s);
+                ci.sni_server_name = Some(s);
             }
             let framed = Framed::new(BufStream::new(tls), PgWireMessageServerCodec::new(ci));
-            let server_name = framed.metadata().get("server_name").cloned();
+            let server_name = framed.sni_server_name().map(str::to_string);
             let _ = tx.send(server_name);
         });
 
@@ -829,14 +831,13 @@ mod tests {
             }
         }
 
-        // capture SNI from server side and store as metadata
+        // capture SNI from server side and store on client info
         let sni = server_conn.server_name().map(|s| s.to_string());
         let peer: SocketAddr = "127.0.0.1:0".parse().unwrap();
         let mut ci: DefaultClient<()> = DefaultClient::new(peer, true);
         if let Some(s) = sni {
-            ci.metadata_mut().insert("server_name".to_string(), s);
+            ci.sni_server_name = Some(s);
         }
-        let server_name = ci.metadata().get("server_name").cloned();
-        assert_eq!(server_name.as_deref(), Some("localhost"));
+        assert_eq!(ci.sni_server_name(), Some("localhost"));
     }
 }
