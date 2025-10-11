@@ -126,6 +126,7 @@ impl<T: 'static, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
             .set_transaction_status(new_status);
     }
 
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     fn sni_server_name(&self) -> Option<&str> {
         self.codec().client_info.sni_server_name()
     }
@@ -604,7 +605,6 @@ mod tests {
     use std::fs::File;
     use std::io::{BufReader, Error as IOError};
     use std::sync::Arc;
-    use tokio::net::TcpListener;
     use tokio::sync::oneshot;
     use tokio_rustls::rustls;
     use tokio_rustls::TlsAcceptor;
