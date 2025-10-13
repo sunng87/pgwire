@@ -359,6 +359,7 @@ pub struct CopyResponse {
 /// * CopyIn: response for a copy-in request
 /// * CopyOut: response for a copy-out request
 /// * CopuBoth: response for a copy-both request
+#[derive(Debug)]
 pub enum Response {
     EmptyQuery,
     Query(QueryResponse),
