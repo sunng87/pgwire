@@ -5,7 +5,7 @@ use std::sync::Arc;
 use futures::{SinkExt, StreamExt};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use rustls_pki_types::CertificateDer;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, BufStream};
+use tokio::io::{AsyncRead, AsyncWrite, BufStream};
 use tokio::net::TcpStream;
 use tokio::time::{sleep, Duration, Sleep};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
@@ -22,9 +22,9 @@ use crate::api::{
 };
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::response::{GssEncResponse, ReadyForQuery, SslResponse, TransactionStatus};
-use crate::messages::startup::{GssEncRequest, SecretKey, SslRequest};
+use crate::messages::startup::SecretKey;
 use crate::messages::{
-    DecodeContext, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,
+    DecodeContext, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion, SslNegotiation,
 };
 
 /// startup timeout
@@ -316,73 +316,60 @@ enum SslNegotiationType {
     None,
 }
 
-async fn check_ssl_direct_negotiation(
-    tcp_socket: &mut BufStream<TcpStream>,
-) -> Result<bool, io::Error> {
-    let buf = tcp_socket.fill_buf().await?;
-
-    Ok(!buf.is_empty() && buf[0] == 0x16)
-}
-
 async fn peek_for_sslrequest<ST>(
     socket: &mut Framed<BufStream<TcpStream>, PgWireMessageServerCodec<ST>>,
     ssl_supported: bool,
 ) -> Result<SslNegotiationType, io::Error> {
-    if check_ssl_direct_negotiation(socket.get_mut()).await? {
-        Ok(SslNegotiationType::Direct)
-    } else {
-        let mut ssl_done = false;
-        let mut gss_done = false;
+    let mut ssl_done = false;
+    let mut gss_done = false;
 
-        loop {
-            let buf = socket.get_mut().fill_buf().await?;
-            let n = buf.len();
-
-            // already EOF
-            if n == 0 {
-                return Ok(SslNegotiationType::None);
+    loop {
+        match socket.next().await {
+            // direct TLS
+            Some(Ok(PgWireFrontendMessage::SslNegotiation(SslNegotiation::Direct))) => {
+                return Ok(SslNegotiationType::Direct);
             }
-
-            if n >= 8 {
-                if SslRequest::is_ssl_request_packet(buf) {
-                    // consume SslRequest
-                    let _ = socket.next().await;
-                    // ssl request
-                    if ssl_supported {
-                        socket
-                            .send(PgWireBackendMessage::SslResponse(SslResponse::Accept))
-                            .await?;
-                        return Ok(SslNegotiationType::Postgres);
-                    } else {
-                        socket
-                            .send(PgWireBackendMessage::SslResponse(SslResponse::Refuse))
-                            .await?;
-                        ssl_done = true;
-
-                        if gss_done {
-                            return Ok(SslNegotiationType::None);
-                        } else {
-                            // Continue to check for more requests (e.g., GssEncRequest after SSL refuse)
-                            continue;
-                        }
-                    }
-                } else if GssEncRequest::is_gss_enc_request_packet(buf) {
-                    let _ = socket.next().await;
+            // postgres ssl
+            Some(Ok(PgWireFrontendMessage::SslNegotiation(SslNegotiation::PostgresSsl(_)))) => {
+                // ssl request
+                if ssl_supported {
                     socket
-                        .send(PgWireBackendMessage::GssEncResponse(GssEncResponse::Refuse))
+                        .send(PgWireBackendMessage::SslResponse(SslResponse::Accept))
                         .await?;
-                    gss_done = true;
+                    return Ok(SslNegotiationType::Postgres);
+                } else {
+                    socket
+                        .send(PgWireBackendMessage::SslResponse(SslResponse::Refuse))
+                        .await?;
+                    ssl_done = true;
 
-                    if ssl_done {
+                    if gss_done {
                         return Ok(SslNegotiationType::None);
                     } else {
-                        // Continue to check for more requests (e.g., SSL request after GSSAPI refuse)
+                        // Continue to check for more requests (e.g., GssEncRequest after SSL refuse)
                         continue;
                     }
-                } else {
-                    // startup or cancel
-                    return Ok(SslNegotiationType::None);
                 }
+            }
+
+            // postgres gss
+            Some(Ok(PgWireFrontendMessage::SslNegotiation(SslNegotiation::PostgresGss(_)))) => {
+                socket
+                    .send(PgWireBackendMessage::GssEncResponse(GssEncResponse::Refuse))
+                    .await?;
+                gss_done = true;
+
+                if ssl_done {
+                    return Ok(SslNegotiationType::None);
+                } else {
+                    // Continue to check for more requests (e.g., SSL request after GSSAPI refuse)
+                    continue;
+                }
+            }
+
+            // not a handshake request or connection is broken
+            _ => {
+                return Ok(SslNegotiationType::None);
             }
         }
     }
