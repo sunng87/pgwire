@@ -148,7 +148,6 @@ pub mod terminate;
 pub enum SslNegotiationMetaMessage {
     PostgresSsl(startup::SslRequest),
     PostgresGss(startup::GssEncRequest),
-    Direct,
     None,
 }
 
@@ -228,20 +227,10 @@ impl PgWireFrontendMessage {
     pub fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
         if ctx.awaiting_ssl {
             // Connection just estabilished, the incoming message can be:
-            // - Direct TLS handshake
             // - SSLRequest
             // - GssRequest
             // - Startup
             // - CancelRequest
-
-            // check the first byte to see if its direct tls, we don't consume
-            // any bytes at the stage and will let TlsAcceptor to finish the
-            // handshake
-            if buf.remaining() >= 1 && buf[0] == 0x16 {
-                return Ok(Some(PgWireFrontendMessage::SslNegotiation(
-                    SslNegotiationMetaMessage::Direct,
-                )));
-            }
 
             // Try to read the magic number to tell whether it SSLRequest or
             // Startup, all these messages should have at least 8 bytes

@@ -317,19 +317,28 @@ enum SslNegotiationType {
     None,
 }
 
+async fn check_ssl_direct_negotiation(
+    tcp_socket: &BufStream<TcpStream>,
+) -> Result<bool, io::Error> {
+    let mut buf = [0u8; 1];
+    let n = tcp_socket.get_ref().peek(&mut buf).await?;
+
+    Ok(n > 0 && buf[0] == 0x16)
+}
+
 async fn peek_for_sslrequest<ST>(
     socket: &mut Framed<BufStream<TcpStream>, PgWireMessageServerCodec<ST>>,
     ssl_supported: bool,
 ) -> Result<SslNegotiationType, io::Error> {
+    if check_ssl_direct_negotiation(socket.get_ref()).await? {
+        return Ok(SslNegotiationType::Direct);
+    }
+
     let mut ssl_done = false;
     let mut gss_done = false;
 
     loop {
         match socket.next().await {
-            // direct TLS
-            Some(Ok(PgWireFrontendMessage::SslNegotiation(SslNegotiationMetaMessage::Direct))) => {
-                return Ok(SslNegotiationType::Direct);
-            }
             // postgres ssl
             Some(Ok(PgWireFrontendMessage::SslNegotiation(
                 SslNegotiationMetaMessage::PostgresSsl(_),
@@ -543,7 +552,6 @@ where
                     _ = &mut startup_timeout => {
                         return Ok(())
                     },
-                    // safe to unwrap tls_acceptor here
                     ssl_socket_result = tls_acceptor.accept(tcp_socket.into_inner()) => {
                         ssl_socket_result?
                     }
