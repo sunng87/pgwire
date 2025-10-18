@@ -331,59 +331,59 @@ async fn peek_for_sslrequest<ST>(
     ssl_supported: bool,
 ) -> Result<SslNegotiationType, io::Error> {
     if check_ssl_direct_negotiation(socket.get_ref()).await? {
-        return Ok(SslNegotiationType::Direct);
-    }
+        Ok(SslNegotiationType::Direct)
+    } else {
+        let mut ssl_done = false;
+        let mut gss_done = false;
 
-    let mut ssl_done = false;
-    let mut gss_done = false;
+        loop {
+            match socket.next().await {
+                // postgres ssl
+                Some(Ok(PgWireFrontendMessage::SslNegotiation(
+                    SslNegotiationMetaMessage::PostgresSsl(_),
+                ))) => {
+                    // ssl request
+                    if ssl_supported {
+                        socket
+                            .send(PgWireBackendMessage::SslResponse(SslResponse::Accept))
+                            .await?;
+                        return Ok(SslNegotiationType::Postgres);
+                    } else {
+                        socket
+                            .send(PgWireBackendMessage::SslResponse(SslResponse::Refuse))
+                            .await?;
+                        ssl_done = true;
 
-    loop {
-        match socket.next().await {
-            // postgres ssl
-            Some(Ok(PgWireFrontendMessage::SslNegotiation(
-                SslNegotiationMetaMessage::PostgresSsl(_),
-            ))) => {
-                // ssl request
-                if ssl_supported {
+                        if gss_done {
+                            return Ok(SslNegotiationType::None);
+                        } else {
+                            // Continue to check for more requests (e.g., GssEncRequest after SSL refuse)
+                            continue;
+                        }
+                    }
+                }
+
+                // postgres gss
+                Some(Ok(PgWireFrontendMessage::SslNegotiation(
+                    SslNegotiationMetaMessage::PostgresGss(_),
+                ))) => {
                     socket
-                        .send(PgWireBackendMessage::SslResponse(SslResponse::Accept))
+                        .send(PgWireBackendMessage::GssEncResponse(GssEncResponse::Refuse))
                         .await?;
-                    return Ok(SslNegotiationType::Postgres);
-                } else {
-                    socket
-                        .send(PgWireBackendMessage::SslResponse(SslResponse::Refuse))
-                        .await?;
-                    ssl_done = true;
+                    gss_done = true;
 
-                    if gss_done {
+                    if ssl_done {
                         return Ok(SslNegotiationType::None);
                     } else {
-                        // Continue to check for more requests (e.g., GssEncRequest after SSL refuse)
+                        // Continue to check for more requests (e.g., SSL request after GSSAPI refuse)
                         continue;
                     }
                 }
-            }
 
-            // postgres gss
-            Some(Ok(PgWireFrontendMessage::SslNegotiation(
-                SslNegotiationMetaMessage::PostgresGss(_),
-            ))) => {
-                socket
-                    .send(PgWireBackendMessage::GssEncResponse(GssEncResponse::Refuse))
-                    .await?;
-                gss_done = true;
-
-                if ssl_done {
+                // not a handshake request or connection is broken
+                _ => {
                     return Ok(SslNegotiationType::None);
-                } else {
-                    // Continue to check for more requests (e.g., SSL request after GSSAPI refuse)
-                    continue;
                 }
-            }
-
-            // not a handshake request or connection is broken
-            _ => {
-                return Ok(SslNegotiationType::None);
             }
         }
     }
