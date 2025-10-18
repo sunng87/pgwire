@@ -24,7 +24,8 @@ use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::response::{GssEncResponse, ReadyForQuery, SslResponse, TransactionStatus};
 use crate::messages::startup::SecretKey;
 use crate::messages::{
-    DecodeContext, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion, SslNegotiation,
+    DecodeContext, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,
+    SslNegotiationMetaMessage,
 };
 
 /// startup timeout
@@ -326,11 +327,13 @@ async fn peek_for_sslrequest<ST>(
     loop {
         match socket.next().await {
             // direct TLS
-            Some(Ok(PgWireFrontendMessage::SslNegotiation(SslNegotiation::Direct))) => {
+            Some(Ok(PgWireFrontendMessage::SslNegotiation(SslNegotiationMetaMessage::Direct))) => {
                 return Ok(SslNegotiationType::Direct);
             }
             // postgres ssl
-            Some(Ok(PgWireFrontendMessage::SslNegotiation(SslNegotiation::PostgresSsl(_)))) => {
+            Some(Ok(PgWireFrontendMessage::SslNegotiation(
+                SslNegotiationMetaMessage::PostgresSsl(_),
+            ))) => {
                 // ssl request
                 if ssl_supported {
                     socket
@@ -353,7 +356,9 @@ async fn peek_for_sslrequest<ST>(
             }
 
             // postgres gss
-            Some(Ok(PgWireFrontendMessage::SslNegotiation(SslNegotiation::PostgresGss(_)))) => {
+            Some(Ok(PgWireFrontendMessage::SslNegotiation(
+                SslNegotiationMetaMessage::PostgresGss(_),
+            ))) => {
                 socket
                     .send(PgWireBackendMessage::GssEncResponse(GssEncResponse::Refuse))
                     .await?;
