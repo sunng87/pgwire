@@ -144,13 +144,20 @@ pub mod startup;
 /// Termination messages
 pub mod terminate;
 
+#[derive(Debug)]
+pub enum SslNegotiationMetaMessage {
+    PostgresSsl(startup::SslRequest),
+    PostgresGss(startup::GssEncRequest),
+    None,
+}
+
 /// Messages sent from Frontend
 #[derive(Debug)]
 pub enum PgWireFrontendMessage {
+    SslNegotiation(SslNegotiationMetaMessage),
+
     Startup(startup::Startup),
     CancelRequest(cancel::CancelRequest),
-    SslRequest(startup::SslRequest),
-    GssEncRequest(startup::GssEncRequest),
     PasswordMessageFamily(startup::PasswordMessageFamily),
 
     Query(simplequery::Query),
@@ -190,8 +197,11 @@ impl PgWireFrontendMessage {
         match self {
             Self::Startup(msg) => msg.encode(buf),
             Self::CancelRequest(msg) => msg.encode(buf),
-            Self::SslRequest(msg) => msg.encode(buf),
-            Self::GssEncRequest(msg) => msg.encode(buf),
+            Self::SslNegotiation(ssl_negotiation) => match ssl_negotiation {
+                SslNegotiationMetaMessage::PostgresSsl(msg) => msg.encode(buf),
+                SslNegotiationMetaMessage::PostgresGss(msg) => msg.encode(buf),
+                _ => Ok(()),
+            },
 
             Self::PasswordMessageFamily(msg) => msg.encode(buf),
 
@@ -218,23 +228,35 @@ impl PgWireFrontendMessage {
         if ctx.awaiting_ssl {
             // Connection just estabilished, the incoming message can be:
             // - SSLRequest
+            // - GssRequest
             // - Startup
             // - CancelRequest
+
             // Try to read the magic number to tell whether it SSLRequest or
             // Startup, all these messages should have at least 8 bytes
             if buf.remaining() >= 8 {
-                if cancel::CancelRequest::is_cancel_request_packet(buf) {
-                    cancel::CancelRequest::decode(buf, ctx)
-                        .map(|opt| opt.map(PgWireFrontendMessage::CancelRequest))
-                } else if startup::SslRequest::is_ssl_request_packet(buf) {
-                    startup::SslRequest::decode(buf, ctx)
-                        .map(|opt| opt.map(PgWireFrontendMessage::SslRequest))
+                if startup::SslRequest::is_ssl_request_packet(buf) {
+                    startup::SslRequest::decode(buf, ctx).map(|opt| {
+                        opt.map(|msg| {
+                            PgWireFrontendMessage::SslNegotiation(
+                                SslNegotiationMetaMessage::PostgresSsl(msg),
+                            )
+                        })
+                    })
                 } else if startup::GssEncRequest::is_gss_enc_request_packet(buf) {
-                    startup::GssEncRequest::decode(buf, ctx)
-                        .map(|opt| opt.map(PgWireFrontendMessage::GssEncRequest))
+                    startup::GssEncRequest::decode(buf, ctx).map(|opt| {
+                        opt.map(|msg| {
+                            PgWireFrontendMessage::SslNegotiation(
+                                SslNegotiationMetaMessage::PostgresGss(msg),
+                            )
+                        })
+                    })
                 } else {
-                    // startup
-                    startup::Startup::decode(buf, ctx).map(|v| v.map(Self::Startup))
+                    // the message can be cancel or startup, we will update the
+                    // state in `DecodeContext` and read them in next loop
+                    Ok(Some(PgWireFrontendMessage::SslNegotiation(
+                        SslNegotiationMetaMessage::None,
+                    )))
                 }
             } else {
                 Ok(None)

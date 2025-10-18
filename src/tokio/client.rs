@@ -275,6 +275,7 @@ pub(crate) async fn ssl_handshake(
 ) -> PgWireClientResult<ClientSocket> {
     use crate::api::client::config::{SslMode, SslNegotiation};
     use crate::messages::response::SslResponse;
+    use crate::messages::SslNegotiationMetaMessage;
 
     // ssl is disabled on client side
     if config.ssl_mode == SslMode::Disable {
@@ -287,8 +288,8 @@ pub(crate) async fn ssl_handshake(
         } else {
             // postgres ssl handshake
             socket
-                .send(PgWireFrontendMessage::SslRequest(
-                    crate::messages::startup::SslRequest,
+                .send(PgWireFrontendMessage::SslNegotiation(
+                    SslNegotiationMetaMessage::PostgresSsl(crate::messages::startup::SslRequest),
                 ))
                 .await?;
 
