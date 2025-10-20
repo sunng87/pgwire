@@ -391,7 +391,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "pg_type_chrono")]
+    #[cfg(feature = "pg-type-chrono")]
     fn test_data_row_encoder() {
         use std::time::SystemTime;
 
