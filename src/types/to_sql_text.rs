@@ -1,22 +1,22 @@
 use std::error::Error;
 use std::fmt;
-#[cfg(feature = "pg_type_chrono")]
+#[cfg(feature = "pg-type-chrono")]
 use std::time::SystemTime;
 
 use bytes::{BufMut, BytesMut};
-#[cfg(feature = "pg_type_chrono")]
+#[cfg(feature = "pg-type-chrono")]
 use chrono::offset::Utc;
-#[cfg(feature = "pg_type_chrono")]
+#[cfg(feature = "pg-type-chrono")]
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
 use lazy_regex::{lazy_regex, Lazy, Regex};
-#[cfg(feature = "pg_type_serde_json")]
+#[cfg(feature = "pg-type-serde-json")]
 use postgres_types::Json;
 use postgres_types::{IsNull, Kind, Type};
-#[cfg(feature = "pg_type_rust_decimal")]
+#[cfg(feature = "pg-type-rust-decimal")]
 use rust_decimal::Decimal;
-#[cfg(feature = "pg_type_serde_json")]
+#[cfg(feature = "pg-type-serde-json")]
 use serde::Serialize;
-#[cfg(feature = "pg_type_serde_json")]
+#[cfg(feature = "pg-type-serde-json")]
 use serde_json::Value;
 
 pub static QUOTE_CHECK: Lazy<Regex> = lazy_regex!(r#"^$|["{},\\\s]|^null$"#i);
@@ -163,7 +163,7 @@ impl<const N: usize> ToSqlText for [u8; N] {
     }
 }
 
-#[cfg(feature = "pg_type_chrono")]
+#[cfg(feature = "pg-type-chrono")]
 impl ToSqlText for SystemTime {
     fn to_sql_text(
         &self,
@@ -177,7 +177,7 @@ impl ToSqlText for SystemTime {
     }
 }
 
-#[cfg(feature = "pg_type_chrono")]
+#[cfg(feature = "pg-type-chrono")]
 impl<Tz: TimeZone> ToSqlText for DateTime<Tz>
 where
     Tz::Offset: std::fmt::Display,
@@ -202,7 +202,7 @@ where
     }
 }
 
-#[cfg(feature = "pg_type_chrono")]
+#[cfg(feature = "pg-type-chrono")]
 impl ToSqlText for NaiveDateTime {
     fn to_sql_text(
         &self,
@@ -222,7 +222,7 @@ impl ToSqlText for NaiveDateTime {
     }
 }
 
-#[cfg(feature = "pg_type_chrono")]
+#[cfg(feature = "pg-type-chrono")]
 impl ToSqlText for NaiveDate {
     fn to_sql_text(
         &self,
@@ -241,7 +241,7 @@ impl ToSqlText for NaiveDate {
     }
 }
 
-#[cfg(feature = "pg_type_chrono")]
+#[cfg(feature = "pg-type-chrono")]
 impl ToSqlText for NaiveTime {
     fn to_sql_text(
         &self,
@@ -259,7 +259,7 @@ impl ToSqlText for NaiveTime {
     }
 }
 
-#[cfg(feature = "pg_type_rust_decimal")]
+#[cfg(feature = "pg-type-rust-decimal")]
 impl ToSqlText for Decimal {
     fn to_sql_text(
         &self,
@@ -281,7 +281,7 @@ impl ToSqlText for Decimal {
     }
 }
 
-#[cfg(feature = "pg_type_serde_json")]
+#[cfg(feature = "pg-type-serde-json")]
 impl<T: Serialize + fmt::Debug> ToSqlText for Json<T> {
     fn to_sql_text(
         &self,
@@ -296,7 +296,7 @@ impl<T: Serialize + fmt::Debug> ToSqlText for Json<T> {
     }
 }
 
-#[cfg(feature = "pg_type_serde_json")]
+#[cfg(feature = "pg-type-serde-json")]
 impl ToSqlText for Value {
     fn to_sql_text(
         &self,
@@ -355,11 +355,11 @@ impl<T: ToSqlText, const N: usize> ToSqlText for [T; N] {
 #[cfg(test)]
 mod test {
     use super::*;
-    #[cfg(feature = "pg_type_chrono")]
+    #[cfg(feature = "pg-type-chrono")]
     use chrono::offset::FixedOffset;
 
     #[test]
-    #[cfg(feature = "pg_type_chrono")]
+    #[cfg(feature = "pg-type-chrono")]
     fn test_date_time_format() {
         let date = NaiveDate::from_ymd_opt(2023, 3, 5).unwrap();
         let mut buf = BytesMut::new();
@@ -409,7 +409,7 @@ mod test {
     }
 
     #[test]
-    #[cfg(feature = "pg_type_chrono")]
+    #[cfg(feature = "pg-type-chrono")]
     fn test_array() {
         let date = &[
             NaiveDate::from_ymd_opt(2023, 3, 5).unwrap(),
