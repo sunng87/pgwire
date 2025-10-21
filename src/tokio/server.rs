@@ -5,7 +5,7 @@ use std::sync::Arc;
 use futures::{SinkExt, StreamExt};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use rustls_pki_types::CertificateDer;
-use tokio::io::{AsyncRead, AsyncWrite, BufStream};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio::time::{sleep, Duration, Sleep};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
@@ -566,10 +566,8 @@ where
                     client_info.sni_server_name = Some(s);
                 }
 
-                let mut socket = Framed::new(
-                    BufStream::new(ssl_socket),
-                    PgWireMessageServerCodec::new(client_info),
-                );
+                let mut socket =
+                    Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
 
                 do_process_socket(
                     &mut socket,
@@ -715,7 +713,7 @@ mod tests {
             if let Some(s) = sni {
                 ci.sni_server_name = Some(s);
             }
-            let framed = Framed::new(BufStream::new(tls), PgWireMessageServerCodec::new(ci));
+            let framed = Framed::new(tls, PgWireMessageServerCodec::new(ci));
             let server_name = framed.sni_server_name().map(str::to_string);
             let _ = tx.send(server_name);
         });
