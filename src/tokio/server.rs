@@ -5,7 +5,7 @@ use std::sync::Arc;
 use futures::{SinkExt, StreamExt};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use rustls_pki_types::CertificateDer;
-use tokio::io::{AsyncRead, AsyncWrite, BufStream};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio::time::{sleep, Duration, Sleep};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
@@ -317,17 +317,15 @@ enum SslNegotiationType {
     None,
 }
 
-async fn check_ssl_direct_negotiation(
-    tcp_socket: &BufStream<TcpStream>,
-) -> Result<bool, io::Error> {
+async fn check_ssl_direct_negotiation(tcp_socket: &TcpStream) -> Result<bool, io::Error> {
     let mut buf = [0u8; 1];
-    let n = tcp_socket.get_ref().peek(&mut buf).await?;
+    let n = tcp_socket.peek(&mut buf).await?;
 
     Ok(n > 0 && buf[0] == 0x16)
 }
 
 async fn peek_for_sslrequest<ST>(
-    socket: &mut Framed<BufStream<TcpStream>, PgWireMessageServerCodec<ST>>,
+    socket: &mut Framed<TcpStream, PgWireMessageServerCodec<ST>>,
     ssl_supported: bool,
 ) -> Result<SslNegotiationType, io::Error> {
     if check_ssl_direct_negotiation(socket.get_ref()).await? {
@@ -498,10 +496,7 @@ where
     tcp_socket.set_nodelay(true)?;
 
     let client_info = DefaultClient::new(addr, false);
-    let mut tcp_socket = Framed::new(
-        BufStream::new(tcp_socket),
-        PgWireMessageServerCodec::new(client_info),
-    );
+    let mut tcp_socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
 
     // start a timer for startup process, if the client couldn't finish startup
     // within the timeout, it has to be dropped.
@@ -571,10 +566,8 @@ where
                     client_info.sni_server_name = Some(s);
                 }
 
-                let mut socket = Framed::new(
-                    BufStream::new(ssl_socket),
-                    PgWireMessageServerCodec::new(client_info),
-                );
+                let mut socket =
+                    Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
 
                 do_process_socket(
                     &mut socket,
@@ -720,7 +713,7 @@ mod tests {
             if let Some(s) = sni {
                 ci.sni_server_name = Some(s);
             }
-            let framed = Framed::new(BufStream::new(tls), PgWireMessageServerCodec::new(ci));
+            let framed = Framed::new(tls, PgWireMessageServerCodec::new(ci));
             let server_name = framed.sni_server_name().map(str::to_string);
             let _ = tx.send(server_name);
         });
