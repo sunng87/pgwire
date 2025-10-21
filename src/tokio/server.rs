@@ -564,20 +564,8 @@ where
                 | PgWireConnectionState::AuthenticationInProgress
         ) {
             tokio::select! {
-                _ = &mut startup_timeout => {
-                    if matches!(
-                        socket.state(),
-                        PgWireConnectionState::AwaitingStartup
-                        | PgWireConnectionState::AuthenticationInProgress
-                    ) {
-                        None
-                    } else {
-                        continue;
-                    }
-                },
-                msg = socket.next() => {
-                    msg
-                },
+                _ = &mut startup_timeout => None,
+                msg = socket.next() => msg,
             }
         } else {
             socket.next().await
