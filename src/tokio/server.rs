@@ -8,7 +8,7 @@ use futures::{SinkExt, StreamExt};
 use rustls_pki_types::CertificateDer;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
-use tokio::time::{sleep, Duration, Sleep};
+use tokio::time::{sleep, Duration};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use tokio_rustls::server::TlsStream;
 use tokio_util::codec::{Decoder, Encoder, Framed, FramedParts};
@@ -388,78 +388,6 @@ async fn peek_for_sslrequest<ST>(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn do_process_socket<A, Q, EQ, C, CR, E>(
-    socket: &mut Framed<MaybeTls, PgWireMessageServerCodec<EQ::Statement>>,
-    mut startup_timeout: Pin<&mut Sleep>,
-    startup_handler: Arc<A>,
-    simple_query_handler: Arc<Q>,
-    extended_query_handler: Arc<EQ>,
-    copy_handler: Arc<C>,
-    cancel_handler: Arc<CR>,
-    error_handler: Arc<E>,
-) -> Result<(), io::Error>
-where
-    A: StartupHandler,
-    Q: SimpleQueryHandler,
-    EQ: ExtendedQueryHandler,
-    C: CopyHandler,
-    CR: CancelHandler,
-    E: ErrorHandler,
-{
-    loop {
-        let msg = if matches!(
-            socket.state(),
-            PgWireConnectionState::AwaitingStartup
-                | PgWireConnectionState::AuthenticationInProgress
-        ) {
-            tokio::select! {
-                _ = &mut startup_timeout => {
-                    if matches!(
-                        socket.state(),
-                        PgWireConnectionState::AwaitingStartup
-                        | PgWireConnectionState::AuthenticationInProgress
-                    ) {
-                        None
-                    } else {
-                        continue;
-                    }
-                },
-                msg = socket.next() => {
-                    msg
-                },
-            }
-        } else {
-            socket.next().await
-        };
-
-        if let Some(Ok(msg)) = msg {
-            let is_extended_query = match socket.state() {
-                PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
-                _ => msg.is_extended_query(),
-            };
-            if let Err(mut e) = process_message(
-                msg,
-                socket,
-                startup_handler.clone(),
-                simple_query_handler.clone(),
-                extended_query_handler.clone(),
-                copy_handler.clone(),
-                cancel_handler.clone(),
-            )
-            .await
-            {
-                error_handler.on_error(socket, &mut e);
-                process_error(socket, e, is_extended_query).await?;
-            }
-        } else {
-            break;
-        }
-    }
-
-    Ok(())
-}
-
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 fn check_alpn_for_direct_ssl<IO>(tls_socket: &TlsStream<IO>) -> Result<(), io::Error> {
     let (_, the_conn) = tls_socket.get_ref();
@@ -628,17 +556,57 @@ where
     let cancel_handler = handlers.cancel_handler();
     let error_handler = handlers.error_handler();
 
-    do_process_socket(
-        &mut socket,
-        startup_timeout,
-        startup_handler,
-        simple_query_handler,
-        extended_query_handler,
-        copy_handler,
-        cancel_handler,
-        error_handler,
-    )
-    .await
+    let socket = &mut socket;
+    loop {
+        let msg = if matches!(
+            socket.state(),
+            PgWireConnectionState::AwaitingStartup
+                | PgWireConnectionState::AuthenticationInProgress
+        ) {
+            tokio::select! {
+                _ = &mut startup_timeout => {
+                    if matches!(
+                        socket.state(),
+                        PgWireConnectionState::AwaitingStartup
+                        | PgWireConnectionState::AuthenticationInProgress
+                    ) {
+                        None
+                    } else {
+                        continue;
+                    }
+                },
+                msg = socket.next() => {
+                    msg
+                },
+            }
+        } else {
+            socket.next().await
+        };
+
+        if let Some(Ok(msg)) = msg {
+            let is_extended_query = match socket.state() {
+                PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
+                _ => msg.is_extended_query(),
+            };
+            if let Err(mut e) = process_message(
+                msg,
+                socket,
+                startup_handler.clone(),
+                simple_query_handler.clone(),
+                extended_query_handler.clone(),
+                copy_handler.clone(),
+                cancel_handler.clone(),
+            )
+            .await
+            {
+                error_handler.on_error(socket, &mut e);
+                process_error(socket, e, is_extended_query).await?;
+            }
+        } else {
+            break;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(all(test, any(feature = "_ring", feature = "_aws-lc-rs")))]
