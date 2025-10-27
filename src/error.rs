@@ -319,6 +319,9 @@ impl From<PgWireError> for ErrorInfo {
                 ErrorInfo::new("ERROR".to_owned(), "XX000".to_owned(), error.to_string())
             }
             PgWireError::UserError(info) => *info,
+            PgWireError::InvalidOptionValue(_) => {
+                ErrorInfo::new("ERROR".to_owned(), "22023".to_owned(), error.to_string())
+            }
         }
     }
 }
