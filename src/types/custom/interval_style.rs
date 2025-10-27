@@ -66,6 +66,10 @@ impl<T> IntervalStyleWrapper<T> {
     pub fn data(&self) -> &T {
         &self.data
     }
+
+    pub fn style(&self) -> IntervalStyle {
+        self.style
+    }
 }
 
 #[cfg(feature = "pg-type-chrono")]
@@ -92,45 +96,42 @@ impl ToSqlText for IntervalStyleWrapper<Duration> {
                 let mut parts = Vec::new();
 
                 if days != 0 {
-                    parts.push(format!("{} days", days));
+                    parts.push(format!("{days} days"));
                 }
                 if hours != 0 || minutes != 0 || seconds != 0 || microseconds != 0 {
                     let time_str = if microseconds == 0 {
-                        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+                        format!("{hours:02}:{minutes:02}:{seconds:02}")
                     } else {
-                        format!(
-                            "{:02}:{:02}:{:02}.{:06}",
-                            hours, minutes, seconds, microseconds
-                        )
+                        format!("{hours:02}:{minutes:02}:{seconds:02}.{microseconds:06}",)
                     };
                     parts.push(time_str);
                 }
 
                 if parts.is_empty() {
-                    format!("{}00:00:00", sign)
+                    format!("{sign}00:00:00")
                 } else {
-                    format!("{}{}", sign, parts.join(" "))
+                    format!("{sign}{}", parts.join(" "))
                 }
             }
             IntervalStyle::ISO8601 => {
                 let mut parts = Vec::new();
 
                 if days != 0 {
-                    parts.push(format!("{}D", days));
+                    parts.push(format!("{days}D"));
                 }
 
                 let mut time_parts = Vec::new();
                 if hours != 0 {
-                    time_parts.push(format!("{}H", hours));
+                    time_parts.push(format!("{hours}H"));
                 }
                 if minutes != 0 {
-                    time_parts.push(format!("{}M", minutes));
+                    time_parts.push(format!("{minutes}M",));
                 }
                 if seconds != 0 || microseconds != 0 {
                     if microseconds == 0 {
-                        time_parts.push(format!("{}S", seconds));
+                        time_parts.push(format!("{seconds}S",));
                     } else {
-                        time_parts.push(format!("{}.{:06}S", seconds, microseconds));
+                        time_parts.push(format!("{seconds}.{microseconds:06}S"));
                     }
                 }
 
@@ -139,74 +140,66 @@ impl ToSqlText for IntervalStyleWrapper<Duration> {
                 }
 
                 if parts.is_empty() {
-                    format!("{}PT0S", sign)
+                    format!("{sign}PT0S",)
                 } else {
-                    format!("{}P{}", sign, parts.join(""))
+                    format!("{sign}P{}", parts.join(""))
                 }
             }
             IntervalStyle::SQLStandard => {
                 let mut parts = Vec::new();
 
                 if days != 0 {
-                    parts.push(format!("{} {}", days, hours));
+                    parts.push(format!("{days} {hours}"));
                 } else if hours != 0 || minutes != 0 || seconds != 0 || microseconds != 0 {
                     if microseconds == 0 {
-                        parts.push(format!("{:02}:{:02}:{:02}", hours, minutes, seconds));
+                        parts.push(format!("{hours:02}:{minutes:02}:{seconds:02}"));
                     } else {
                         parts.push(format!(
-                            "{:02}:{:02}:{:02}.{:06}",
-                            hours, minutes, seconds, microseconds
+                            "{hours:02}:{minutes:02}:{seconds:02}.{microseconds:06}",
                         ));
                     }
                 }
 
                 if parts.is_empty() {
-                    format!("{}00:00:00", sign)
+                    format!("{sign}00:00:00")
                 } else {
-                    format!("{}{}", sign, parts.join(" "))
+                    format!("{sign}{}", parts.join(" "))
                 }
             }
             IntervalStyle::PostgresVerbose => {
                 let mut parts = Vec::new();
 
                 if days != 0 {
-                    parts.push(format!("{} day{}", days, if days != 1 { "s" } else { "" }));
+                    parts.push(format!("{days} day{}", if days != 1 { "s" } else { "" }));
                 }
                 if hours != 0 {
-                    parts.push(format!(
-                        "{} hour{}",
-                        hours,
-                        if hours != 1 { "s" } else { "" }
-                    ));
+                    parts.push(format!("{hours} hour{}", if hours != 1 { "s" } else { "" }));
                 }
                 if minutes != 0 {
                     parts.push(format!(
-                        "{} min{}",
-                        minutes,
+                        "{minutes} min{}",
                         if minutes != 1 { "s" } else { "" }
                     ));
                 }
                 if seconds != 0 || microseconds != 0 {
                     if microseconds == 0 {
                         parts.push(format!(
-                            "{} sec{}",
-                            seconds,
+                            "{seconds} sec{}",
                             if seconds != 1 { "s" } else { "" }
                         ));
                     } else {
                         let total_seconds = seconds as f64 + microseconds as f64 / 1_000_000.0;
                         parts.push(format!(
-                            "{} sec{}",
-                            total_seconds,
+                            "{total_seconds} sec{}",
                             if total_seconds != 1.0 { "s" } else { "" }
                         ));
                     }
                 }
 
                 if parts.is_empty() {
-                    format!("{}@ 0", sign)
+                    format!("{sign}@ 0")
                 } else {
-                    format!("{}@ {}", sign, parts.join(" "))
+                    format!("{sign}@ {}", parts.join(" "))
                 }
             }
         };
