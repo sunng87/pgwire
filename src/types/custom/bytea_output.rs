@@ -9,8 +9,8 @@ pub const BYTEA_OUTPUT_ESCAPE: &str = "escape";
 #[derive(Debug, Default, Copy, Clone)]
 pub enum ByteaOutputFormat {
     #[default]
-    HEX,
-    ESCAPE,
+    Hex,
+    Escape,
 }
 
 impl TryFrom<&str> for ByteaOutputFormat {
@@ -18,8 +18,8 @@ impl TryFrom<&str> for ByteaOutputFormat {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value.trim().to_lowercase().as_ref() {
-            BYTEA_OUTPUT_HEX => Ok(Self::HEX),
-            BYTEA_OUTPUT_ESCAPE => Ok(Self::ESCAPE),
+            BYTEA_OUTPUT_HEX => Ok(Self::Hex),
+            BYTEA_OUTPUT_ESCAPE => Ok(Self::Escape),
             _ => Err(PgWireError::InvalidOptionValue(value.to_string())),
         }
     }
@@ -52,6 +52,10 @@ where
             .unwrap_or(BYTEA_OUTPUT_ESCAPE);
         Self::new(data, config)
     }
+
+    pub fn format(&self) -> ByteaOutputFormat {
+        self.format
+    }
 }
 
 impl<T> ToSqlText for ByteaOutput<T>
@@ -68,12 +72,12 @@ where
     {
         let data = self.data.as_ref();
         match self.format {
-            ByteaOutputFormat::HEX => data.to_sql_text(ty, out),
-            ByteaOutputFormat::ESCAPE => {
+            ByteaOutputFormat::Hex => data.to_sql_text(ty, out),
+            ByteaOutputFormat::Escape => {
                 data.iter().for_each(|b| match b {
                     0..=31 | 127..=255 => {
                         out.put_slice(b"\\");
-                        out.put_slice(format!("{:03o}", b).as_bytes());
+                        out.put_slice(format!("{b:03o}").as_bytes());
                     }
                     92 => out.put_slice(b"\\\\"),
                     32..=126 => out.put_u8(*b),

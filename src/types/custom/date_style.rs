@@ -51,8 +51,8 @@ pub enum DateStyleDisplayStyle {
     #[default]
     ISO,
     SQL,
-    GERMAN,
-    POSTGRES,
+    German,
+    Postgres,
 }
 
 impl TryFrom<&str> for DateStyleDisplayStyle {
@@ -62,8 +62,8 @@ impl TryFrom<&str> for DateStyleDisplayStyle {
         match value.trim().to_lowercase().as_ref() {
             DATE_STYLE_DISPLAY_ISO => Ok(Self::ISO),
             DATE_STYLE_DISPLAY_SQL => Ok(Self::SQL),
-            DATE_STYLE_DISPLAY_GERMAN => Ok(Self::GERMAN),
-            DATE_STYLE_DISPLAY_POSTGRES => Ok(Self::POSTGRES),
+            DATE_STYLE_DISPLAY_GERMAN => Ok(Self::German),
+            DATE_STYLE_DISPLAY_POSTGRES => Ok(Self::Postgres),
             _ => Err(PgWireError::InvalidOptionValue(value.to_string())),
         }
     }
@@ -113,9 +113,9 @@ impl<T> DateStyle<T> {
 
             (DateStyleDisplayStyle::ISO, _) => "%Y-%m-%d %H:%M:%S%.f",
 
-            (DateStyleDisplayStyle::POSTGRES, _) => "%a %b %e %H:%M:%S %.f %Y",
+            (DateStyleDisplayStyle::Postgres, _) => "%a %b %e %H:%M:%S %.f %Y",
 
-            (DateStyleDisplayStyle::GERMAN, _) => "%d.%m.%Y %H:%M:%S%.f",
+            (DateStyleDisplayStyle::German, _) => "%d.%m.%Y %H:%M:%S%.f",
         }
     }
 
@@ -143,10 +143,10 @@ impl<T> DateStyle<T> {
 
             (DateStyleDisplayStyle::ISO, _) => "%Y-%m-%d",
 
-            (DateStyleDisplayStyle::POSTGRES, Some(DateStyleOrder::DMY)) => "%d-%m-%Y",
-            (DateStyleDisplayStyle::POSTGRES, _) => "%m-%d-%Y",
+            (DateStyleDisplayStyle::Postgres, Some(DateStyleOrder::DMY)) => "%d-%m-%Y",
+            (DateStyleDisplayStyle::Postgres, _) => "%m-%d-%Y",
 
-            (DateStyleDisplayStyle::GERMAN, _) => "%d.%m.%Y",
+            (DateStyleDisplayStyle::German, _) => "%d.%m.%Y",
         }
     }
 
@@ -272,11 +272,11 @@ mod tests {
         ));
         assert!(matches!(
             DateStyleDisplayStyle::try_from("german").unwrap(),
-            DateStyleDisplayStyle::GERMAN
+            DateStyleDisplayStyle::German
         ));
         assert!(matches!(
             DateStyleDisplayStyle::try_from("postgres").unwrap(),
-            DateStyleDisplayStyle::POSTGRES
+            DateStyleDisplayStyle::Postgres
         ));
         assert!(DateStyleDisplayStyle::try_from("invalid").is_err());
     }
