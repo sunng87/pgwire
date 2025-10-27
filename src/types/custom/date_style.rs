@@ -16,9 +16,6 @@ use postgres_types::{IsNull, Type};
 use crate::types::ToSqlText;
 use crate::{api::ClientInfo, error::PgWireError};
 
-pub const BYTEA_OUTPUT_HEX: &str = "hex";
-pub const BYTEA_OUTPUT_ESCAPE: &str = "escape";
-
 pub const DATE_STYLE_ORDER_DMY: &str = "dmy";
 pub const DATE_STYLE_ORDER_MDY: &str = "mdy";
 pub const DATE_STYLE_ORDER_YMD: &str = "ymd";
@@ -104,7 +101,7 @@ impl<T> DateStyle<T> {
             .metadata()
             .get("DateStyle")
             .map(|s| s.as_str())
-            .unwrap_or("ISO");
+            .unwrap_or(DATE_STYLE_DISPLAY_ISO);
         Self::new(data, display_config)
     }
 
