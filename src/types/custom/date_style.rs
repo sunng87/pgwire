@@ -1,12 +1,15 @@
+#[cfg(feature = "pg-type-chrono")]
 use std::error::Error;
 #[cfg(feature = "pg-type-chrono")]
 use std::time::SystemTime;
 
+#[cfg(feature = "pg-type-chrono")]
 use bytes::{BufMut, BytesMut};
 #[cfg(feature = "pg-type-chrono")]
 use chrono::offset::Utc;
 #[cfg(feature = "pg-type-chrono")]
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone};
+#[cfg(feature = "pg-type-chrono")]
 use postgres_types::{IsNull, Type};
 
 #[cfg(feature = "pg-type-chrono")]
@@ -16,12 +19,12 @@ use crate::{api::ClientInfo, error::PgWireError};
 pub const BYTEA_OUTPUT_HEX: &str = "hex";
 pub const BYTEA_OUTPUT_ESCAPE: &str = "escape";
 
-pub const DATE_STYLE_ORDER_DMY: &str = "DMY";
-pub const DATE_STYLE_ORDER_MDY: &str = "MDY";
-pub const DATE_STYLE_ORDER_YMD: &str = "YMD";
+pub const DATE_STYLE_ORDER_DMY: &str = "dmy";
+pub const DATE_STYLE_ORDER_MDY: &str = "mdy";
+pub const DATE_STYLE_ORDER_YMD: &str = "ymd";
 
-pub const DATE_STYLE_DISPLAY_ISO: &str = "ISO";
-pub const DATE_STYLE_DISPLAY_SQL: &str = "SQL";
+pub const DATE_STYLE_DISPLAY_ISO: &str = "iso";
+pub const DATE_STYLE_DISPLAY_SQL: &str = "sql";
 pub const DATE_STYLE_DISPLAY_GERMAN: &str = "german";
 pub const DATE_STYLE_DISPLAY_POSTGRES: &str = "postgres";
 
@@ -37,7 +40,7 @@ impl TryFrom<&str> for DateStyleOrder {
     type Error = PgWireError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value.trim() {
+        match value.trim().to_lowercase().as_ref() {
             DATE_STYLE_ORDER_DMY => Ok(Self::DMY),
             DATE_STYLE_ORDER_MDY => Ok(Self::MDY),
             DATE_STYLE_ORDER_YMD => Ok(Self::YMD),
@@ -59,7 +62,7 @@ impl TryFrom<&str> for DateStyleDisplayStyle {
     type Error = PgWireError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value.trim() {
+        match value.trim().to_lowercase().as_ref() {
             DATE_STYLE_DISPLAY_ISO => Ok(Self::ISO),
             DATE_STYLE_DISPLAY_SQL => Ok(Self::SQL),
             DATE_STYLE_DISPLAY_GERMAN => Ok(Self::GERMAN),
@@ -123,7 +126,15 @@ impl<T> DateStyle<T> {
     pub fn full_tz_format_str(&self) -> String {
         match self.style {
             DateStyleDisplayStyle::ISO => format!("{}%:::z", self.full_format_str()),
-            _ => format!("{}%Z", self.full_format_str()),
+            _ => format!("{} %Z", self.full_format_str()),
+        }
+    }
+
+    /// Get time with tz format string for current style
+    pub fn time_tz_format_str(&self) -> &str {
+        match self.style {
+            DateStyleDisplayStyle::ISO => "%H:%M:%S%.f%:::z",
+            _ => "%H:%M:%S%.f %Z",
         }
     }
 
@@ -140,6 +151,11 @@ impl<T> DateStyle<T> {
 
             (DateStyleDisplayStyle::GERMAN, _) => "%d.%m.%Y",
         }
+    }
+
+    /// Get the wrapped data
+    pub fn data(&self) -> &T {
+        &self.data
     }
 }
 
@@ -174,8 +190,8 @@ where
             Type::TIMESTAMP | Type::TIMESTAMP_ARRAY => self.full_format_str(),
             Type::TIMESTAMPTZ | Type::TIMESTAMPTZ_ARRAY => &self.full_tz_format_str(),
             Type::DATE | Type::DATE_ARRAY => self.date_format_str(),
-            Type::TIME | Type::TIME_ARRAY => "%H:%M:%S%.6f",
-            Type::TIMETZ | Type::TIMETZ_ARRAY => "%H:%M:%S%.6f%:::z",
+            Type::TIME | Type::TIME_ARRAY => "%H:%M:%S%.f",
+            Type::TIMETZ | Type::TIMETZ_ARRAY => self.time_tz_format_str(),
             _ => Err(Box::new(postgres_types::WrongType::new::<DateTime<Tz>>(
                 ty.clone(),
             )))?,
@@ -303,45 +319,53 @@ mod tests {
                 "%Y-%m-%d %H:%M:%S%.f",
                 "%Y-%m-%d %H:%M:%S%.f%:::z",
                 "%Y-%m-%d",
+                "%H:%M:%S%.f%:::z",
             ),
             (
                 "SQL",
                 Some("DMY"),
                 "%d/%m/%Y %H:%M:%S%.f",
-                "%d/%m/%Y %H:%M:%S%.f%Z",
+                "%d/%m/%Y %H:%M:%S%.f %Z",
                 "%d/%m/%Y",
+                "%H:%M:%S%.f %Z",
             ),
             (
                 "SQL",
                 None,
                 "%m/%d/%Y %H:%M:%S%.f",
-                "%m/%d/%Y %H:%M:%S%.f%Z",
+                "%m/%d/%Y %H:%M:%S%.f %Z",
                 "%m/%d/%Y",
+                "%H:%M:%S%.f %Z",
             ),
             (
                 "german",
                 None,
                 "%d.%m.%Y %H:%M:%S%.f",
-                "%d.%m.%Y %H:%M:%S%.f%Z",
+                "%d.%m.%Y %H:%M:%S%.f %Z",
                 "%d.%m.%Y",
+                "%H:%M:%S%.f %Z",
             ),
             (
                 "postgres",
                 None,
                 "%a %b %e %H:%M:%S %.f %Y",
-                "%a %b %e %H:%M:%S %.f %Y%Z",
+                "%a %b %e %H:%M:%S %.f %Y %Z",
                 "%m-%d-%Y",
+                "%H:%M:%S%.f %Z",
             ),
             (
                 "postgres",
                 Some("DMY"),
                 "%a %b %e %H:%M:%S %.f %Y",
-                "%a %b %e %H:%M:%S %.f %Y%Z",
+                "%a %b %e %H:%M:%S %.f %Y %Z",
                 "%d-%m-%Y",
+                "%H:%M:%S%.f %Z",
             ),
         ];
 
-        for (style, order, expected_full, expected_tz, expected_date) in test_cases {
+        for (style, order, expected_full, expected_tz, expected_date, expected_time_tz) in
+            test_cases
+        {
             let config = if let Some(order) = order {
                 format!("{}, {}", style, order)
             } else {
@@ -352,12 +376,15 @@ mod tests {
             assert_eq!(date_style.full_format_str(), expected_full);
             assert_eq!(date_style.full_tz_format_str(), expected_tz);
             assert_eq!(date_style.date_format_str(), expected_date);
+            assert_eq!(date_style.time_tz_format_str(), expected_time_tz);
         }
     }
 
     #[cfg(feature = "pg-type-chrono")]
     #[test]
     fn test_datetime_to_sql_text() {
+        use chrono_tz::US::Pacific;
+
         let dt = NaiveDate::from_ymd_opt(2023, 12, 25)
             .unwrap()
             .and_hms_micro_opt(14, 30, 45, 123456)
@@ -385,11 +412,25 @@ mod tests {
         out.clear();
         date_style.to_sql_text(&Type::DATE, &mut out).unwrap();
         assert_eq!(std::str::from_utf8(&out).unwrap(), "2023-12-25");
+
+        let dt = Pacific.from_local_datetime(&dt).unwrap();
+        let date_style = DateStyle::new(dt, "ISO");
+
+        out.clear();
+        date_style
+            .to_sql_text(&Type::TIMESTAMPTZ, &mut out)
+            .unwrap();
+        assert_eq!(
+            std::str::from_utf8(&out).unwrap(),
+            "2023-12-25 14:30:45.123456-08"
+        );
     }
 
     #[cfg(feature = "pg-type-chrono")]
     #[test]
     fn test_naive_datetime_to_sql_text() {
+        use chrono_tz::US::Pacific;
+
         let dt = NaiveDate::from_ymd_opt(2023, 12, 25)
             .unwrap()
             .and_hms_micro_opt(14, 30, 45, 123456)
@@ -411,6 +452,18 @@ mod tests {
         out.clear();
         date_style.to_sql_text(&Type::TIME, &mut out).unwrap();
         assert_eq!(std::str::from_utf8(&out).unwrap(), "14:30:45.123456");
+
+        let dt = Pacific.from_local_datetime(&dt).unwrap();
+        let date_style = DateStyle::new(dt, "SQL, DMY");
+
+        out.clear();
+        date_style
+            .to_sql_text(&Type::TIMESTAMPTZ, &mut out)
+            .unwrap();
+        assert_eq!(
+            std::str::from_utf8(&out).unwrap(),
+            "25/12/2023 14:30:45.123456 PST"
+        );
     }
 
     #[cfg(feature = "pg-type-chrono")]
