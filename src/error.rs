@@ -56,6 +56,8 @@ pub enum PgWireError {
     UserNameRequired,
     #[error("Connection is not ready for query")]
     NotReadyForQuery,
+    #[error("Invalid option value {0}")]
+    InvalidOptionValue(String),
 
     #[error(transparent)]
     ApiError(#[from] Box<dyn std::error::Error + 'static + Send + Sync>),
