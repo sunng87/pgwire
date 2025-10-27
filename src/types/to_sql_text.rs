@@ -167,13 +167,11 @@ impl<const N: usize> ToSqlText for [u8; N] {
 impl ToSqlText for SystemTime {
     fn to_sql_text(
         &self,
-        _ty: &Type,
+        ty: &Type,
         out: &mut BytesMut,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let datetime: DateTime<Utc> = DateTime::<Utc>::from(*self);
-        let fmt = datetime.format("%Y-%m-%d %H:%M:%S%.6f").to_string();
-        out.put_slice(fmt.as_bytes());
-        Ok(IsNull::No)
+        datetime.to_sql_text(ty, out)
     }
 }
 

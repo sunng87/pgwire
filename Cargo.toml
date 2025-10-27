@@ -102,6 +102,7 @@ _sqlite = []
 _bundled = ["rusqlite/bundled"]
 
 [dev-dependencies]
+chrono-tz = "0.10"
 tokio = { version = "1.19", features = [
   "rt-multi-thread",
   "net",
