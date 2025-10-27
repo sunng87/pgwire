@@ -8,7 +8,7 @@ use chrono::Duration;
 #[cfg(feature = "pg-type-chrono")]
 use postgres_types::{IsNull, Type};
 
-use crate::{api::ClientInfo, error::PgWireError, types::ToSqlText};
+use crate::{api::ClientInfo, error::PgWireError};
 
 pub const INTERVAL_STYLE_POSTGRES: &str = "postgres";
 pub const INTERVAL_STYLE_ISO_8601: &str = "iso_8601";
@@ -73,7 +73,7 @@ impl<T> IntervalStyleWrapper<T> {
 }
 
 #[cfg(feature = "pg-type-chrono")]
-impl ToSqlText for IntervalStyleWrapper<Duration> {
+impl crate::types::ToSqlText for IntervalStyleWrapper<Duration> {
     fn to_sql_text(
         &self,
         _ty: &Type,
@@ -212,6 +212,8 @@ impl ToSqlText for IntervalStyleWrapper<Duration> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "pg-type-chrono")]
+    use crate::types::ToSqlText;
     #[cfg(feature = "pg-type-chrono")]
     use chrono::Duration;
 
