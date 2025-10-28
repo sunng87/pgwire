@@ -22,6 +22,8 @@ use aws_lc_rs::{digest, hmac, pbkdf2};
 #[cfg(all(feature = "_ring", not(feature = "_aws-lc-rs")))]
 use ring::{digest, hmac, pbkdf2};
 
+pub const SCRAM_ITERATIONS: usize = 4096;
+
 #[derive(Debug)]
 pub struct ScramAuth {
     pub(crate) auth_db: Arc<dyn AuthSource>,
@@ -36,7 +38,7 @@ impl ScramAuth {
         ScramAuth {
             auth_db,
             server_cert_sig: None,
-            iterations: 4096,
+            iterations: SCRAM_ITERATIONS,
         }
     }
 
