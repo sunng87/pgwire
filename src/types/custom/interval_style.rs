@@ -57,7 +57,7 @@ impl<T> IntervalStyleWrapper<T> {
     {
         let config = client_info
             .metadata()
-            .get("IntervalStyle")
+            .get("intervalstyle")
             .map(|s| s.as_str())
             .unwrap_or(INTERVAL_STYLE_POSTGRES);
         Self::new(data, config)

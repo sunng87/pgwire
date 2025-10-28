@@ -99,7 +99,7 @@ impl<T> DateStyle<T> {
     {
         let display_config = client_info
             .metadata()
-            .get("DateStyle")
+            .get("datestyle")
             .map(|s| s.as_str())
             .unwrap_or(DATE_STYLE_DISPLAY_ISO);
         Self::new(data, display_config)
