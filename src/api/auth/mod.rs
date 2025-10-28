@@ -40,13 +40,26 @@ pub trait ServerParameterProvider: Send + Sync {
 ///
 /// This provider responds frontend with default parameters:
 ///
-/// - `DateStyle: ISO YMD`: the default text serialization in this library is
-///   using `YMD` style date. If you override this, or use your own serialization
-///   for date types, remember to update this as well.
-/// - `server_encoding: UTF8`
-/// - `client_encoding: UTF8`
-/// - `integer_datetimes: on`:
-///
+/// - `server_version`: We will use a pattern like `<postgres
+///   version>-pgwire-<pgwire version>` for compatibility
+/// - `server_encoding`: `UTF8`
+/// - `integer_datetimes`: `on` by following postgres defaults.
+/// - `in_hot_standby`: `off`
+/// - `search_path`: `public` by default
+/// - `is_superuser`: `on` by default
+/// - `default_transaction_read_only`: `off` by default
+/// - `scram_iteration`: `4096` by default
+/// - `DateStyle`: `ISO YMD` the default text serialization in this library is
+///   using `YMD` style date.
+/// - `IntervalStyle`: `postgres`
+/// - `TimeZone`: `Etc/UTC` by default
+/// - `standard_conforming_string`: `on` by default
+/// - `client_encoding`: `UTF-8`. You can override this by providing a value, or
+///   set to `None` to use client provided value.
+/// - `application_name`: Follow the client provided value by default. You can
+///   override this by providing a value.
+/// - `session_authorization`: The user name, following the client provided
+///   value. You can override this by providing a value.
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct DefaultServerParameterProvider {
@@ -88,7 +101,7 @@ impl Default for DefaultServerParameterProvider {
             interval_style: "postgres".to_owned(),
             standard_conforming_strings: true,
 
-            client_encoding: None,
+            client_encoding: Some("UTF8".to_owned()),
             application_name: None,
             session_authorization: None,
         }
