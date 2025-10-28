@@ -3,9 +3,11 @@ use std::fmt::Debug;
 
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
-use sasl::scram::SCRAM_ITERATIONS;
 
-use super::{ClientInfo, PgWireConnectionState, METADATA_DATABASE, METADATA_USER};
+use super::{
+    ClientInfo, PgWireConnectionState, METADATA_APPLICATION_NAME, METADATA_CLIENT_ENCODING,
+    METADATA_DATABASE, METADATA_USER,
+};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::response::{ReadyForQuery, TransactionStatus};
 use crate::messages::startup::{
@@ -55,6 +57,7 @@ pub struct DefaultServerParameterProvider {
     pub search_path: String,
     pub is_superuser: bool,
     pub default_transaction_read_only: bool,
+    #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
     pub scram_iterations: usize,
     // format settings
     pub time_zone: String,
@@ -77,7 +80,8 @@ impl Default for DefaultServerParameterProvider {
             search_path: "public".to_owned(),
             is_superuser: true,
             default_transaction_read_only: false,
-            scram_iterations: SCRAM_ITERATIONS,
+            #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+            scram_iterations: sasl::scram::SCRAM_ITERATIONS,
 
             time_zone: "Etc/UTC".to_owned(),
             date_style: "ISO YMD".to_owned(),
@@ -121,6 +125,7 @@ impl ServerParameterProvider for DefaultServerParameterProvider {
             "default_transaction_read_only".to_owned(),
             bool_to_string(self.default_transaction_read_only),
         );
+        #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
         params.insert(
             "scram_iterations".to_owned(),
             self.scram_iterations.to_string(),
@@ -137,21 +142,24 @@ impl ServerParameterProvider for DefaultServerParameterProvider {
         if let Some(client_encoding) = self
             .client_encoding
             .as_ref()
-            .or_else(|| client.metadata().get("client_encoding"))
+            .or_else(|| client.metadata().get(METADATA_CLIENT_ENCODING))
         {
-            params.insert("client_encoding".to_owned(), client_encoding.clone());
+            params.insert(METADATA_CLIENT_ENCODING.to_owned(), client_encoding.clone());
         }
         if let Some(application_name) = self
             .application_name
             .as_ref()
-            .or_else(|| client.metadata().get("application_name"))
+            .or_else(|| client.metadata().get(METADATA_APPLICATION_NAME))
         {
-            params.insert("application_name".to_owned(), application_name.clone());
+            params.insert(
+                METADATA_APPLICATION_NAME.to_owned(),
+                application_name.clone(),
+            );
         }
         if let Some(user) = self
             .session_authorization
             .as_ref()
-            .or_else(|| client.metadata().get("user"))
+            .or_else(|| client.metadata().get(METADATA_USER))
         {
             params.insert("session_authorization".to_owned(), user.clone());
         }
