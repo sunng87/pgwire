@@ -81,6 +81,8 @@ pub trait ClientPortalStore {
 
 pub const METADATA_USER: &str = "user";
 pub const METADATA_DATABASE: &str = "database";
+pub const METADATA_CLIENT_ENCODING: &str = "client_encoding";
+pub const METADATA_APPLICATION_NAME: &str = "application_name";
 
 #[non_exhaustive]
 #[derive(Debug)]
