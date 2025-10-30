@@ -4,7 +4,10 @@ use std::fmt::Debug;
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 
-use super::{ClientInfo, PgWireConnectionState, METADATA_DATABASE, METADATA_USER};
+use super::{
+    ClientInfo, PgWireConnectionState, METADATA_APPLICATION_NAME, METADATA_CLIENT_ENCODING,
+    METADATA_DATABASE, METADATA_USER,
+};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::response::{ReadyForQuery, TransactionStatus};
 use crate::messages::startup::{
@@ -37,21 +40,47 @@ pub trait ServerParameterProvider: Send + Sync {
 ///
 /// This provider responds frontend with default parameters:
 ///
-/// - `DateStyle: ISO YMD`: the default text serialization in this library is
-///   using `YMD` style date. If you override this, or use your own serialization
-///   for date types, remember to update this as well.
-/// - `server_encoding: UTF8`
-/// - `client_encoding: UTF8`
-/// - `integer_datetimes: on`:
-///
+/// - `server_version`: We will use a pattern like `<postgres
+///   version>-pgwire-<pgwire version>` for compatibility
+/// - `server_encoding`: `UTF8`
+/// - `integer_datetimes`: `on` by following postgres defaults.
+/// - `in_hot_standby`: `off`
+/// - `search_path`: `public` by default
+/// - `is_superuser`: `on` by default
+/// - `default_transaction_read_only`: `off` by default
+/// - `scram_iteration`: `4096` by default
+/// - `DateStyle`: `ISO YMD` the default text serialization in this library is
+///   using `YMD` style date.
+/// - `IntervalStyle`: `postgres`
+/// - `TimeZone`: `Etc/UTC` by default
+/// - `standard_conforming_string`: `on` by default
+/// - `client_encoding`: `UTF-8`. You can override this by providing a value, or
+///   set to `None` to use client provided value.
+/// - `application_name`: Follow the client provided value by default. You can
+///   override this by providing a value.
+/// - `session_authorization`: The user name, following the client provided
+///   value. You can override this by providing a value.
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct DefaultServerParameterProvider {
     pub server_version: String,
     pub server_encoding: String,
-    pub client_encoding: String,
+    pub integer_datetimes: bool,
+    pub in_hot_standby: bool,
+    pub search_path: String,
+    pub is_superuser: bool,
+    pub default_transaction_read_only: bool,
+    #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+    pub scram_iterations: usize,
+    // format settings
+    pub time_zone: String,
     pub date_style: String,
-    pub integer_datetimes: String,
+    pub interval_style: String,
+    pub standard_conforming_strings: bool,
+    // user name and application name, follow client data
+    pub client_encoding: Option<String>,
+    pub application_name: Option<String>,
+    pub session_authorization: Option<String>,
 }
 
 impl Default for DefaultServerParameterProvider {
@@ -59,27 +88,94 @@ impl Default for DefaultServerParameterProvider {
         Self {
             server_version: format!("16.6-pgwire-{}", env!("CARGO_PKG_VERSION").to_owned()),
             server_encoding: "UTF8".to_owned(),
-            client_encoding: "UTF8".to_owned(),
+            integer_datetimes: true,
+            in_hot_standby: false,
+            search_path: "public".to_owned(),
+            is_superuser: true,
+            default_transaction_read_only: false,
+            #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+            scram_iterations: sasl::scram::SCRAM_ITERATIONS,
+
+            time_zone: "Etc/UTC".to_owned(),
             date_style: "ISO YMD".to_owned(),
-            integer_datetimes: "on".to_owned(),
+            interval_style: "postgres".to_owned(),
+            standard_conforming_strings: true,
+
+            client_encoding: Some("UTF8".to_owned()),
+            application_name: None,
+            session_authorization: None,
         }
     }
 }
 
+fn bool_to_string(v: bool) -> String {
+    if v {
+        "on".to_string()
+    } else {
+        "off".to_string()
+    }
+}
+
 impl ServerParameterProvider for DefaultServerParameterProvider {
-    fn server_parameters<C>(&self, _client: &C) -> Option<HashMap<String, String>>
+    fn server_parameters<C>(&self, client: &C) -> Option<HashMap<String, String>>
     where
         C: ClientInfo,
     {
-        let mut params = HashMap::with_capacity(5);
+        let mut params = HashMap::with_capacity(16);
         params.insert("server_version".to_owned(), self.server_version.clone());
         params.insert("server_encoding".to_owned(), self.server_encoding.clone());
-        params.insert("client_encoding".to_owned(), self.client_encoding.clone());
-        params.insert("DateStyle".to_owned(), self.date_style.clone());
         params.insert(
             "integer_datetimes".to_owned(),
-            self.integer_datetimes.clone(),
+            bool_to_string(self.integer_datetimes),
         );
+        params.insert(
+            "in_hot_standby".to_owned(),
+            bool_to_string(self.in_hot_standby),
+        );
+        params.insert("search_path".to_owned(), self.search_path.clone());
+        params.insert("is_superuser".to_owned(), bool_to_string(self.is_superuser));
+        params.insert(
+            "default_transaction_read_only".to_owned(),
+            bool_to_string(self.default_transaction_read_only),
+        );
+        #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+        params.insert(
+            "scram_iterations".to_owned(),
+            self.scram_iterations.to_string(),
+        );
+
+        params.insert("TimeZone".to_owned(), self.time_zone.clone());
+        params.insert("DateStyle".to_owned(), self.date_style.clone());
+        params.insert("IntervalStyle".to_owned(), self.interval_style.clone());
+        params.insert(
+            "standard_conforming_strings".to_owned(),
+            bool_to_string(self.standard_conforming_strings),
+        );
+
+        if let Some(client_encoding) = self
+            .client_encoding
+            .as_ref()
+            .or_else(|| client.metadata().get(METADATA_CLIENT_ENCODING))
+        {
+            params.insert(METADATA_CLIENT_ENCODING.to_owned(), client_encoding.clone());
+        }
+        if let Some(application_name) = self
+            .application_name
+            .as_ref()
+            .or_else(|| client.metadata().get(METADATA_APPLICATION_NAME))
+        {
+            params.insert(
+                METADATA_APPLICATION_NAME.to_owned(),
+                application_name.clone(),
+            );
+        }
+        if let Some(user) = self
+            .session_authorization
+            .as_ref()
+            .or_else(|| client.metadata().get(METADATA_USER))
+        {
+            params.insert("session_authorization".to_owned(), user.clone());
+        }
 
         Some(params)
     }
