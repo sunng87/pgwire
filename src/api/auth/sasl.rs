@@ -14,6 +14,7 @@ use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 use super::{ServerParameterProvider, StartupHandler};
 
 pub mod scram;
+pub mod oauth;
 
 #[derive(Debug)]
 pub enum SASLState {
@@ -42,6 +43,9 @@ pub struct SASLAuthStartupHandler<P> {
     state: Mutex<SASLState>,
     /// scram configuration
     scram: Option<scram::ScramAuth>,
+    /// oauth configuration
+    // TODO
+    oauth: Option<String>,
 }
 
 #[async_trait]
@@ -74,6 +78,10 @@ impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
                     let sasl_initial_response = msg.into_sasl_initial_response()?;
                     let selected_mechanism = sasl_initial_response.auth_method.as_str();
 
+                    // TODO: include the oauth mechanism, but I am not sure if the state should still be
+                    // ScramClientFirstReceived. when I am respomding with the SASLInitialResponse, I have to include the `auth`
+                    // field. that means I have to check if the selected mechanism is oauth, then construct the SASLInitialResponse.
+                    // then, I'll handle the  AuthenticationSASLContinue message type (add it to the PasswordMessageFamily enum)
                     if [Self::SCRAM_SHA_256, Self::SCRAM_SHA_256_PLUS].contains(&selected_mechanism)
                     {
                         *state = SASLState::ScramClientFirstReceived;
@@ -121,6 +129,7 @@ impl<P> SASLAuthStartupHandler<P> {
             parameter_provider,
             state: Mutex::new(SASLState::Initial),
             scram: None,
+            oauth: None,
         }
     }
 
@@ -131,6 +140,7 @@ impl<P> SASLAuthStartupHandler<P> {
 
     const SCRAM_SHA_256: &str = "SCRAM-SHA-256";
     const SCRAM_SHA_256_PLUS: &str = "SCRAM-SHA-256-PLUS";
+    const OAUTHBEARER: &str = "OAUTHBEARER";
 
     fn supported_mechanisms(&self) -> Vec<String> {
         let mut mechanisms = vec![];
@@ -141,6 +151,10 @@ impl<P> SASLAuthStartupHandler<P> {
             if scram.server_cert_sig.is_some() {
                 mechanisms.push(Self::SCRAM_SHA_256_PLUS.to_owned());
             }
+        }
+
+        if let Some(oauth) = &self.oauth {
+            mechanisms.push(Self::OAUTHBEARER.to_owned());
         }
 
         mechanisms

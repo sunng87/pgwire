@@ -648,6 +648,7 @@ impl Message for GssEncRequest {
 pub struct SASLInitialResponse {
     pub auth_method: String,
     pub data: Option<Bytes>,
+    // TODO: add auth field here to be None
 }
 
 impl Message for SASLInitialResponse {
