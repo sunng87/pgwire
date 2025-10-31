@@ -11,6 +11,7 @@ use crate::messages::data::{
     DataRow, FieldDescription, RowDescription, FORMAT_CODE_BINARY, FORMAT_CODE_TEXT,
 };
 use crate::messages::response::CommandComplete;
+use crate::types::format::FormatOptions;
 use crate::types::ToSqlText;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -89,6 +90,8 @@ pub struct FieldInfo {
     column_id: Option<i16>,
     datatype: Type,
     format: FieldFormat,
+    #[new(default)]
+    format_options: Option<Arc<FormatOptions>>,
 }
 
 impl FieldInfo {
@@ -110,6 +113,15 @@ impl FieldInfo {
 
     pub fn format(&self) -> FieldFormat {
         self.format
+    }
+
+    pub fn format_options(&self) -> Option<&FormatOptions> {
+        self.format_options.as_deref()
+    }
+
+    pub fn with_format_options(mut self, format_options: Arc<FormatOptions>) -> Self {
+        self.format_options = Some(format_options);
+        self
     }
 }
 
