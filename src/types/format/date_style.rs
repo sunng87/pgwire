@@ -12,9 +12,9 @@ use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone};
 #[cfg(feature = "pg-type-chrono")]
 use postgres_types::{IsNull, Type};
 
+use crate::error::PgWireError;
 #[cfg(feature = "pg-type-chrono")]
 use crate::types::ToSqlText;
-use crate::{api::ClientInfo, error::PgWireError};
 
 pub const DATE_STYLE_ORDER_DMY: &str = "dmy";
 pub const DATE_STYLE_ORDER_MDY: &str = "mdy";
@@ -91,18 +91,6 @@ impl<T> DateStyle<T> {
             style: DateStyleDisplayStyle::try_from(style).unwrap_or_default(),
             data,
         }
-    }
-
-    pub fn new_with_client_info<C>(data: T, client_info: C) -> Self
-    where
-        C: ClientInfo,
-    {
-        let display_config = client_info
-            .metadata()
-            .get("datestyle")
-            .map(|s| s.as_str())
-            .unwrap_or(DATE_STYLE_DISPLAY_ISO);
-        Self::new(data, display_config)
     }
 
     /// Get datetime format str for current style
