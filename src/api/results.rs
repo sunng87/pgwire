@@ -115,8 +115,8 @@ impl FieldInfo {
         self.format
     }
 
-    pub fn format_options(&self) -> Option<&FormatOptions> {
-        self.format_options.as_deref()
+    pub fn format_options(&self) -> Option<Arc<FormatOptions>> {
+        self.format_options.clone()
     }
 
     pub fn with_format_options(mut self, format_options: Arc<FormatOptions>) -> Self {
