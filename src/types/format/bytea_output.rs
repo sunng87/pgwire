@@ -77,7 +77,6 @@ where
     }
 }
 
-#[cfg(feature = "pg-type-chrono")]
 impl<T: ToSql> ToSql for ByteaOutput<T> {
     fn to_sql(
         &self,
