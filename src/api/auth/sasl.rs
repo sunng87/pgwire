@@ -13,8 +13,8 @@ use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 use super::{ServerParameterProvider, StartupHandler};
 
-pub mod scram;
 pub mod oauth;
+pub mod scram;
 
 #[derive(Debug)]
 pub enum SASLState {
@@ -23,6 +23,10 @@ pub enum SASLState {
     ScramClientFirstReceived,
     // cached password, channel_binding and partial auth-message
     ScramServerFirstSent(Password, String, String),
+    // oauth authentication method selected
+    OauthStateInit,
+    // failure during authentication
+    OauthStateError,
     // finished
     Finished,
 }
@@ -34,6 +38,10 @@ impl SASLState {
             SASLState::ScramClientFirstReceived | SASLState::ScramServerFirstSent(_, _, _)
         )
     }
+
+    fn is_oauth(&self) -> bool {
+        matches!(self, SASLState::OauthStateInit)
+    }
 }
 
 #[derive(Debug)]
@@ -44,8 +52,7 @@ pub struct SASLAuthStartupHandler<P> {
     /// scram configuration
     scram: Option<scram::ScramAuth>,
     /// oauth configuration
-    // TODO
-    oauth: Option<String>,
+    oauth: Option<oauth::Oauth>,
 }
 
 #[async_trait]
@@ -78,19 +85,16 @@ impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
                     let sasl_initial_response = msg.into_sasl_initial_response()?;
                     let selected_mechanism = sasl_initial_response.auth_method.as_str();
 
-                    // TODO: include the oauth mechanism, but I am not sure if the state should still be
-                    // ScramClientFirstReceived. when I am respomding with the SASLInitialResponse, I have to include the `auth`
-                    // field. that means I have to check if the selected mechanism is oauth, then construct the SASLInitialResponse.
-                    // then, I'll handle the  AuthenticationSASLContinue message type (add it to the PasswordMessageFamily enum)
                     if [Self::SCRAM_SHA_256, Self::SCRAM_SHA_256_PLUS].contains(&selected_mechanism)
                     {
                         *state = SASLState::ScramClientFirstReceived;
+                    } else if [Self::OAUTHBEARER].contains(&selected_mechanism) {
+                        *state = SASLState::OauthStateInit;
                     } else {
                         return Err(PgWireError::UnsupportedSASLAuthMethod(
                             selected_mechanism.to_string(),
                         ));
                     }
-
                     msg = PasswordMessageFamily::SASLInitialResponse(sasl_initial_response);
                 } else {
                     let sasl_response = msg.into_sasl_response()?;
@@ -109,6 +113,17 @@ impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
                     } else {
                         // scram is not configured
                         return Err(PgWireError::UnsupportedSASLAuthMethod("SCRAM".to_string()));
+                    }
+                }
+
+                // oauth
+                if state.is_oauth() {
+                    if let Some(_) = &self.oauth {
+                    } else {
+                        // oauth is not configured
+                        return Err(PgWireError::UnsupportedSASLAuthMethod(
+                            "OAUTHBEARER".to_string(),
+                        ));
                     }
                 }
 
@@ -153,7 +168,7 @@ impl<P> SASLAuthStartupHandler<P> {
             }
         }
 
-        if let Some(oauth) = &self.oauth {
+        if self.oauth.is_some() {
             mechanisms.push(Self::OAUTHBEARER.to_owned());
         }
 
