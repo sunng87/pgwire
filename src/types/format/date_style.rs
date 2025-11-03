@@ -10,7 +10,7 @@ use chrono::offset::Utc;
 #[cfg(feature = "pg-type-chrono")]
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone};
 #[cfg(feature = "pg-type-chrono")]
-use postgres_types::{IsNull, Type};
+use postgres_types::{IsNull, ToSql, Type};
 
 use crate::error::PgWireError;
 #[cfg(feature = "pg-type-chrono")]
@@ -222,6 +222,31 @@ impl ToSqlText for DateStyle<NaiveDate> {
 
         out.put_slice(fmt.as_bytes());
         Ok(IsNull::No)
+    }
+}
+
+#[cfg(feature = "pg-type-chrono")]
+impl<T: ToSql> ToSql for DateStyle<T> {
+    fn to_sql(&self, ty: &Type, out: &mut BytesMut) -> Result<IsNull, Box<dyn Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
+        self.data.to_sql(ty, out)
+    }
+
+    fn accepts(ty: &Type) -> bool
+    where
+        Self: Sized,
+    {
+        T::accepts(ty)
+    }
+
+    fn to_sql_checked(
+        &self,
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        self.data.to_sql_checked(ty, out)
     }
 }
 
