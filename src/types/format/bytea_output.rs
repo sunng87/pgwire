@@ -1,4 +1,5 @@
 use bytes::{BufMut, BytesMut};
+use postgres_types::ToSql;
 use postgres_types::{IsNull, Type};
 
 use crate::{error::PgWireError, types::ToSqlText};
@@ -73,6 +74,34 @@ where
                 Ok(IsNull::No)
             }
         }
+    }
+}
+
+impl<T: ToSql> ToSql for ByteaOutput<T> {
+    fn to_sql(
+        &self,
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn std::error::Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
+        self.data.to_sql(ty, out)
+    }
+
+    fn accepts(ty: &Type) -> bool
+    where
+        Self: Sized,
+    {
+        T::accepts(ty)
+    }
+
+    fn to_sql_checked(
+        &self,
+        ty: &Type,
+        out: &mut BytesMut,
+    ) -> Result<IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        self.data.to_sql_checked(ty, out)
     }
 }
 
