@@ -1,7 +1,7 @@
 use bytes::{BufMut, BytesMut};
 use postgres_types::{IsNull, Type};
 
-use crate::{api::ClientInfo, error::PgWireError, types::ToSqlText};
+use crate::{error::PgWireError, types::ToSqlText};
 
 pub const BYTEA_OUTPUT_HEX: &str = "hex";
 pub const BYTEA_OUTPUT_ESCAPE: &str = "escape";
@@ -39,18 +39,6 @@ where
         let format = ByteaOutputFormat::try_from(config).unwrap_or_default();
 
         Self { format, data }
-    }
-
-    pub fn new_with_client_info<C>(data: T, client_info: C) -> Self
-    where
-        C: ClientInfo,
-    {
-        let config = client_info
-            .metadata()
-            .get("bytea_output")
-            .map(|s| s.as_str())
-            .unwrap_or(BYTEA_OUTPUT_ESCAPE);
-        Self::new(data, config)
     }
 
     pub fn format(&self) -> ByteaOutputFormat {

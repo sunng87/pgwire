@@ -8,7 +8,7 @@ use chrono::Duration;
 #[cfg(feature = "pg-type-chrono")]
 use postgres_types::{IsNull, Type};
 
-use crate::{api::ClientInfo, error::PgWireError};
+use crate::error::PgWireError;
 
 pub const INTERVAL_STYLE_POSTGRES: &str = "postgres";
 pub const INTERVAL_STYLE_ISO_8601: &str = "iso_8601";
@@ -49,18 +49,6 @@ impl<T> IntervalStyleWrapper<T> {
         let style = IntervalStyle::try_from(config).unwrap_or_default();
 
         Self { style, data }
-    }
-
-    pub fn new_with_client_info<C>(data: T, client_info: C) -> Self
-    where
-        C: ClientInfo,
-    {
-        let config = client_info
-            .metadata()
-            .get("intervalstyle")
-            .map(|s| s.as_str())
-            .unwrap_or(INTERVAL_STYLE_POSTGRES);
-        Self::new(data, config)
     }
 
     pub fn data(&self) -> &T {

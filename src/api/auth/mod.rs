@@ -14,6 +14,7 @@ use crate::messages::startup::{
     Authentication, BackendKeyData, NegotiateProtocolVersion, ParameterStatus, Startup,
 };
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion};
+use crate::types::format::FormatOptions;
 
 /// Handles startup process and frontend messages
 #[async_trait]
@@ -85,6 +86,8 @@ pub struct DefaultServerParameterProvider {
 
 impl Default for DefaultServerParameterProvider {
     fn default() -> Self {
+        let format_options = FormatOptions::default();
+
         Self {
             server_version: format!("16.6-pgwire-{}", env!("CARGO_PKG_VERSION").to_owned()),
             server_encoding: "UTF8".to_owned(),
@@ -96,10 +99,10 @@ impl Default for DefaultServerParameterProvider {
             #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
             scram_iterations: sasl::scram::SCRAM_ITERATIONS,
 
-            time_zone: "Etc/UTC".to_owned(),
-            date_style: "ISO YMD".to_owned(),
-            interval_style: "postgres".to_owned(),
-            standard_conforming_strings: true,
+            time_zone: format_options.time_zone,
+            date_style: format_options.date_style,
+            interval_style: format_options.interval_style,
+            standard_conforming_strings: format_options.standard_conforming_strings,
 
             client_encoding: Some("UTF8".to_owned()),
             application_name: None,
