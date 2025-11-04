@@ -20,6 +20,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::types::format::bytea_output::ByteaOutput;
+use crate::types::format::float_digits::ExtraFloatDigits;
 use crate::types::format::FormatOptions;
 
 pub static QUOTE_CHECK: Lazy<Regex> = lazy_regex!(r#"^$|["{},\\\s]|^null$"#i);
@@ -137,9 +138,39 @@ impl_to_sql_text!(i16);
 impl_to_sql_text!(i32);
 impl_to_sql_text!(i64);
 impl_to_sql_text!(u32);
-impl_to_sql_text!(f32);
-impl_to_sql_text!(f64);
 impl_to_sql_text!(char);
+
+impl ToSqlText for f32 {
+    fn to_sql_text(
+        &self,
+        _ty: &Type,
+        out: &mut BytesMut,
+        format_options: &FormatOptions,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
+        let extra_float_digits = ExtraFloatDigits(format_options.extra_float_digits);
+        out.put_slice(extra_float_digits.format_f32(*self).as_bytes());
+        Ok(IsNull::No)
+    }
+}
+
+impl ToSqlText for f64 {
+    fn to_sql_text(
+        &self,
+        _ty: &Type,
+        out: &mut BytesMut,
+        format_options: &FormatOptions,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
+        let extra_float_digits = ExtraFloatDigits(format_options.extra_float_digits);
+        out.put_slice(extra_float_digits.format_f64(*self).as_bytes());
+        Ok(IsNull::No)
+    }
+}
 
 impl ToSqlText for &[u8] {
     fn to_sql_text(

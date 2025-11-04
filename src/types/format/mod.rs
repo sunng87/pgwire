@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 pub mod bytea_output;
 pub mod date_style;
+pub mod float_digits;
 pub mod interval_style;
 
 /// All possible format options of postgres
@@ -23,7 +24,7 @@ impl Default for FormatOptions {
             interval_style: "postgres".to_string(),
             bytea_output: "hex".to_string(),
             time_zone: "Etc/UTC".to_string(),
-            extra_float_digits: 3,
+            extra_float_digits: 1,
             standard_conforming_strings: true,
         }
     }
