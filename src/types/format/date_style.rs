@@ -78,14 +78,14 @@ impl DateStyle {
     /// Get datetime format str for current style
     pub fn full_format_str(&self) -> &str {
         match (&self.style, &self.order) {
-            (DateStyleDisplayStyle::SQL, Some(DateStyleOrder::DMY)) => "%d/%m/%Y %H:%M:%S%.f",
-            (DateStyleDisplayStyle::SQL, _) => "%m/%d/%Y %H:%M:%S%.f",
+            (DateStyleDisplayStyle::SQL, Some(DateStyleOrder::DMY)) => "%d/%m/%Y %H:%M:%S%.6f",
+            (DateStyleDisplayStyle::SQL, _) => "%m/%d/%Y %H:%M:%S%.6f",
 
-            (DateStyleDisplayStyle::ISO, _) => "%Y-%m-%d %H:%M:%S%.f",
+            (DateStyleDisplayStyle::ISO, _) => "%Y-%m-%d %H:%M:%S%.6f",
 
-            (DateStyleDisplayStyle::Postgres, _) => "%a %b %e %H:%M:%S %.f %Y",
+            (DateStyleDisplayStyle::Postgres, _) => "%a %b %e %H:%M:%S %.6f %Y",
 
-            (DateStyleDisplayStyle::German, _) => "%d.%m.%Y %H:%M:%S%.f",
+            (DateStyleDisplayStyle::German, _) => "%d.%m.%Y %H:%M:%S%.6f",
         }
     }
 
@@ -100,8 +100,8 @@ impl DateStyle {
     /// Get time with tz format string for current style
     pub fn time_tz_format_str(&self) -> &str {
         match self.style {
-            DateStyleDisplayStyle::ISO => "%H:%M:%S%.f%:::z",
-            _ => "%H:%M:%S%.f %Z",
+            DateStyleDisplayStyle::ISO => "%H:%M:%S%.6f%:::z",
+            _ => "%H:%M:%S%.6f %Z",
         }
     }
 
@@ -197,50 +197,50 @@ mod tests {
             (
                 "ISO",
                 None,
-                "%Y-%m-%d %H:%M:%S%.f",
-                "%Y-%m-%d %H:%M:%S%.f%:::z",
+                "%Y-%m-%d %H:%M:%S%.6f",
+                "%Y-%m-%d %H:%M:%S%.6f%:::z",
                 "%Y-%m-%d",
-                "%H:%M:%S%.f%:::z",
+                "%H:%M:%S%.6f%:::z",
             ),
             (
                 "SQL",
                 Some("DMY"),
-                "%d/%m/%Y %H:%M:%S%.f",
-                "%d/%m/%Y %H:%M:%S%.f %Z",
+                "%d/%m/%Y %H:%M:%S%.6f",
+                "%d/%m/%Y %H:%M:%S%.6f %Z",
                 "%d/%m/%Y",
-                "%H:%M:%S%.f %Z",
+                "%H:%M:%S%.6f %Z",
             ),
             (
                 "SQL",
                 None,
-                "%m/%d/%Y %H:%M:%S%.f",
-                "%m/%d/%Y %H:%M:%S%.f %Z",
+                "%m/%d/%Y %H:%M:%S%.6f",
+                "%m/%d/%Y %H:%M:%S%.6f %Z",
                 "%m/%d/%Y",
-                "%H:%M:%S%.f %Z",
+                "%H:%M:%S%.6f %Z",
             ),
             (
                 "german",
                 None,
-                "%d.%m.%Y %H:%M:%S%.f",
-                "%d.%m.%Y %H:%M:%S%.f %Z",
+                "%d.%m.%Y %H:%M:%S%.6f",
+                "%d.%m.%Y %H:%M:%S%.6f %Z",
                 "%d.%m.%Y",
-                "%H:%M:%S%.f %Z",
+                "%H:%M:%S%.6f %Z",
             ),
             (
                 "postgres",
                 None,
-                "%a %b %e %H:%M:%S %.f %Y",
-                "%a %b %e %H:%M:%S %.f %Y %Z",
+                "%a %b %e %H:%M:%S %.6f %Y",
+                "%a %b %e %H:%M:%S %.6f %Y %Z",
                 "%m-%d-%Y",
-                "%H:%M:%S%.f %Z",
+                "%H:%M:%S%.6f %Z",
             ),
             (
                 "postgres",
                 Some("DMY"),
-                "%a %b %e %H:%M:%S %.f %Y",
-                "%a %b %e %H:%M:%S %.f %Y %Z",
+                "%a %b %e %H:%M:%S %.6f %Y",
+                "%a %b %e %H:%M:%S %.6f %Y %Z",
                 "%d-%m-%Y",
-                "%H:%M:%S%.f %Z",
+                "%H:%M:%S%.6f %Z",
             ),
         ];
 
@@ -371,7 +371,10 @@ mod tests {
         system_time
             .to_sql_text(&Type::TIMESTAMP, &mut out, &format_options)
             .unwrap();
-        assert_eq!(std::str::from_utf8(&out).unwrap(), "25.12.2023 14:30:45");
+        assert_eq!(
+            std::str::from_utf8(&out).unwrap(),
+            "25.12.2023 14:30:45.000000"
+        );
     }
 
     #[cfg(feature = "pg-type-chrono")]

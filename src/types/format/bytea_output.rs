@@ -32,7 +32,7 @@ mod tests {
 
     #[test]
     fn test_bytea_output_format() {
-        let data = "helloworld";
+        let data = b"helloworld";
 
         let mut out = BytesMut::new();
         let mut format_options = FormatOptions::default();
@@ -43,7 +43,7 @@ mod tests {
         assert_eq!(out.as_ref(), b"\\x68656c6c6f776f726c64");
 
         out.clear();
-        let data = &[97, 98, 99, 107, 108, 109, 42, 169, 84];
+        let data: &[u8; 9] = &[97, 98, 99, 107, 108, 109, 42, 169, 84];
         format_options.bytea_output = "escape".to_string();
 
         data.to_sql_text(&Type::BYTEA, &mut out, &format_options)

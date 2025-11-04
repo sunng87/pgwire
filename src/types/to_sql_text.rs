@@ -226,7 +226,7 @@ where
             Type::TIMESTAMP | Type::TIMESTAMP_ARRAY => date_style.full_format_str(),
             Type::TIMESTAMPTZ | Type::TIMESTAMPTZ_ARRAY => &date_style.full_tz_format_str(),
             Type::DATE | Type::DATE_ARRAY => date_style.date_format_str(),
-            Type::TIME | Type::TIME_ARRAY => "%H:%M:%S%.f",
+            Type::TIME | Type::TIME_ARRAY => "%H:%M:%S%.6f",
             Type::TIMETZ | Type::TIMETZ_ARRAY => date_style.time_tz_format_str(),
             _ => Err(Box::new(postgres_types::WrongType::new::<DateTime<Tz>>(
                 ty.clone(),
