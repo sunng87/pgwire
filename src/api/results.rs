@@ -91,7 +91,7 @@ pub struct FieldInfo {
     datatype: Type,
     format: FieldFormat,
     #[new(default)]
-    format_options: Option<Arc<FormatOptions>>,
+    format_options: Arc<FormatOptions>,
 }
 
 impl FieldInfo {
@@ -115,12 +115,12 @@ impl FieldInfo {
         self.format
     }
 
-    pub fn format_options(&self) -> Option<&FormatOptions> {
-        self.format_options.as_deref()
+    pub fn format_options(&self) -> &Arc<FormatOptions> {
+        &self.format_options
     }
 
     pub fn with_format_options(mut self, format_options: Arc<FormatOptions>) -> Self {
-        self.format_options = Some(format_options);
+        self.format_options = format_options;
         self
     }
 }
@@ -233,6 +233,7 @@ impl DataRowEncoder {
         value: &T,
         data_type: &Type,
         format: FieldFormat,
+        format_options: &FormatOptions,
     ) -> PgWireResult<()>
     where
         T: ToSql + ToSqlText + Sized,
@@ -243,7 +244,7 @@ impl DataRowEncoder {
         self.row_buffer.put_i32(-1);
 
         let is_null = if format == FieldFormat::Text {
-            value.to_sql_text(data_type, &mut self.row_buffer)?
+            value.to_sql_text(data_type, &mut self.row_buffer, format_options)?
         } else {
             value.to_sql(data_type, &mut self.row_buffer)?
         };
@@ -266,10 +267,13 @@ impl DataRowEncoder {
     where
         T: ToSql + ToSqlText + Sized,
     {
-        let data_type = self.schema[self.col_index].datatype().clone();
-        let format = self.schema[self.col_index].format();
+        let field = &self.schema[self.col_index];
 
-        self.encode_field_with_type_and_format(value, &data_type, format)
+        let data_type = field.datatype().clone();
+        let format = field.format();
+        let format_options = field.format_options().clone();
+
+        self.encode_field_with_type_and_format(value, &data_type, format, format_options.as_ref())
     }
 
     pub fn finish(self) -> PgWireResult<DataRow> {
@@ -428,7 +432,7 @@ mod test {
         expected.put_i32(4);
         expected.put_slice("udev".as_bytes());
         expected.put_i32(26);
-        let _ = now.to_sql_text(&Type::TIMESTAMP, &mut expected);
+        let _ = now.to_sql_text(&Type::TIMESTAMP, &mut expected, &FormatOptions::default());
         assert_eq!(row.data, expected);
     }
 }
