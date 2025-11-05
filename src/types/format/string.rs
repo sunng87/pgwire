@@ -24,7 +24,7 @@ fn parse_legacy_string(content: &str) -> String {
                 Some('t') => result.push('\t'),
                 Some('0') => result.push('\0'),
                 Some(c) => result.push(c), // Unknown escape, treat as literal
-                None => {},
+                None => {}
             }
         } else {
             result.push(ch);
