@@ -4,6 +4,7 @@ pub mod bytea_output;
 pub mod date_style;
 pub mod float_digits;
 pub mod interval_style;
+pub mod string;
 
 /// All possible format options of postgres
 #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
