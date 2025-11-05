@@ -4,6 +4,7 @@ use postgres_types::FromSqlOwned;
 use crate::api::results::{FieldFormat, FieldInfo};
 use crate::error::{PgWireClientError, PgWireClientResult};
 use crate::messages::data::DataRow;
+use crate::types::format::FormatOptions;
 use crate::types::FromSqlText;
 
 #[derive(new, Debug)]
@@ -56,9 +57,13 @@ impl DataRowDecoder<'_> {
                 let bytes = self.row.data.split_to(byte_len as usize);
 
                 if field_info.format() == FieldFormat::Text {
-                    T::from_sql_text(field_info.datatype(), bytes.as_ref())
-                        .map_err(PgWireClientError::FromSqlError)
-                        .map(Some)
+                    T::from_sql_text(
+                        field_info.datatype(),
+                        bytes.as_ref(),
+                        &FormatOptions::default(),
+                    )
+                    .map_err(PgWireClientError::FromSqlError)
+                    .map(Some)
                 } else {
                     // binary
                     T::from_sql(field_info.datatype(), bytes.as_ref())
