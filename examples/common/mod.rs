@@ -10,6 +10,7 @@ use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse
 use pgwire::api::{ClientInfo, Type};
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
+use pgwire::types::format::FormatOptions;
 
 pub struct DummyProcessor;
 
@@ -39,14 +40,19 @@ impl NoopStartupHandler for DummyProcessor {
 
 #[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
-    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
+    async fn do_query<C>(&self, client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
         println!("{:?}", query);
         if query.starts_with("SELECT") {
-            let f1 = FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Text);
-            let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text);
+            let format_options = Arc::new(FormatOptions::from_client_metadata(client.metadata()));
+
+            let f1 = FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Text)
+                .with_format_options(format_options.clone());
+            let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text)
+                .with_format_options(format_options.clone());
+
             let schema = Arc::new(vec![f1, f2]);
 
             let data = vec![

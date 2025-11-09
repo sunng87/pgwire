@@ -18,12 +18,14 @@ pub struct GluesqlProcessor {
 
 #[async_trait]
 impl SimpleQueryHandler for GluesqlProcessor {
-    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
+    async fn do_query<C>(&self, client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
         println!("{:?}", query);
         let mut glue = self.glue.lock().unwrap();
+
+        let format_options = Arc::new(FormatOptions::from_client_metadata(client.metadata()));
         futures::executor::block_on(glue.execute(query))
             .map_err(|err| PgWireError::ApiError(Box::new(err)))
             .and_then(|payloads| {
@@ -41,6 +43,7 @@ impl SimpleQueryHandler for GluesqlProcessor {
                                         Type::UNKNOWN,
                                         FieldFormat::Text,
                                     )
+                                    .with_format_options(format_options.clone())
                                 })
                                 .collect::<Vec<_>>();
                             let fields = Arc::new(fields);

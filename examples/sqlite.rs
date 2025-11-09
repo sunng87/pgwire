@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use futures::{stream, Stream};
+use pgwire::types::format::FormatOptions;
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, Rows, Statement, ToSql};
 use tokio::net::TcpListener;
@@ -52,10 +53,15 @@ impl SimpleQueryHandler for SqliteBackend {
     {
         let conn = self.conn.lock().unwrap();
         if query.to_uppercase().starts_with("SELECT") {
+            let format_options = Arc::new(FormatOptions::from_client_metadata(client.metadata()));
             let mut stmt = conn
                 .prepare(query)
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-            let header = Arc::new(row_desc_from_stmt(&stmt, &Format::UnifiedText)?);
+            let header = Arc::new(row_desc_from_stmt(
+                &stmt,
+                &Format::UnifiedText,
+                format_options,
+            )?);
             stmt.query(())
                 .map(|rows| {
                     let s = encode_row_data(rows, header.clone());
@@ -88,7 +94,11 @@ fn name_to_type(name: &str) -> PgWireResult<Type> {
     }
 }
 
-fn row_desc_from_stmt(stmt: &Statement, format: &Format) -> PgWireResult<Vec<FieldInfo>> {
+fn row_desc_from_stmt(
+    stmt: &Statement,
+    format: &Format,
+    format_options: Arc<FormatOptions>,
+) -> PgWireResult<Vec<FieldInfo>> {
     stmt.columns()
         .iter()
         .enumerate()
@@ -103,7 +113,8 @@ fn row_desc_from_stmt(stmt: &Statement, format: &Format) -> PgWireResult<Vec<Fie
                 None,
                 field_type,
                 format.format_for(idx),
-            ))
+            )
+            .with_format_options(format_options))
         })
         .collect()
 }
@@ -197,7 +208,7 @@ impl ExtendedQueryHandler for SqliteBackend {
 
     async fn do_query<C>(
         &self,
-        _client: &mut C,
+        client: &mut C,
         portal: &Portal<Self::Statement>,
         _max_rows: usize,
     ) -> PgWireResult<Response>
@@ -216,7 +227,12 @@ impl ExtendedQueryHandler for SqliteBackend {
             .collect::<Vec<&dyn rusqlite::ToSql>>();
 
         if query.to_uppercase().starts_with("SELECT") {
-            let header = Arc::new(row_desc_from_stmt(&stmt, &portal.result_column_format)?);
+            let format_options = Arc::new(FormatOptions::from_client_metadata(client.metadata()));
+            let header = Arc::new(row_desc_from_stmt(
+                &stmt,
+                &portal.result_column_format,
+                format_options,
+            )?);
             stmt.query::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
                 .map(|rows| {
                     let s = encode_row_data(rows, header.clone());
@@ -243,8 +259,12 @@ impl ExtendedQueryHandler for SqliteBackend {
         let stmt = conn
             .prepare_cached(&stmt.statement)
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-        row_desc_from_stmt(&stmt, &Format::UnifiedBinary)
-            .map(|fields| DescribeStatementResponse::new(param_types, fields))
+        row_desc_from_stmt(
+            &stmt,
+            &Format::UnifiedBinary,
+            Arc::new(FormatOptions::default()),
+        )
+        .map(|fields| DescribeStatementResponse::new(param_types, fields))
     }
 
     async fn do_describe_portal<C>(
@@ -259,7 +279,12 @@ impl ExtendedQueryHandler for SqliteBackend {
         let stmt = conn
             .prepare_cached(&portal.statement.statement)
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-        row_desc_from_stmt(&stmt, &portal.result_column_format).map(DescribePortalResponse::new)
+        row_desc_from_stmt(
+            &stmt,
+            &portal.result_column_format,
+            Arc::new(FormatOptions::default()),
+        )
+        .map(DescribePortalResponse::new)
     }
 }
 
