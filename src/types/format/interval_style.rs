@@ -1,13 +1,3 @@
-#[cfg(feature = "pg-type-chrono")]
-use std::error::Error;
-
-#[cfg(feature = "pg-type-chrono")]
-use bytes::{BufMut, BytesMut};
-#[cfg(feature = "pg-type-chrono")]
-use chrono::Duration;
-#[cfg(feature = "pg-type-chrono")]
-use postgres_types::{IsNull, Type};
-
 use crate::error::PgWireError;
 
 pub const INTERVAL_STYLE_POSTGRES: &str = "postgres";
@@ -38,172 +28,18 @@ impl TryFrom<&str> for IntervalStyle {
     }
 }
 
-#[derive(Debug)]
-pub struct IntervalStyleWrapper<T> {
-    style: IntervalStyle,
-    data: T,
-}
-
-impl<T> IntervalStyleWrapper<T> {
-    pub fn new(data: T, config: &str) -> Self {
-        let style = IntervalStyle::try_from(config).unwrap_or_default();
-
-        Self { style, data }
-    }
-
-    pub fn data(&self) -> &T {
-        &self.data
-    }
-
-    pub fn style(&self) -> IntervalStyle {
-        self.style
-    }
-}
-
-#[cfg(feature = "pg-type-chrono")]
-impl crate::types::ToSqlText for IntervalStyleWrapper<Duration> {
-    fn to_sql_text(
-        &self,
-        _ty: &Type,
-        out: &mut BytesMut,
-    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
-        let duration = &self.data;
-        let total_seconds = duration.num_seconds();
-        let microseconds = duration.num_microseconds().unwrap_or(0) % 1_000_000;
-
-        // Extract components
-        let sign = if total_seconds < 0 { "-" } else { "" };
-        let abs_seconds = total_seconds.abs();
-        let days = abs_seconds / 86400;
-        let hours = (abs_seconds % 86400) / 3600;
-        let minutes = (abs_seconds % 3600) / 60;
-        let seconds = abs_seconds % 60;
-
-        let output = match self.style {
-            IntervalStyle::Postgres => {
-                let mut parts = Vec::new();
-
-                if days != 0 {
-                    parts.push(format!("{days} days"));
-                }
-                if hours != 0 || minutes != 0 || seconds != 0 || microseconds != 0 {
-                    let time_str = if microseconds == 0 {
-                        format!("{hours:02}:{minutes:02}:{seconds:02}")
-                    } else {
-                        format!("{hours:02}:{minutes:02}:{seconds:02}.{microseconds:06}",)
-                    };
-                    parts.push(time_str);
-                }
-
-                if parts.is_empty() {
-                    format!("{sign}00:00:00")
-                } else {
-                    format!("{sign}{}", parts.join(" "))
-                }
-            }
-            IntervalStyle::ISO8601 => {
-                let mut parts = Vec::new();
-
-                if days != 0 {
-                    parts.push(format!("{days}D"));
-                }
-
-                let mut time_parts = Vec::new();
-                if hours != 0 {
-                    time_parts.push(format!("{hours}H"));
-                }
-                if minutes != 0 {
-                    time_parts.push(format!("{minutes}M",));
-                }
-                if seconds != 0 || microseconds != 0 {
-                    if microseconds == 0 {
-                        time_parts.push(format!("{seconds}S",));
-                    } else {
-                        time_parts.push(format!("{seconds}.{microseconds:06}S"));
-                    }
-                }
-
-                if !time_parts.is_empty() {
-                    parts.push(format!("T{}", time_parts.join("")));
-                }
-
-                if parts.is_empty() {
-                    format!("{sign}PT0S",)
-                } else {
-                    format!("{sign}P{}", parts.join(""))
-                }
-            }
-            IntervalStyle::SQLStandard => {
-                let mut parts = Vec::new();
-
-                if days != 0 {
-                    parts.push(format!("{days} {hours}"));
-                } else if hours != 0 || minutes != 0 || seconds != 0 || microseconds != 0 {
-                    if microseconds == 0 {
-                        parts.push(format!("{hours:02}:{minutes:02}:{seconds:02}"));
-                    } else {
-                        parts.push(format!(
-                            "{hours:02}:{minutes:02}:{seconds:02}.{microseconds:06}",
-                        ));
-                    }
-                }
-
-                if parts.is_empty() {
-                    format!("{sign}00:00:00")
-                } else {
-                    format!("{sign}{}", parts.join(" "))
-                }
-            }
-            IntervalStyle::PostgresVerbose => {
-                let mut parts = Vec::new();
-
-                if days != 0 {
-                    parts.push(format!("{days} day{}", if days != 1 { "s" } else { "" }));
-                }
-                if hours != 0 {
-                    parts.push(format!("{hours} hour{}", if hours != 1 { "s" } else { "" }));
-                }
-                if minutes != 0 {
-                    parts.push(format!(
-                        "{minutes} min{}",
-                        if minutes != 1 { "s" } else { "" }
-                    ));
-                }
-                if seconds != 0 || microseconds != 0 {
-                    if microseconds == 0 {
-                        parts.push(format!(
-                            "{seconds} sec{}",
-                            if seconds != 1 { "s" } else { "" }
-                        ));
-                    } else {
-                        let total_seconds = seconds as f64 + microseconds as f64 / 1_000_000.0;
-                        parts.push(format!(
-                            "{total_seconds} sec{}",
-                            if total_seconds != 1.0 { "s" } else { "" }
-                        ));
-                    }
-                }
-
-                if parts.is_empty() {
-                    format!("{sign}@ 0")
-                } else {
-                    format!("{sign}@ {}", parts.join(" "))
-                }
-            }
-        };
-
-        out.put_slice(output.as_bytes());
-        Ok(IsNull::No)
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "pg-type-chrono")]
+    use bytes::BytesMut;
+    #[cfg(feature = "pg-type-chrono")]
+    use chrono::Duration;
+    #[cfg(feature = "pg-type-chrono")]
+    use postgres_types::Type;
+
     use super::*;
     #[cfg(feature = "pg-type-chrono")]
     use crate::types::ToSqlText;
-    #[cfg(feature = "pg-type-chrono")]
-    use chrono::Duration;
 
     #[test]
     fn test_interval_style_from_str() {
@@ -228,108 +64,125 @@ mod tests {
 
     #[cfg(feature = "pg-type-chrono")]
     #[test]
-    fn test_interval_style_wrapper_new() {
-        let duration = Duration::seconds(3600);
-
-        let wrapper = IntervalStyleWrapper::new(duration, "postgres");
-        assert!(matches!(wrapper.style, IntervalStyle::Postgres));
-
-        let wrapper = IntervalStyleWrapper::new(duration, "iso_8601");
-        assert!(matches!(wrapper.style, IntervalStyle::ISO8601));
-
-        let wrapper = IntervalStyleWrapper::new(duration, "postgres_verbose");
-        assert!(matches!(wrapper.style, IntervalStyle::PostgresVerbose));
-
-        let wrapper = IntervalStyleWrapper::new(duration, "invalid");
-        assert!(matches!(wrapper.style, IntervalStyle::Postgres));
-    }
-
-    #[cfg(feature = "pg-type-chrono")]
-    #[test]
     fn test_duration_to_sql_text() {
+        use crate::types::format::FormatOptions;
+
         let duration = Duration::seconds(3661); // 1 hour, 1 minute, 1 second
         let mut out = BytesMut::new();
+        let mut format_options = FormatOptions::default();
 
-        let wrapper = IntervalStyleWrapper::new(duration, "postgres");
-        wrapper.to_sql_text(&Type::INTERVAL, &mut out).unwrap();
+        duration
+            .to_sql_text(&Type::INTERVAL, &mut out, &format_options)
+            .unwrap();
         assert_eq!(std::str::from_utf8(&out).unwrap(), "01:01:01");
 
         out.clear();
-        let wrapper = IntervalStyleWrapper::new(duration, "iso_8601");
-        wrapper.to_sql_text(&Type::INTERVAL, &mut out).unwrap();
+        format_options.interval_style = "iso_8601".to_string();
+        duration
+            .to_sql_text(&Type::INTERVAL, &mut out, &format_options)
+            .unwrap();
         assert_eq!(std::str::from_utf8(&out).unwrap(), "PT1H1M1S");
 
         out.clear();
-        let wrapper = IntervalStyleWrapper::new(duration, "sql_standard");
-        wrapper.to_sql_text(&Type::INTERVAL, &mut out).unwrap();
+        format_options.interval_style = "sql_standard".to_string();
+        duration
+            .to_sql_text(&Type::INTERVAL, &mut out, &format_options)
+            .unwrap();
         assert_eq!(std::str::from_utf8(&out).unwrap(), "01:01:01");
 
         out.clear();
-        let wrapper = IntervalStyleWrapper::new(duration, "postgres_verbose");
-        wrapper.to_sql_text(&Type::INTERVAL, &mut out).unwrap();
+        format_options.interval_style = "postgres_verbose".to_string();
+        duration
+            .to_sql_text(&Type::INTERVAL, &mut out, &format_options)
+            .unwrap();
         assert_eq!(std::str::from_utf8(&out).unwrap(), "@ 1 hour 1 min 1 sec");
     }
 
     #[cfg(feature = "pg-type-chrono")]
     #[test]
     fn test_duration_with_microseconds() {
+        use crate::types::format::FormatOptions;
+
         let duration = Duration::microseconds(1234567); // 1 second, 234567 microseconds
         let mut out = BytesMut::new();
+        let mut format_options = FormatOptions::default();
 
-        let wrapper = IntervalStyleWrapper::new(duration, "postgres");
-        wrapper.to_sql_text(&Type::INTERVAL, &mut out).unwrap();
+        duration
+            .to_sql_text(&Type::INTERVAL, &mut out, &format_options)
+            .unwrap();
         assert_eq!(std::str::from_utf8(&out).unwrap(), "00:00:01.234567");
 
         out.clear();
-        let wrapper = IntervalStyleWrapper::new(duration, "iso_8601");
-        wrapper.to_sql_text(&Type::INTERVAL, &mut out).unwrap();
+        format_options.interval_style = "iso_8601".to_string();
+        duration
+            .to_sql_text(&Type::INTERVAL, &mut out, &format_options)
+            .unwrap();
         assert_eq!(std::str::from_utf8(&out).unwrap(), "PT1.234567S");
 
         out.clear();
-        let wrapper = IntervalStyleWrapper::new(duration, "sql_standard");
-        wrapper.to_sql_text(&Type::INTERVAL, &mut out).unwrap();
+        format_options.interval_style = "sql_standard".to_string();
+        duration
+            .to_sql_text(&Type::INTERVAL, &mut out, &format_options)
+            .unwrap();
         assert_eq!(std::str::from_utf8(&out).unwrap(), "00:00:01.234567");
 
         out.clear();
-        let wrapper = IntervalStyleWrapper::new(duration, "postgres_verbose");
-        wrapper.to_sql_text(&Type::INTERVAL, &mut out).unwrap();
+        format_options.interval_style = "postgres_verbose".to_string();
+        duration
+            .to_sql_text(&Type::INTERVAL, &mut out, &format_options)
+            .unwrap();
         assert_eq!(std::str::from_utf8(&out).unwrap(), "@ 1.234567 secs");
     }
 
     #[cfg(feature = "pg-type-chrono")]
     #[test]
     fn test_zero_duration() {
+        use crate::types::format::FormatOptions;
+
         let duration = Duration::zero();
         let mut out = BytesMut::new();
+        let mut format_options = FormatOptions::default();
 
-        let wrapper = IntervalStyleWrapper::new(duration, "postgres");
-        wrapper.to_sql_text(&Type::INTERVAL, &mut out).unwrap();
+        duration
+            .to_sql_text(&Type::INTERVAL, &mut out, &format_options)
+            .unwrap();
         assert_eq!(std::str::from_utf8(&out).unwrap(), "00:00:00");
 
         out.clear();
-        let wrapper = IntervalStyleWrapper::new(duration, "iso_8601");
-        wrapper.to_sql_text(&Type::INTERVAL, &mut out).unwrap();
+        format_options.interval_style = "iso_8601".to_string();
+        duration
+            .to_sql_text(&Type::INTERVAL, &mut out, &format_options)
+            .unwrap();
         assert_eq!(std::str::from_utf8(&out).unwrap(), "PT0S");
 
         out.clear();
-        let wrapper = IntervalStyleWrapper::new(duration, "sql_standard");
-        wrapper.to_sql_text(&Type::INTERVAL, &mut out).unwrap();
+        format_options.interval_style = "sql_standard".to_string();
+        duration
+            .to_sql_text(&Type::INTERVAL, &mut out, &format_options)
+            .unwrap();
         assert_eq!(std::str::from_utf8(&out).unwrap(), "00:00:00");
 
         out.clear();
-        let wrapper = IntervalStyleWrapper::new(duration, "postgres_verbose");
-        wrapper.to_sql_text(&Type::INTERVAL, &mut out).unwrap();
+        format_options.interval_style = "postgres_verbose".to_string();
+        duration
+            .to_sql_text(&Type::INTERVAL, &mut out, &format_options)
+            .unwrap();
         assert_eq!(std::str::from_utf8(&out).unwrap(), "@ 0");
     }
 
     #[cfg(feature = "pg-type-chrono")]
     #[test]
     fn test_postgres_verbose_pluralization() {
+        use crate::types::format::FormatOptions;
+
         let duration = Duration::seconds(86400 + 7200 + 120 + 2); // 1 day, 2 hours, 2 minutes, 2 seconds
         let mut out = BytesMut::new();
+        let mut format_options = FormatOptions::default();
+        format_options.interval_style = "postgres_verbose".to_string();
 
-        let wrapper = IntervalStyleWrapper::new(duration, "postgres_verbose");
-        wrapper.to_sql_text(&Type::INTERVAL, &mut out).unwrap();
+        duration
+            .to_sql_text(&Type::INTERVAL, &mut out, &format_options)
+            .unwrap();
         assert_eq!(
             std::str::from_utf8(&out).unwrap(),
             "@ 1 day 2 hours 2 mins 2 secs"

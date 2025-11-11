@@ -1,6 +1,6 @@
 [package]
 name = "pgwire"
-version = "0.34.2"
+version = "0.35.0"
 edition = "2021"
 authors = ["Ning Sun <sunng@pm.me>"]
 license = "MIT/Apache-2.0"
@@ -50,6 +50,7 @@ rust_decimal = { version = "1.35", features = ["db-postgres"], optional = true }
 serde = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
 lazy-regex = { version = "3.3", default-features = false, features = ["lite"] }
+ryu = "1"
 ## config
 percent-encoding = { version = "2.0", optional = true }
 

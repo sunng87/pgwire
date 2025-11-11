@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use futures::stream;
 use gluesql::prelude::*;
+use pgwire::types::format::FormatOptions;
 use tokio::net::TcpListener;
 
 use pgwire::api::query::SimpleQueryHandler;
@@ -43,6 +44,7 @@ impl SimpleQueryHandler for GluesqlProcessor {
                                 })
                                 .collect::<Vec<_>>();
                             let fields = Arc::new(fields);
+                            let format_options = FormatOptions::default();
 
                             let mut results = Vec::with_capacity(rows.len());
                             for row in rows {
@@ -54,70 +56,82 @@ impl SimpleQueryHandler for GluesqlProcessor {
                                                 v,
                                                 &Type::BOOL,
                                                 FieldFormat::Text,
+                                                &format_options,
                                             )?,
                                         Value::I8(v) => encoder.encode_field_with_type_and_format(
                                             v,
                                             &Type::CHAR,
                                             FieldFormat::Text,
+                                            &format_options,
                                         )?,
                                         Value::I16(v) => encoder
                                             .encode_field_with_type_and_format(
                                                 v,
                                                 &Type::INT2,
                                                 FieldFormat::Text,
+                                                &format_options,
                                             )?,
                                         Value::I32(v) => encoder
                                             .encode_field_with_type_and_format(
                                                 v,
                                                 &Type::INT4,
                                                 FieldFormat::Text,
+                                                &format_options,
                                             )?,
                                         Value::I64(v) => encoder
                                             .encode_field_with_type_and_format(
                                                 v,
                                                 &Type::INT8,
                                                 FieldFormat::Text,
+                                                &format_options,
                                             )?,
                                         Value::U8(v) => encoder.encode_field_with_type_and_format(
                                             &(*v as i8),
                                             &Type::CHAR,
                                             FieldFormat::Text,
+                                            &format_options,
                                         )?,
                                         Value::F64(v) => encoder
                                             .encode_field_with_type_and_format(
                                                 v,
                                                 &Type::FLOAT8,
                                                 FieldFormat::Text,
+                                                &format_options,
                                             )?,
                                         Value::Str(v) => encoder
                                             .encode_field_with_type_and_format(
                                                 v,
                                                 &Type::VARCHAR,
                                                 FieldFormat::Text,
+                                                &format_options,
                                             )?,
                                         Value::Bytea(v) => encoder
                                             .encode_field_with_type_and_format(
                                                 v,
                                                 &Type::BYTEA,
                                                 FieldFormat::Text,
+                                                &format_options,
                                             )?,
                                         Value::Date(v) => encoder
                                             .encode_field_with_type_and_format(
                                                 v,
                                                 &Type::DATE,
                                                 FieldFormat::Text,
+                                                &format_options,
                                             )?,
                                         Value::Time(v) => encoder
                                             .encode_field_with_type_and_format(
                                                 v,
                                                 &Type::TIME,
                                                 FieldFormat::Text,
+                                                &format_options,
                                             )?,
                                         Value::Timestamp(v) => encoder
                                             .encode_field_with_type_and_format(
                                                 v,
                                                 &Type::TIMESTAMP,
                                                 FieldFormat::Text,
+                                                &format_options,
                                             )?,
                                         _ => unimplemented!(),
                                     }
