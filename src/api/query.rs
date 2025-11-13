@@ -308,6 +308,10 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 client.set_transaction_status(transaction_status);
             };
 
+            if portal_name == DEFAULT_NAME {
+                client.portal_store().rm_portal(portal_name);
+            }
+
             Ok(())
         } else {
             Err(PgWireError::PortalNotFound(portal_name.to_owned()))
