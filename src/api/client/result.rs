@@ -50,7 +50,7 @@ impl DataRowDecoder<'_> {
             // advance read index
             self.read_index += 1;
 
-            let byte_len = self.row.data.get_i16();
+            let byte_len = self.row.data.get_i32();
             if byte_len < 0 {
                 Ok(None)
             } else {
