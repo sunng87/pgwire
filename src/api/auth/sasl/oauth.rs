@@ -2,6 +2,7 @@
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 
 use crate::{
     api::{auth::sasl::SASLState, ClientInfo},
@@ -65,6 +66,27 @@ impl Oauth {
         self
     }
 
+    /// * Builds the JSON response for failed authentication (RFC 7628, Sec. 3.2.2).
+    /// * This contains the required scopes for entry and a pointer to the OAuth/OpenID
+    /// * discovery document, which the client may use to conduct its OAuth flow.
+    fn generate_error_response(&self) -> String {
+        // * Build a default .well-known URI based on our issuer, unless the HBA has
+        // * already provided one.
+        let config = if self.issuer.contains("/.well-known/") {
+            self.issuer.clone()
+        } else {
+            format!("{}/.well-known/openid-configuration", self.issuer)
+        };
+
+        let config = config.replace('\\', "\\\\").replace('"', "\\\"");
+        let scope = self.scope.replace('\\', "\\\\").replace('"', "\\\"");
+
+        format!(
+            r#"{{"status":"invalid_token","openid-configuration":"{}","scope":"{}"}}"#,
+            config, scope
+        )
+    }
+
     pub async fn process_oauth_message<C>(
         &self,
         client: &C,
@@ -78,12 +100,32 @@ impl Oauth {
         // to make the client respond with the Initial Client Response (still figuring out what this is exactly, but I think it is just the auth field as descibed in the docs)
         // then handle authentication based on the states, validate token and bla bla bla
         match state {
-            SASLState::OauthStateInit => Ok(()),
-            SASLState::OauthStateError => {
-                let resp = msg.into_sasl_response()?;
-                if resp.data.len() != 1 || resp.data[0] != KVSEP {
-                    return Err(PgWireError::Invalid);
+            SASLState::OauthStateInit => {
+                let res = msg.into_sasl_initial_response()?;
+                let data = res.data.as_deref().unwrap_or(&[]);
+
+                // if dtata is empty, that means it is for discovery
+                if data.is_empty() {
+                    let error_res = self.generate_error_response();
+                    return Ok((
+                        Authentication::SASLContinue(Bytes::from(error_res)),
+                        SASLState::OauthStateError,
+                    ));
                 }
+
+                todo!()
+            }
+            SASLState::OauthStateError => {
+                let res = msg.into_sasl_response()?;
+                if res.data.len() != 1 || res.data[0] != KVSEP {
+                    return Err(PgWireError::InvalidOauthMessage(
+                        "Expected single kvsep byte in error response".to_string(),
+                    ));
+                }
+
+                Err(PgWireError::OAuthAuthenticationFailed(
+                    "Token validation failed".to_string(),
+                ))
             }
             _ => Err(PgWireError::InvalidSASLState),
         }
