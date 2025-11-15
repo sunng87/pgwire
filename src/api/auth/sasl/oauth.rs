@@ -5,7 +5,7 @@ use async_trait::async_trait;
 
 use crate::{
     api::{auth::sasl::SASLState, ClientInfo},
-    error::PgWireResult,
+    error::{PgWireError, PgWireResult},
     messages::startup::{Authentication, PasswordMessageFamily},
 };
 
@@ -77,6 +77,15 @@ impl Oauth {
         // decode the message, if there's no auth in the SASL data field, return Authentication::SASLContinue
         // to make the client respond with the Initial Client Response (still figuring out what this is exactly, but I think it is just the auth field as descibed in the docs)
         // then handle authentication based on the states, validate token and bla bla bla
-        todo!()
+        match state {
+            SASLState::OauthStateInit => Ok(()),
+            SASLState::OauthStateError => {
+                let resp = msg.into_sasl_response()?;
+                if resp.data.len() != 1 || resp.data[0] != KVSEP {
+                    return Err(PgWireError::Invalid);
+                }
+            }
+            _ => Err(PgWireError::InvalidSASLState),
+        }
     }
 }
