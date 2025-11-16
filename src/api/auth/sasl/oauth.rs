@@ -5,7 +5,10 @@ use async_trait::async_trait;
 use bytes::Bytes;
 
 use crate::{
-    api::{auth::sasl::SASLState, ClientInfo},
+    api::{
+        auth::{sasl::SASLState, LoginInfo},
+        ClientInfo,
+    },
     error::{PgWireError, PgWireResult},
     messages::startup::{Authentication, PasswordMessageFamily},
 };
@@ -192,6 +195,61 @@ impl Oauth {
         Ok(auth)
     }
 
+    /*-----
+     * Validates the provided Authorization header and returns the token from
+     * within it. NULL is returned on validation failure.
+     *
+     * Only Bearer tokens are accepted. The ABNF is defined in RFC 6750, Sec.
+     * 2.1:
+     *
+     *      b64token    = 1*( ALPHA / DIGIT /
+     *                        "-" / "." / "_" / "~" / "+" / "/" ) *"="
+     *      credentials = "Bearer" 1*SP b64token
+     *
+     * The "credentials" construction is what we receive in our auth value.
+     *
+     * Since that spec is subordinate to HTTP (i.e. the HTTP Authorization
+     * header format; RFC 9110 Sec. 11), the "Bearer" scheme string must be
+     * compared case-insensitively. (This is not mentioned in RFC 6750, but the
+     * OAUTHBEARER spec points it out: RFC 7628 Sec. 4.)
+     */
+    fn validate_token_format<'a>(&self, value: &'a str) -> Option<&'a str> {
+        if value.is_empty() {
+            return None;
+        }
+
+        // validate case insensitive bearer scheme
+        if !value
+            .to_ascii_lowercase()
+            .starts_with(&BEARER_SCHEME.to_ascii_lowercase())
+        {
+            return None;
+        }
+
+        let token = value[BEARER_SCHEME.len()..].trim_start();
+
+        if token.is_empty() {
+            return None;
+        }
+
+        let valid_chars = token.chars().all(|c| {
+            c.is_ascii_alphanumeric()
+                || c == '-'
+                || c == '.'
+                || c == '_'
+                || c == '~'
+                || c == '+'
+                || c == '/'
+                || c == '='
+        });
+
+        if !valid_chars {
+            return None;
+        }
+
+        Some(token)
+    }
+
     pub async fn process_oauth_message<C>(
         &self,
         client: &C,
@@ -218,7 +276,50 @@ impl Oauth {
                     ));
                 }
 
-                todo!()
+                let auth = match self.parse_client_initial_response(data) {
+                    Ok(Some(auth)) => auth,
+                    Ok(None) => {
+                        let err = self.generate_error_response();
+                        return Ok((
+                            Authentication::SASLContinue(Bytes::from(err)),
+                            SASLState::OauthStateError,
+                        ));
+                    }
+                    Err(err) => return Err(err),
+                };
+
+                let token = match self.validate_token_format(&auth) {
+                    Some(t) => t,
+                    None => {
+                        let err = self.generate_error_response();
+                        return Ok((
+                            Authentication::SASLContinue(Bytes::from(err)),
+                            SASLState::OauthStateError,
+                        ));
+                    }
+                };
+
+                let login_info = LoginInfo::from_client_info(client);
+                let username = login_info
+                    .user()
+                    .ok_or_else(|| PgWireError::UserNameRequired)?;
+
+                let validation_result = self
+                    .validator
+                    .validate(token, username, &self.issuer, &self.scope)
+                    .await?;
+
+                if !validation_result.authorized {
+                    let err = self.generate_error_response();
+                    return Ok((
+                        Authentication::SASLContinue(Bytes::from(err)),
+                        SASLState::OauthStateError,
+                    ));
+                }
+
+                // TODO: handle user mapping with skip_usermap
+
+                Ok((Authentication::Ok, SASLState::Finished))
             }
             SASLState::OauthStateError => {
                 let res = msg.into_sasl_response()?;

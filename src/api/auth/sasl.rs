@@ -118,7 +118,13 @@ impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
 
                 // oauth
                 if state.is_oauth() {
-                    if let Some(_) = &self.oauth {
+                    if let Some(oauth) = &self.oauth {
+                        let (res, new_state) =
+                            oauth.process_oauth_message(client, msg, &state).await?;
+                        client
+                            .send(PgWireBackendMessage::Authentication(res))
+                            .await?;
+                        *state = new_state;
                     } else {
                         // oauth is not configured
                         return Err(PgWireError::UnsupportedSASLAuthMethod(
