@@ -87,6 +87,111 @@ impl Oauth {
         )
     }
 
+    fn parse_client_initial_response(&self, data: &[u8]) -> PgWireResult<Option<String>> {
+        // discovery connection
+        if data.is_empty() {
+            return Ok(None);
+        }
+
+        let s = str::from_utf8(data)
+            .map_err(|err| PgWireError::InvalidOauthMessage(format!("Invalid UTF-8: {err}")))?;
+
+        // from the docs, it says:
+        // The client initial response consists of the standard "GS2" header used by SCRAM, followed by a list of key=value pairs
+        let mut chars = s.chars();
+
+        // so, we have to parse the GS2 header
+        let cbind_flag = chars
+            .next()
+            .ok_or_else(|| PgWireError::InvalidOauthMessage("Empty message".to_string()))?;
+        match cbind_flag {
+            'n' | 'y' => {
+                if chars.next() != Some(',') {
+                    return Err(PgWireError::InvalidOauthMessage(
+                        "Expected comma after channel binding flag".to_string(),
+                    ));
+                }
+            }
+            'p' => {
+                return Err(PgWireError::InvalidOauthMessage(
+                    "Channel binding not supported for oauth".to_string(),
+                ))
+            }
+            _ => {
+                return Err(PgWireError::InvalidOauthMessage(format!(
+                    "Invalid channel binding flag: {cbind_flag}"
+                )))
+            }
+        }
+
+        // get authzid, we expect it to be empty too, according to the docs
+        if chars.next() != Some(',') {
+            return Err(PgWireError::InvalidOauthMessage(
+                "authzid not supported".to_string(),
+            ));
+        }
+
+        // then, we exoect the separator
+        if chars.next() != Some('\x01') {
+            return Err(PgWireError::InvalidOauthMessage(
+                "Expected kvsep after GS2 header".to_string(),
+            ));
+        }
+
+        let remnant = chars.as_str();
+        self.parse_kvpairs(remnant)
+    }
+
+    ///  * Performs syntactic validation of a key and value from the initial client
+    /// * response. (Semantic validation of interesting values must be performed
+    /// * later.)
+    fn parse_kvpairs(&self, data: &str) -> PgWireResult<Option<String>> {
+        let mut auth = None;
+        for kv in data.split('\x01') {
+            // that is, we've come to the end of the key value pairs
+            if kv.is_empty() {
+                break;
+            }
+
+            let parts: Vec<&str> = kv.splitn(2, '=').collect();
+            if parts.len() != 2 {
+                return Err(PgWireError::InvalidOauthMessage(
+                    "Malformed key-value pair".to_owned(),
+                ));
+            }
+
+            let key = parts[0];
+            let value = parts[1];
+
+            if !key.chars().all(|c| c.is_ascii_alphabetic()) {
+                return Err(PgWireError::InvalidOauthMessage(
+                    "Invalid key name".to_owned(),
+                ));
+            }
+
+            // Validate value (VCHAR / SP / HTAB / CR / LF)
+            if !value
+                .chars()
+                .all(|c| matches!(c, '\x21'..='\x7E' | ' ' | '\t' | '\r' | '\n'))
+            {
+                return Err(PgWireError::InvalidOauthMessage(
+                    "Invalid value characters".to_owned(),
+                ));
+            }
+
+            if key == AUTH_KEY {
+                if auth.is_some() {
+                    return Err(PgWireError::InvalidOauthMessage(
+                        "Multiple oauth values".to_string(),
+                    ));
+                }
+                auth = Some(value.to_string())
+            }
+        }
+
+        Ok(auth)
+    }
+
     pub async fn process_oauth_message<C>(
         &self,
         client: &C,
