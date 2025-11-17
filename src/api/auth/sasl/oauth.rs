@@ -337,3 +337,64 @@ impl Oauth {
         }
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug)]
+    struct MockValidator;
+
+    #[async_trait]
+    impl OauthValidator for MockValidator {
+        async fn validate(
+            &self,
+            _token: &str,
+            _username: &str,
+            _issuer: &str,
+            _required_scopes: &str,
+        ) -> PgWireResult<ValidatorModuleResult> {
+            Ok(ValidatorModuleResult {
+                authorized: true,
+                authn_id: Some("test@example.com".to_string()),
+                metadata: None,
+            })
+        }
+    }
+
+    #[test]
+    fn test_parse_kvpairs() {
+        let oauth = Oauth::new(
+            "https://example.com".to_string(),
+            "openid".to_string(),
+            Arc::new(MockValidator),
+        );
+
+        // valid
+        let data = "auth=Bearer token123\x01\x01";
+        let result = oauth.parse_kvpairs(data).unwrap();
+        assert_eq!(result, Some("Bearer token123".to_string()));
+
+        // multiple keys
+        let data = "host=localhost\x01auth=Bearer token123\x01port=5432\x01\x01";
+        let result = oauth.parse_kvpairs(data).unwrap();
+        assert_eq!(result, Some("Bearer token123".to_string()));
+    }
+
+    #[test]
+    fn test_validate_token_format() {
+        let oauth = Oauth::new(
+            "https://example.com".to_string(),
+            "openid".to_string(),
+            Arc::new(MockValidator),
+        );
+
+        assert!(oauth.validate_token_format("Bearer abc123").is_some());
+        assert!(oauth
+            .validate_token_format("Bearer abc.123_def-ghi+jkl/mno===")
+            .is_some());
+
+        assert!(oauth.validate_token_format("").is_none());
+        assert!(oauth.validate_token_format("Bearer ").is_none());
+        assert!(oauth.validate_token_format("Basic abc123").is_none());
+    }
+}
