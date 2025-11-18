@@ -207,6 +207,11 @@ impl<P> SASLAuthStartupHandler<P> {
         self
     }
 
+    pub fn with_oauth(mut self, oauth: oauth::Oauth) -> Self {
+        self.oauth = Some(oauth);
+        self
+    }
+
     const SCRAM_SHA_256: &str = "SCRAM-SHA-256";
     const SCRAM_SHA_256_PLUS: &str = "SCRAM-SHA-256-PLUS";
     const OAUTHBEARER: &str = "OAUTHBEARER";
