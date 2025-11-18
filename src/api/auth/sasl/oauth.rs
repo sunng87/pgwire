@@ -96,8 +96,8 @@ impl Oauth {
             return Ok(None);
         }
 
-        let s = str::from_utf8(data)
-            .map_err(|err| PgWireError::InvalidOauthMessage(format!("Invalid UTF-8: {err}")))?;
+        let s = String::from_utf8_lossy(data);
+        let s = s.as_ref();
 
         // from the docs, it says:
         // The client initial response consists of the standard "GS2" header used by SCRAM, followed by a list of key=value pairs
