@@ -91,12 +91,12 @@ impl Oauth {
     }
 
     fn parse_client_initial_response(&self, data: &[u8]) -> PgWireResult<Option<String>> {
-        // discovery connection
         if data.is_empty() {
             return Ok(None);
         }
 
         let s = String::from_utf8_lossy(data);
+        println!("data==={s}");
         let s = s.as_ref();
 
         // from the docs, it says:
@@ -188,7 +188,12 @@ impl Oauth {
                         "Multiple oauth values".to_string(),
                     ));
                 }
-                auth = Some(value.to_string())
+                println!("auth-value==={value}");
+                if value.is_empty() {
+                    auth = None;
+                } else {
+                    auth = Some(value.to_string())
+                }
             }
         }
 
@@ -265,16 +270,17 @@ impl Oauth {
         match state {
             SASLState::OauthStateInit => {
                 let res = msg.into_sasl_initial_response()?;
-                let data = res.data.as_deref().unwrap_or(&[]);
 
-                // if dtata is empty, that means it is for discovery
-                if data.is_empty() {
-                    let error_res = self.generate_error_response();
-                    return Ok((
-                        Authentication::SASLContinue(Bytes::from(error_res)),
-                        SASLState::OauthStateError,
-                    ));
-                }
+                let data = match res.data.as_deref() {
+                    None => {
+                        // if dtata is empty, that means it is for discovery
+                        return Ok((
+                            Authentication::SASLContinue(Bytes::from("")),
+                            SASLState::OauthStateInit,
+                        ));
+                    }
+                    Some(d) => d,
+                };
 
                 let auth = match self.parse_client_initial_response(data) {
                     Ok(Some(auth)) => auth,
@@ -287,6 +293,16 @@ impl Oauth {
                     }
                     Err(err) => return Err(err),
                 };
+
+                if auth.is_empty() {
+                    let error_response = self.generate_error_response();
+                    return Ok((
+                        Authentication::SASLContinue(Bytes::from(error_response)),
+                        SASLState::OauthStateError,
+                    ));
+                }
+
+                println!("token has been colllected: {}", auth);
 
                 let token = match self.validate_token_format(&auth) {
                     Some(t) => t,
