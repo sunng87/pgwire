@@ -57,6 +57,7 @@ impl OauthValidator for SimpleTokenValidator {
         issuer: &str,
         required_scopes: &str,
     ) -> PgWireResult<ValidatorModuleResult> {
+        println!("tokennnnn: {}", token);
         println!("Validating token for user: {}", username);
         println!("Expected issuer: {}", issuer);
         println!("Required scopes: {}", required_scopes);
@@ -101,7 +102,7 @@ impl PgWireServerHandlers for DummyProcessorFactory {
     fn startup_handler(&self) -> Arc<impl StartupHandler> {
         let validator = SimpleTokenValidator::new();
         let oauth = Oauth::new(
-            "https://auth.example.com".to_string(),
+            "https://accounts.google.com".to_string(),
             "openid profile email".to_string(),
             Arc::new(validator),
         );
