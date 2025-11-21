@@ -50,37 +50,27 @@ impl<'a> FromSqlText<'a> for bool {
             return Ok(false);
         }
 
-        // Helper function for case-insensitive comparison of a byte slice against an ASCII string
-        // This function returns true only if the slices are of the same length and content (case-insensitive)
-        let byte_case_cmp = |slice: &[u8], target: &str| -> bool {
-            slice.len() == target.len()
-                && slice
-                    .iter()
-                    .zip(target.as_bytes().iter())
-                    .all(|(b1, b2)| b1.to_ascii_lowercase() == b2.to_ascii_lowercase())
-        };
-
         match input[0].to_ascii_lowercase() {
             // --- Cases 't' and 'f' ---
             b't' => {
-                if byte_case_cmp(input, "true") || byte_case_cmp(input, "t") {
+                if input.eq_ignore_ascii_case(b"true") || input.eq_ignore_ascii_case(b"t") {
                     return Ok(true);
                 }
             }
             b'f' => {
-                if byte_case_cmp(input, "false") || byte_case_cmp(input, "f") {
+                if input.eq_ignore_ascii_case(b"false") || input.eq_ignore_ascii_case(b"f") {
                     return Ok(false);
                 }
             }
 
             // --- Cases 'y' and 'n' ---
             b'y' => {
-                if byte_case_cmp(input, "yes") || byte_case_cmp(input, "y") {
+                if input.eq_ignore_ascii_case(b"yes") || input.eq_ignore_ascii_case(b"y") {
                     return Ok(true);
                 }
             }
             b'n' => {
-                if byte_case_cmp(input, "no") || byte_case_cmp(input, "n") {
+                if input.eq_ignore_ascii_case(b"no") || input.eq_ignore_ascii_case(b"n") {
                     return Ok(false);
                 }
             }
@@ -88,11 +78,11 @@ impl<'a> FromSqlText<'a> for bool {
             // --- Case 'o' ---
             b'o' => {
                 // Check 'on' (length must be exactly 2)
-                if len == 2 && byte_case_cmp(input, "on") {
+                if len == 2 && input.eq_ignore_ascii_case(b"on") {
                     return Ok(true);
                 }
                 // Check 'off' (length must be exactly 3)
-                if len == 3 && byte_case_cmp(input, "off") {
+                if len == 3 && input.eq_ignore_ascii_case(b"off") {
                     return Ok(false);
                 }
             }
