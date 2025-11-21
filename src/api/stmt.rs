@@ -19,7 +19,7 @@ pub struct StoredStatement<S> {
     pub statement: S,
     /// type ids of query parameters, can be empty if frontend asks backend for
     /// type inference
-    pub parameter_types: Vec<Type>,
+    pub parameter_types: Vec<Option<Type>>,
 }
 
 impl<S> StoredStatement<S> {
@@ -35,8 +35,8 @@ impl<S> StoredStatement<S> {
         let types = parse
             .type_oids
             .iter()
-            .map(|oid| Type::from_oid(*oid).unwrap_or(Type::UNKNOWN))
-            .collect::<Vec<Type>>();
+            .map(|oid| Type::from_oid(*oid))
+            .collect::<Vec<_>>();
         let statement = parser.parse_sql(client, &parse.query, &types).await?;
         Ok(StoredStatement {
             id: parse
@@ -59,7 +59,7 @@ pub trait QueryParser {
         &self,
         client: &C,
         sql: &str,
-        types: &[Type],
+        types: &[Option<Type>],
     ) -> PgWireResult<Self::Statement>
     where
         C: ClientInfo + Unpin + Send + Sync;
@@ -76,7 +76,7 @@ where
         &self,
         client: &C,
         sql: &str,
-        types: &[Type],
+        types: &[Option<Type>],
     ) -> PgWireResult<Self::Statement>
     where
         C: ClientInfo + Unpin + Send + Sync,
@@ -97,7 +97,7 @@ impl QueryParser for NoopQueryParser {
         &self,
         _client: &C,
         sql: &str,
-        _types: &[Type],
+        _types: &[Option<Type>],
     ) -> PgWireResult<Self::Statement>
     where
         C: ClientInfo + Unpin + Send + Sync,
