@@ -44,11 +44,75 @@ impl<'a> FromSqlText<'a> for bool {
     where
         Self: Sized,
     {
-        match input {
-            b"t" => Ok(true),
-            b"f" => Ok(false),
-            _ => Err("Invalid text value for bool".into()),
+        let len = input.len();
+
+        if len == 0 {
+            return Ok(false);
         }
+
+        // Helper function for case-insensitive comparison of a byte slice against an ASCII string
+        // This function returns true only if the slices are of the same length and content (case-insensitive)
+        let byte_case_cmp = |slice: &[u8], target: &str| -> bool {
+            slice.len() == target.len()
+                && slice
+                    .iter()
+                    .zip(target.as_bytes().iter())
+                    .all(|(b1, b2)| b1.to_ascii_lowercase() == b2.to_ascii_lowercase())
+        };
+
+        match input[0].to_ascii_lowercase() {
+            // --- Cases 't' and 'f' ---
+            b't' => {
+                if byte_case_cmp(input, "true") || byte_case_cmp(input, "t") {
+                    return Ok(true);
+                }
+            }
+            b'f' => {
+                if byte_case_cmp(input, "false") || byte_case_cmp(input, "f") {
+                    return Ok(false);
+                }
+            }
+
+            // --- Cases 'y' and 'n' ---
+            b'y' => {
+                if byte_case_cmp(input, "yes") || byte_case_cmp(input, "y") {
+                    return Ok(true);
+                }
+            }
+            b'n' => {
+                if byte_case_cmp(input, "no") || byte_case_cmp(input, "n") {
+                    return Ok(false);
+                }
+            }
+
+            // --- Case 'o' ---
+            b'o' => {
+                // Check 'on' (length must be exactly 2)
+                if len == 2 && byte_case_cmp(input, "on") {
+                    return Ok(true);
+                }
+                // Check 'off' (length must be exactly 3)
+                if len == 3 && byte_case_cmp(input, "off") {
+                    return Ok(false);
+                }
+            }
+
+            // --- Cases '1' and '0' ---
+            b'1' => {
+                if len == 1 {
+                    return Ok(true);
+                }
+            }
+            b'0' => {
+                if len == 1 {
+                    return Ok(false);
+                }
+            }
+
+            _ => {}
+        }
+
+        Err("Invalid text value for bool".into())
     }
 }
 
@@ -317,6 +381,46 @@ mod tests {
         assert!(result);
 
         let sql_text = "f".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(!result);
+
+        let sql_text = "TRUE".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(result);
+
+        let sql_text = "FALSE".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(!result);
+
+        let sql_text = "on".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(result);
+
+        let sql_text = "off".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(!result);
+
+        let sql_text = "1".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(result);
+
+        let sql_text = "0".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(!result);
+
+        let sql_text = "y".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(result);
+
+        let sql_text = "n".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(!result);
+
+        let sql_text = "yes".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(result);
+
+        let sql_text = "no".as_bytes();
         let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
         assert!(!result);
     }
