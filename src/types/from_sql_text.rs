@@ -320,7 +320,110 @@ where
     }
 }
 
-//TODO: array types
+// Helper function to extract array elements
+fn extract_array_elements(input: &str) -> Result<Vec<String>, Box<dyn Error + Sync + Send>> {
+    if input.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut elements = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut escape_next = false;
+    let mut depth = 0; // For nested arrays
+
+    for ch in input.chars() {
+        match ch {
+            '\\' if !escape_next => {
+                escape_next = true;
+                if in_quotes {
+                    current.push(ch);
+                }
+            }
+            '"' if !escape_next => {
+                in_quotes = !in_quotes;
+                // Don't include the quotes in the output
+            }
+            '{' if !in_quotes && !escape_next => {
+                depth += 1;
+                current.push(ch);
+            }
+            '}' if !in_quotes && !escape_next => {
+                depth -= 1;
+                current.push(ch);
+            }
+            ',' if !in_quotes && depth == 0 && !escape_next => {
+                // End of current element
+                if !current.trim().eq_ignore_ascii_case("NULL") {
+                    elements.push(std::mem::take(&mut current));
+                }
+            }
+            _ => {
+                current.push(ch);
+                escape_next = false;
+            }
+        }
+    }
+
+    // Process the last element
+    if !current.is_empty() && !current.trim().eq_ignore_ascii_case("NULL") {
+        elements.push(current);
+    }
+
+    Ok(elements)
+}
+
+macro_rules! impl_vec_from_sql_text {
+    ($t:ty) => {
+        impl<'a> FromSqlText<'a> for Vec<$t> {
+            fn from_sql_text(
+                ty: &Type,
+                input: &'a [u8],
+                format_options: &FormatOptions,
+            ) -> Result<Self, Box<dyn Error + Sync + Send>> {
+                // PostgreSQL array text format: {elem1,elem2,elem3}
+                // Remove the outer braces
+                let input_str = to_str(input)?;
+
+                if input_str.is_empty() {
+                    return Ok(Vec::new());
+                }
+
+                // Check if it's an array format
+                if !input_str.starts_with('{') || !input_str.ends_with('}') {
+                    return Err("Invalid array format: must start with '{' and end with '}'".into());
+                }
+
+                let inner = &input_str[1..input_str.len() - 1];
+
+                if inner.is_empty() {
+                    return Ok(Vec::new());
+                }
+
+                let elements = extract_array_elements(inner)?;
+                let mut result = Vec::new();
+
+                for element_str in elements {
+                    let element = <$t>::from_sql_text(ty, element_str.as_bytes(), format_options)?;
+                    result.push(element);
+                }
+
+                Ok(result)
+            }
+        }
+    };
+}
+
+impl_vec_from_sql_text!(i8);
+impl_vec_from_sql_text!(i16);
+impl_vec_from_sql_text!(i32);
+impl_vec_from_sql_text!(i64);
+impl_vec_from_sql_text!(u32);
+impl_vec_from_sql_text!(f32);
+impl_vec_from_sql_text!(f64);
+impl_vec_from_sql_text!(char);
+impl_vec_from_sql_text!(bool);
+impl_vec_from_sql_text!(String);
 
 #[cfg(test)]
 mod tests {
@@ -478,5 +581,141 @@ mod tests {
             Option::<bool>::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default())
                 .unwrap();
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_i32() {
+        let sql_text = "{1,2,3}".as_bytes();
+        let result =
+            Vec::<i32>::from_sql_text(&Type::INT4_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec![1, 2, 3]);
+
+        let sql_text = "{}".as_bytes();
+        let result =
+            Vec::<i32>::from_sql_text(&Type::INT4_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, Vec::<i32>::new());
+
+        let sql_text = "".as_bytes();
+        let result =
+            Vec::<i32>::from_sql_text(&Type::INT4_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, Vec::<i32>::new());
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_i64() {
+        let sql_text = "{100,200,300}".as_bytes();
+        let result =
+            Vec::<i64>::from_sql_text(&Type::INT8_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec![100, 200, 300]);
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_i16() {
+        let sql_text = "{10,20,30}".as_bytes();
+        let result =
+            Vec::<i16>::from_sql_text(&Type::INT2_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_i8() {
+        let sql_text = "{1,2,3}".as_bytes();
+        let result =
+            Vec::<i8>::from_sql_text(&Type::INT2_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_string() {
+        let sql_text = "{hello,world}".as_bytes();
+        let result =
+            Vec::<String>::from_sql_text(&Type::VARCHAR_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec!["hello".to_string(), "world".to_string()]);
+
+        // Test with quoted strings containing commas
+        let sql_text = r#"{"hello,world",test}"#.as_bytes();
+        let result =
+            Vec::<String>::from_sql_text(&Type::VARCHAR_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec!["hello,world".to_string(), "test".to_string()]);
+
+        // Test with empty array
+        let sql_text = "{}".as_bytes();
+        let result =
+            Vec::<String>::from_sql_text(&Type::VARCHAR_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, Vec::<String>::new());
+
+        // Test with single element
+        let sql_text = "{single}".as_bytes();
+        let result =
+            Vec::<String>::from_sql_text(&Type::VARCHAR_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec!["single".to_string()]);
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_f32() {
+        let sql_text = "{1.5,2.5,3.5}".as_bytes();
+        let result =
+            Vec::<f32>::from_sql_text(&Type::FLOAT4_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec![1.5, 2.5, 3.5]);
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_f64() {
+        let sql_text = "{1.23,4.56,7.89}".as_bytes();
+        let result =
+            Vec::<f64>::from_sql_text(&Type::FLOAT8_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec![1.23, 4.56, 7.89]);
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_u32() {
+        let sql_text = "{100,200,300}".as_bytes();
+        let result =
+            Vec::<u32>::from_sql_text(&Type::INT4_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec![100, 200, 300]);
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_char() {
+        let sql_text = "{a,b,c}".as_bytes();
+        let result =
+            Vec::<char>::from_sql_text(&Type::CHAR_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec!['a', 'b', 'c']);
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_bool() {
+        let sql_text = "{t,f,true,false}".as_bytes();
+        let result =
+            Vec::<bool>::from_sql_text(&Type::BOOL_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec![true, false, true, false]);
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_invalid_array() {
+        let sql_text = "[1,2,3]".as_bytes();
+        let result =
+            Vec::<i32>::from_sql_text(&Type::INT4_ARRAY, sql_text, &FormatOptions::default());
+        assert!(result.is_err());
+
+        let sql_text = "{1,2,3".as_bytes();
+        let result =
+            Vec::<i32>::from_sql_text(&Type::INT4_ARRAY, sql_text, &FormatOptions::default());
+        assert!(result.is_err());
     }
 }
