@@ -146,7 +146,13 @@ fn encode_row_data(
 fn get_params(portal: &Portal<String>) -> Vec<Box<dyn ToSql>> {
     let mut results = Vec::with_capacity(portal.parameter_len());
     for i in 0..portal.parameter_len() {
-        let param_type = portal.statement.parameter_types.get(i).unwrap();
+        let param_type = portal
+            .statement
+            .parameter_types
+            .get(i)
+            .unwrap()
+            .as_ref()
+            .unwrap_or(&Type::UNKNOWN);
         // we only support a small amount of types for demo
         match param_type {
             &Type::BOOL => {
@@ -239,7 +245,11 @@ impl ExtendedQueryHandler for SqliteBackend {
         C: ClientInfo + Unpin + Send + Sync,
     {
         let conn = self.conn.lock().unwrap();
-        let param_types = stmt.parameter_types.clone();
+        let param_types = stmt
+            .parameter_types
+            .iter()
+            .map(|t| t.clone().unwrap_or(Type::UNKNOWN))
+            .collect();
         let stmt = conn
             .prepare_cached(&stmt.statement)
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
