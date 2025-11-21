@@ -10,6 +10,8 @@ use crate::api::Type;
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::data::FORMAT_CODE_BINARY;
 use crate::messages::extendedquery::Bind;
+use crate::types::format::FormatOptions;
+use crate::types::FromSqlText;
 
 use super::results::FieldFormat;
 use super::stmt::StoredStatement;
@@ -117,9 +119,9 @@ impl<S: Clone> Portal<S> {
 
     /// Attempt to get parameter at given index as type `T`.
     ///
-    pub fn parameter<T>(&self, idx: usize, pg_type: &Type) -> PgWireResult<Option<T>>
+    pub fn parameter<'a, T>(&'a self, idx: usize, pg_type: &Type) -> PgWireResult<Option<T>>
     where
-        T: FromSqlOwned,
+        T: FromSqlOwned + FromSqlText<'a>,
     {
         if !T::accepts(pg_type) {
             return Err(PgWireError::InvalidRustTypeForParameter(
@@ -135,11 +137,15 @@ impl<S: Clone> Portal<S> {
         let _format = self.parameter_format.format_for(idx);
 
         if let Some(ref param) = param {
-            // TODO: from_sql only works with binary format
-            // here we need to check format code first and seek to support text
-            T::from_sql(pg_type, param)
-                .map(|v| Some(v))
-                .map_err(PgWireError::FailedToParseParameter)
+            if self.parameter_format.is_binary(idx) {
+                T::from_sql(pg_type, param)
+                    .map(|v| Some(v))
+                    .map_err(PgWireError::FailedToParseParameter)
+            } else {
+                T::from_sql_text(pg_type, param, &FormatOptions::default())
+                    .map(|v| Some(v))
+                    .map_err(PgWireError::FailedToParseParameter)
+            }
         } else {
             // Null
             Ok(None)
