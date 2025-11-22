@@ -127,64 +127,6 @@ impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
                     super::finish_authentication(client, self.parameter_provider.as_ref()).await?;
                 }
             }
-            // PgWireFrontendMessage::PasswordMessageFamily(mut msg) => {
-            //     let mut state = self.state.lock().await;
-            //     if let SASLState::Initial = *state {
-            //         let sasl_initial_response = msg.into_sasl_initial_response()?;
-            //         let selected_mechanism = sasl_initial_response.auth_method.as_str();
-
-            //         if [Self::SCRAM_SHA_256, Self::SCRAM_SHA_256_PLUS].contains(&selected_mechanism)
-            //         {
-            //             *state = SASLState::ScramClientFirstReceived;
-            //         } else if [Self::OAUTHBEARER].contains(&selected_mechanism) {
-            //             *state = SASLState::OauthStateInit;
-            //         } else {
-            //             return Err(PgWireError::UnsupportedSASLAuthMethod(
-            //                 selected_mechanism.to_string(),
-            //             ));
-            //         }
-            //         msg = PasswordMessageFamily::SASLInitialResponse(sasl_initial_response);
-            //     } else {
-            //         let sasl_response = msg.into_sasl_response()?;
-            //         msg = PasswordMessageFamily::SASLResponse(sasl_response);
-            //     }
-
-            //     // SCRAM authentication
-            //     if state.is_scram() {
-            //         if let Some(scram) = &self.scram {
-            //             let (resp, new_state) =
-            //                 scram.process_scram_message(client, msg, &state).await?;
-            //             client
-            //                 .send(PgWireBackendMessage::Authentication(resp))
-            //                 .await?;
-            //             *state = new_state;
-            //         } else {
-            //             // scram is not configured
-            //             return Err(PgWireError::UnsupportedSASLAuthMethod("SCRAM".to_string()));
-            //         }
-            //     }
-
-            //     // oauth
-            //     if state.is_oauth() {
-            //         if let Some(oauth) = &self.oauth {
-            //             let (res, new_state) =
-            //                 oauth.process_oauth_message(client, msg, &state).await?;
-            //             client
-            //                 .send(PgWireBackendMessage::Authentication(res))
-            //                 .await?;
-            //             *state = new_state;
-            //         } else {
-            //             // oauth is not configured
-            //             return Err(PgWireError::UnsupportedSASLAuthMethod(
-            //                 "OAUTHBEARER".to_string(),
-            //             ));
-            //         }
-            //     }
-
-            //     if matches!(*state, SASLState::Finished) {
-            //         super::finish_authentication(client, self.parameter_provider.as_ref()).await?;
-            //     }
-            // }
             _ => {}
         }
 

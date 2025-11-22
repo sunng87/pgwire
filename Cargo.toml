@@ -167,7 +167,7 @@ required-features = ["server-api-aws-lc-rs"]
 
 [[example]]
 name = "transaction"
-required-features = ["server-api-aws-lc-rs", "jwt-validator"]
+required-features = ["server-api-aws-lc-rs"]
 
 [[example]]
 name = "client"

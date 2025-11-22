@@ -96,7 +96,6 @@ impl Oauth {
         }
 
         let s = String::from_utf8_lossy(data);
-        println!("data==={s}");
         let s = s.as_ref();
 
         // from the docs, it says:
@@ -188,7 +187,6 @@ impl Oauth {
                         "Multiple oauth values".to_string(),
                     ));
                 }
-                println!("auth-value==={value}");
                 if value.is_empty() {
                     auth = None;
                 } else {
@@ -295,23 +293,22 @@ impl Oauth {
                 };
 
                 if auth.is_empty() {
-                    let error_response = self.generate_error_response();
-                    return Ok((
-                        Authentication::SASLContinue(Bytes::from(error_response)),
-                        SASLState::OauthStateError,
+                    return Err(PgWireError::OAuthAuthenticationFailed(
+                        "validation of OAuth token requested without a auth header".to_string(),
                     ));
                 }
-
-                println!("token has been colllected: {}", auth);
 
                 let token = match self.validate_token_format(&auth) {
                     Some(t) => t,
                     None => {
-                        let err = self.generate_error_response();
-                        return Ok((
-                            Authentication::SASLContinue(Bytes::from(err)),
-                            SASLState::OauthStateError,
+                        return Err(PgWireError::OAuthAuthenticationFailed(
+                            "malformed OAuth bearer token".to_string(),
                         ));
+                        // let err = self.generate_error_response();
+                        // return Ok((
+                        //     Authentication::SASLContinue(Bytes::from(err)),
+                        //     SASLState::OauthStateError,
+                        // ));
                     }
                 };
 
@@ -326,11 +323,10 @@ impl Oauth {
                     .await?;
 
                 if !validation_result.authorized {
-                    let err = self.generate_error_response();
-                    return Ok((
-                        Authentication::SASLContinue(Bytes::from(err)),
-                        SASLState::OauthStateError,
-                    ));
+                    return Err(PgWireError::OAuthAuthenticationFailed(format!(
+                        "OAuth bearer authentication failed for user: {}",
+                        username
+                    )));
                 }
 
                 // TODO: handle user mapping with skip_usermap
@@ -338,6 +334,7 @@ impl Oauth {
                 Ok((Authentication::Ok, SASLState::Finished))
             }
             SASLState::OauthStateError => {
+                println!("hereeeee----------");
                 let res = msg.into_sasl_response()?;
                 if res.data.len() != 1 || res.data[0] != KVSEP {
                     return Err(PgWireError::InvalidOauthMessage(
