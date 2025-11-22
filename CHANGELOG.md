@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0] - 2025-11-21
+
+### Changed
+
+- Client provided parameter types are now stored as `Vec<Option<Type>>`. If
+  the OID of client provided type is 0, we use `None` here. Previously we will
+  default to `UNKNOWN` type but it has different semantics. [#350]
+- Extended query parameter parsing now respects format code, we will use
+  `FromSqlText` to parse those types encoded as text. More type to be supported
+  for `FromSqlText`. [#351]
+- Unnamed portal is automatically dropped when execution finished [#348]
+
+### Fixed
+
+- Issue with client-api when decoding data [#347]
+
 ## [0.35.0] - 2025-11-05
 
 ### Added
