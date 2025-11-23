@@ -19,8 +19,8 @@ use pgwire::api::auth::{
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
-    DataRowEncoder, DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse,
-    Response, Tag,
+    DataRowEncoder, DescribePortalResponse, DescribeResponse, DescribeStatementResponse, FieldInfo,
+    QueryResponse, Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
@@ -211,8 +211,12 @@ impl ExtendedQueryHandler for DummyDatabase {
         C: ClientInfo + Unpin + Send + Sync,
     {
         println!("describe: {:?}", portal);
-        let schema = self.schema(&portal.result_column_format);
-        Ok(DescribePortalResponse::new(schema))
+        if portal.statement.statement.starts_with("SELECT") {
+            let schema = self.schema(&portal.result_column_format);
+            Ok(DescribePortalResponse::new(schema))
+        } else {
+            Ok(DescribePortalResponse::no_data())
+        }
     }
 }
 
@@ -276,7 +280,9 @@ pub async fn main() {
         let factory_ref = factory.clone();
 
         tokio::spawn(async move {
-            process_socket(incoming_socket.0, Some(tls_acceptor_ref), factory_ref).await
+            //process_socket(incoming_socket.0, Some(tls_acceptor_ref),
+            //factory_ref).await
+            process_socket(incoming_socket.0, None, factory_ref).await
         });
     }
 }

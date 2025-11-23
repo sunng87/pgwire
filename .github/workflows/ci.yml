@@ -85,6 +85,7 @@ jobs:
     - uses: turtlequeue/setup-babashka@v1.5.0
       with:
         babashka-version: 1.1.173
+    - uses: jbang-maven/setup-jbang@v1
     - run: ./tests-integration/test.sh
 
   msrv:

@@ -52,6 +52,8 @@
             nodejs_24
             go
             openssh
+            jbang
+            jdk_headless
           ];
 
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
