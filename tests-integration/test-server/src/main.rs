@@ -280,9 +280,7 @@ pub async fn main() {
         let factory_ref = factory.clone();
 
         tokio::spawn(async move {
-            //process_socket(incoming_socket.0, Some(tls_acceptor_ref),
-            //factory_ref).await
-            process_socket(incoming_socket.0, None, factory_ref).await
+            process_socket(incoming_socket.0, Some(tls_acceptor_ref), factory_ref).await
         });
     }
 }
