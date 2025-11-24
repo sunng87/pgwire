@@ -1138,6 +1138,7 @@ mod tests {
         assert_eq!(result.offset(), &offset);
     }
 
+    #[cfg(feature = "pg-type-chrono")]
     #[test]
     fn test_from_sql_text_for_datetime_various_formats() {
         // Test various timezone formats that pgjdbc might send
@@ -1170,6 +1171,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "pg-type-chrono")]
     #[test]
     fn test_datetime_type_specific_behavior() {
         use chrono::Timelike;
