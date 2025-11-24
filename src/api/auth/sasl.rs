@@ -40,7 +40,7 @@ impl SASLState {
     }
 
     fn is_oauth(&self) -> bool {
-        matches!(self, SASLState::OauthStateInit)
+        matches!(self, SASLState::OauthStateInit | SASLState::OauthStateError)
     }
 }
 
@@ -113,7 +113,9 @@ impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
                     let oauth = self.oauth.as_ref().ok_or_else(|| {
                         PgWireError::UnsupportedSASLAuthMethod("OAUTHBEARER".to_string())
                     })?;
-                    oauth.process_oauth_message(client, msg, &state).await?
+                    let r = oauth.process_oauth_message(client, msg, &state).await?;
+                    println!("{r:#?}");
+                    r
                 } else {
                     return Err(PgWireError::InvalidSASLState);
                 };
@@ -124,6 +126,11 @@ impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
                 *state = new_state;
 
                 if matches!(*state, SASLState::Finished) {
+                    // if state.is_oauth() {
+                    //     client
+                    //         .send(PgWireBackendMessage::Authentication(Authentication::Ok))
+                    //         .await?;
+                    // }
                     super::finish_authentication(client, self.parameter_provider.as_ref()).await?;
                 }
             }

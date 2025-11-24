@@ -64,6 +64,8 @@ pub enum PgWireError {
     OAuthAuthenticationFailed(String),
     #[error("{0}")]
     OAuthValidationError(String),
+    #[error("{0}")]
+    OauthAuthzIdError(String),
     #[error(transparent)]
     ApiError(#[from] Box<dyn std::error::Error + 'static + Send + Sync>),
 
@@ -328,13 +330,16 @@ impl From<PgWireError> for ErrorInfo {
                 ErrorInfo::new("ERROR".to_owned(), "22023".to_owned(), error.to_string())
             }
             PgWireError::InvalidOauthMessage(_) => {
-                ErrorInfo::new("ERROR".to_string(), "22023".to_string(), error.to_string())
+                ErrorInfo::new("FATAL".to_string(), "08P01".to_string(), error.to_string())
             }
             PgWireError::OAuthAuthenticationFailed(_) => {
                 ErrorInfo::new("FATAL".to_string(), "08P01".to_string(), error.to_string())
             }
             PgWireError::OAuthValidationError(_) => {
-                ErrorInfo::new("ERROR".to_string(), "22023".to_string(), error.to_string())
+                ErrorInfo::new("FATAL".to_string(), "08P01".to_string(), error.to_string())
+            }
+            PgWireError::OauthAuthzIdError(_) => {
+                ErrorInfo::new("FATAL".to_string(), "0A000".to_string(), error.to_string())
             }
         }
     }

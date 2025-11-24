@@ -262,9 +262,6 @@ impl Oauth {
     where
         C: ClientInfo + Unpin + Send,
     {
-        // decode the message, if there's no auth in the SASL data field, return Authentication::SASLContinue
-        // to make the client respond with the Initial Client Response (still figuring out what this is exactly, but I think it is just the auth field as descibed in the docs)
-        // then handle authentication based on the states, validate token and bla bla bla
         match state {
             SASLState::OauthStateInit => {
                 let res = msg.into_sasl_initial_response()?;
@@ -304,11 +301,6 @@ impl Oauth {
                         return Err(PgWireError::OAuthAuthenticationFailed(
                             "malformed OAuth bearer token".to_string(),
                         ));
-                        // let err = self.generate_error_response();
-                        // return Ok((
-                        //     Authentication::SASLContinue(Bytes::from(err)),
-                        //     SASLState::OauthStateError,
-                        // ));
                     }
                 };
 
@@ -331,10 +323,12 @@ impl Oauth {
 
                 // TODO: handle user mapping with skip_usermap
 
-                Ok((Authentication::Ok, SASLState::Finished))
+                Ok((
+                    Authentication::SASLFinal(Bytes::from("")),
+                    SASLState::Finished,
+                ))
             }
             SASLState::OauthStateError => {
-                println!("hereeeee----------");
                 let res = msg.into_sasl_response()?;
                 if res.data.len() != 1 || res.data[0] != KVSEP {
                     return Err(PgWireError::InvalidOauthMessage(
@@ -342,8 +336,9 @@ impl Oauth {
                     ));
                 }
 
-                Err(PgWireError::OAuthAuthenticationFailed(
-                    "Token validation failed".to_string(),
+                Ok((
+                    Authentication::SASLFinal(Bytes::from("")),
+                    SASLState::Finished,
                 ))
             }
             _ => Err(PgWireError::InvalidSASLState),

@@ -61,19 +61,26 @@ impl OauthValidator for SimpleTokenValidator {
         println!("Expected issuer: {}", issuer);
         println!("Required scopes: {}", required_scopes);
 
-        if let Some(authenticated_user) = self.valid_tokens.get(token) {
-            Ok(ValidatorModuleResult {
-                authorized: true,
-                authn_id: Some(authenticated_user.clone()),
-                metadata: None,
-            })
-        } else {
-            Ok(ValidatorModuleResult {
-                authorized: false,
-                authn_id: None,
-                metadata: None,
-            })
-        }
+        // if let Some(authenticated_user) = self.valid_tokens.get(token) {
+        //     Ok(ValidatorModuleResult {
+        //         authorized: true,
+        //         authn_id: Some(authenticated_user.clone()),
+        //         metadata: None,
+        //     })
+        // } else {
+        //     Ok(ValidatorModuleResult {
+        //         authorized: false,
+        //         authn_id: None,
+        //         metadata: None,
+        //     })
+        // }
+        //
+
+        Ok(ValidatorModuleResult {
+            authorized: true,
+            authn_id: Some(username.to_string()),
+            metadata: None,
+        })
     }
 }
 
@@ -101,8 +108,7 @@ impl PgWireServerHandlers for DummyProcessorFactory {
     fn startup_handler(&self) -> Arc<impl StartupHandler> {
         let validator = SimpleTokenValidator::new();
         let oauth = Oauth::new(
-            "http://localhost:8080/realms/postgres-realm/.well-known/openid-configuration"
-                .to_string(),
+            "http://localhost:8080/realms/postgres-realm".to_string(),
             "openid postgres".to_string(),
             Arc::new(validator),
         );
