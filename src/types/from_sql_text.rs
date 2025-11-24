@@ -203,7 +203,7 @@ impl<'a> FromSqlText<'a> for DateTime<FixedOffset> {
     {
         let value_str = to_str(value)?;
 
-        // Try parsing with various timezone formats first
+        // For TIMESTAMPTZ, parse with timezone and preserve it
         let timezone_formats = [
             "%Y-%m-%d %H:%M:%S%.6f%:::z", // "2024-11-24 11:00:00.123456+08:00:00"
             "%Y-%m-%d %H:%M:%S%.6f%:z",   // "2024-11-24 11:00:00.123456+08:00"
@@ -220,7 +220,7 @@ impl<'a> FromSqlText<'a> for DateTime<FixedOffset> {
             }
         }
 
-        // If timezone parsing fails, try without timezone and assume UTC
+        // Fallback: try without timezone and assume UTC
         let naive_formats = [
             "%Y-%m-%d %H:%M:%S%.6f", // "2024-11-24 11:00:00.123456"
             "%Y-%m-%d %H:%M:%S",     // "2024-11-24 11:00:00"
@@ -252,8 +252,40 @@ impl<'a> FromSqlText<'a> for NaiveDate {
     where
         Self: Sized,
     {
-        let date = NaiveDate::parse_from_str(to_str(value)?, "%Y-%m-%d")?;
-        Ok(date)
+        let value_str = to_str(value)?;
+
+        // Try parsing date without timezone first
+        if let Ok(date) = NaiveDate::parse_from_str(value_str, "%Y-%m-%d") {
+            return Ok(date);
+        }
+
+        // Handle pgjdbc format with timezone: "2024-06-20 +08"
+        // Split on whitespace to separate date from timezone
+        if let Some((date_part, _tz_part)) = value_str.split_once(' ') {
+            if let Ok(date) = NaiveDate::parse_from_str(date_part, "%Y-%m-%d") {
+                return Ok(date);
+            }
+        }
+
+        // Handle formats with time components that might include timezone
+        let datetime_formats = [
+            "%Y-%m-%d %H:%M:%S%.6f%:z", // "2024-06-20 11:00:00.123456+08:00"
+            "%Y-%m-%d %H:%M:%S%.6f%#z", // "2024-06-20 11:00:00.123456+08"
+            "%Y-%m-%d %H:%M:%S%.6f%z",  // "2024-06-20 11:00:00.123456+0800"
+            "%Y-%m-%d %H:%M:%S%:z",     // "2024-06-20 11:00:00+08:00"
+            "%Y-%m-%d %H:%M:%S%#z",     // "2024-06-20 11:00:00+08"
+            "%Y-%m-%d %H:%M:%S%z",      // "2024-06-20 11:00:00+0800"
+            "%Y-%m-%d %H:%M:%S%.6f",    // "2024-06-20 11:00:00.123456"
+            "%Y-%m-%d %H:%M:%S",        // "2024-06-20 11:00:00"
+        ];
+
+        for format in &datetime_formats {
+            if let Ok(datetime) = NaiveDateTime::parse_from_str(value_str, format) {
+                return Ok(datetime.date());
+            }
+        }
+
+        Err(format!("Unable to parse date: {}", value_str).into())
     }
 }
 
@@ -275,7 +307,7 @@ impl<'a> FromSqlText<'a> for NaiveTime {
 #[cfg(feature = "pg-type-chrono")]
 impl<'a> FromSqlText<'a> for NaiveDateTime {
     fn from_sql_text(
-        ty: &Type,
+        _ty: &Type,
         value: &[u8],
         _format_options: &FormatOptions,
     ) -> Result<Self, Box<dyn Error + Sync + Send>>
@@ -283,69 +315,35 @@ impl<'a> FromSqlText<'a> for NaiveDateTime {
         Self: Sized,
     {
         let value_str = to_str(value)?;
-        
-        match *ty {
-            Type::TIMESTAMP | Type::TIMESTAMP_ARRAY => {
-                // For TIMESTAMP, ignore timezone and parse as naive datetime
-                let naive_formats = [
-                    "%Y-%m-%d %H:%M:%S%.6f",         // "2024-11-24 11:00:00.123456"
-                    "%Y-%m-%d %H:%M:%S",             // "2024-11-24 11:00:00"
-                ];
-                
-                for format in &naive_formats {
-                    if let Ok(parsed) = NaiveDateTime::parse_from_str(value_str, format) {
-                        return Ok(parsed);
-                    }
-                }
-                
-                // Try to parse with timezone and extract naive part (fallback)
-                let timezone_formats = [
-                    "%Y-%m-%d %H:%M:%S%.6f%:z",      // "2024-11-24 11:00:00.123456+08:00"
-                    "%Y-%m-%d %H:%M:%S%.6f%#z",      // "2024-11-24 11:00:00.123456+08"
-                    "%Y-%m-%d %H:%M:%S%.6f%z",       // "2024-11-24 11:00:00.123456+0800"
-                    "%Y-%m-%d %H:%M:%S%:z",          // "2024-11-24 11:00:00+08:00"
-                    "%Y-%m-%d %H:%M:%S%#z",          // "2024-11-24 11:00:00+08"
-                    "%Y-%m-%d %H:%M:%S%z",           // "2024-11-24 11:00:00+0800"
-                ];
-                
-                for format in &timezone_formats {
-                    if let Ok(parsed) = DateTime::<FixedOffset>::parse_from_str(value_str, format) {
-                        return Ok(parsed.naive_local());
-                    }
-                }
+
+        // For TIMESTAMP, ignore timezone and parse as naive datetime
+        let naive_formats = [
+            "%Y-%m-%d %H:%M:%S%.6f", // "2024-11-24 11:00:00.123456"
+            "%Y-%m-%d %H:%M:%S",     // "2024-11-24 11:00:00"
+        ];
+
+        for format in &naive_formats {
+            if let Ok(parsed) = NaiveDateTime::parse_from_str(value_str, format) {
+                return Ok(parsed);
             }
-            Type::TIMESTAMPTZ | Type::TIMESTAMPTZ_ARRAY => {
-                // For TIMESTAMPTZ, parse with timezone and convert to UTC
-                let timezone_formats = [
-                    "%Y-%m-%d %H:%M:%S%.6f%:z",      // "2024-11-24 11:00:00.123456+08:00"
-                    "%Y-%m-%d %H:%M:%S%.6f%#z",      // "2024-11-24 11:00:00.123456+08"
-                    "%Y-%m-%d %H:%M:%S%.6f%z",       // "2024-11-24 11:00:00.123456+0800"
-                    "%Y-%m-%d %H:%M:%S%:z",          // "2024-11-24 11:00:00+08:00"
-                    "%Y-%m-%d %H:%M:%S%#z",          // "2024-11-24 11:00:00+08"
-                    "%Y-%m-%d %H:%M:%S%z",           // "2024-11-24 11:00:00+0800"
-                ];
-                
-                for format in &timezone_formats {
-                    if let Ok(parsed) = DateTime::<FixedOffset>::parse_from_str(value_str, format) {
-                        return Ok(parsed.naive_utc());
-                    }
-                }
-                
-                // Fallback: try naive formats (assume UTC)
-                let naive_formats = [
-                    "%Y-%m-%d %H:%M:%S%.6f",         // "2024-11-24 11:00:00.123456"
-                    "%Y-%m-%d %H:%M:%S",             // "2024-11-24 11:00:00"
-                ];
-                
-                for format in &naive_formats {
-                    if let Ok(parsed) = NaiveDateTime::parse_from_str(value_str, format) {
-                        return Ok(parsed);
-                    }
-                }
-            }
-            _ => {}
         }
-        
+
+        // Fallback: try to parse with timezone and extract naive part
+        let timezone_formats = [
+            "%Y-%m-%d %H:%M:%S%.6f%:z", // "2024-11-24 11:00:00.123456+08:00"
+            "%Y-%m-%d %H:%M:%S%.6f%#z", // "2024-11-24 11:00:00.123456+08"
+            "%Y-%m-%d %H:%M:%S%.6f%z",  // "2024-11-24 11:00:00.123456+0800"
+            "%Y-%m-%d %H:%M:%S%:z",     // "2024-11-24 11:00:00+08:00"
+            "%Y-%m-%d %H:%M:%S%#z",     // "2024-11-24 11:00:00+08"
+            "%Y-%m-%d %H:%M:%S%z",      // "2024-11-24 11:00:00+0800"
+        ];
+
+        for format in &timezone_formats {
+            if let Ok(parsed) = DateTime::<FixedOffset>::parse_from_str(value_str, format) {
+                return Ok(parsed.naive_local());
+            }
+        }
+
         Err(format!("Unable to parse datetime: {}", value_str).into())
     }
 }
@@ -1020,57 +1018,41 @@ mod tests {
         assert_eq!(result, vec![Some(1), None, Some(3), None, Some(5)]);
     }
 
-#[cfg(feature = "pg-type-chrono")]
+    #[cfg(feature = "pg-type-chrono")]
     #[test]
     fn test_from_sql_text_for_naive_datetime_with_timezone() {
-        // Test TIMESTAMP: should ignore timezone and parse as naive
+        // Test NaiveDateTime: should ignore timezone and parse as naive
         let sql_text = "2024-11-24 11:00:00+08".as_bytes();
         let result =
             NaiveDateTime::from_sql_text(&Type::TIMESTAMP, sql_text, &FormatOptions::default())
                 .unwrap();
-        let expected = NaiveDate::from_ymd_opt(2024, 11, 24).unwrap()
-            .and_hms_opt(11, 0, 0).unwrap(); // Should ignore timezone, keep 11:00
+        let expected = NaiveDate::from_ymd_opt(2024, 11, 24)
+            .unwrap()
+            .and_hms_opt(11, 0, 0)
+            .unwrap(); // Should ignore timezone, keep 11:00
         assert_eq!(result, expected);
 
-        // Test TIMESTAMPTZ: should parse with timezone and convert to UTC
-        let sql_text = "2024-11-24 11:00:00+08".as_bytes();
-        let result =
-            NaiveDateTime::from_sql_text(&Type::TIMESTAMPTZ, sql_text, &FormatOptions::default())
-                .unwrap();
-        let expected = NaiveDate::from_ymd_opt(2024, 11, 24).unwrap()
-            .and_hms_opt(3, 0, 0).unwrap(); // 11:00+08 = 03:00 UTC
-        assert_eq!(result, expected);
-
-        // Test with microseconds for TIMESTAMP
+        // Test with microseconds
         let sql_text = "2024-11-24 11:00:00.123456+08:00".as_bytes();
         let result =
             NaiveDateTime::from_sql_text(&Type::TIMESTAMP, sql_text, &FormatOptions::default())
                 .unwrap();
-        let expected = NaiveDate::from_ymd_opt(2024, 11, 24).unwrap()
-            .and_hms_micro_opt(11, 0, 0, 123456).unwrap(); // Should ignore timezone
+        let expected = NaiveDate::from_ymd_opt(2024, 11, 24)
+            .unwrap()
+            .and_hms_micro_opt(11, 0, 0, 123456)
+            .unwrap(); // Should ignore timezone
         assert_eq!(result, expected);
 
-        // Test with microseconds for TIMESTAMPTZ
-        let sql_text = "2024-11-24 11:00:00.123456+08:00".as_bytes();
-        let result =
-            NaiveDateTime::from_sql_text(&Type::TIMESTAMPTZ, sql_text, &FormatOptions::default())
-                .unwrap();
-        let expected = NaiveDate::from_ymd_opt(2024, 11, 24).unwrap()
-            .and_hms_micro_opt(3, 0, 0, 123456).unwrap(); // 11:00+08 = 03:00 UTC
-        assert_eq!(result, expected);
-
-        // Test without timezone (should work for both types)
+        // Test without timezone
         let sql_text = "2024-11-24 11:00:00".as_bytes();
-        let result_timestamp =
+        let result =
             NaiveDateTime::from_sql_text(&Type::TIMESTAMP, sql_text, &FormatOptions::default())
                 .unwrap();
-        let result_timestamptz =
-            NaiveDateTime::from_sql_text(&Type::TIMESTAMPTZ, sql_text, &FormatOptions::default())
-                .unwrap();
-        let expected = NaiveDate::from_ymd_opt(2024, 11, 24).unwrap()
-            .and_hms_opt(11, 0, 0).unwrap();
-        assert_eq!(result_timestamp, expected);
-        assert_eq!(result_timestamptz, expected);
+        let expected = NaiveDate::from_ymd_opt(2024, 11, 24)
+            .unwrap()
+            .and_hms_opt(11, 0, 0)
+            .unwrap();
+        assert_eq!(result, expected);
     }
 
     #[cfg(feature = "pg-type-chrono")]
@@ -1156,7 +1138,7 @@ mod tests {
         assert_eq!(result.offset(), &offset);
     }
 
-#[test]
+    #[test]
     fn test_from_sql_text_for_datetime_various_formats() {
         // Test various timezone formats that pgjdbc might send
         let test_cases = vec![
@@ -1166,44 +1148,75 @@ mod tests {
             ("2024-11-24 11:00:00-05", "UTC-5"),
             ("2024-11-24 11:00:00-0500", "UTC-5"),
             ("2024-11-24 11:00:00-05:00", "UTC-5"),
-            ("2024-11-24 11:00:00.123456+08:00", "UTC+8 with microseconds"),
+            (
+                "2024-11-24 11:00:00.123456+08:00",
+                "UTC+8 with microseconds",
+            ),
             ("2024-11-24 11:00:00", "no timezone (UTC)"),
         ];
 
         for (input, description) in test_cases {
             let result = DateTime::<FixedOffset>::from_sql_text(
-                &Type::TIMESTAMP, 
-                input.as_bytes(), 
-                &FormatOptions::default()
+                &Type::TIMESTAMP,
+                input.as_bytes(),
+                &FormatOptions::default(),
             );
-            assert!(result.is_ok(), "Failed to parse {}: {}", description, result.unwrap_err());
+            assert!(
+                result.is_ok(),
+                "Failed to parse {}: {}",
+                description,
+                result.unwrap_err()
+            );
         }
     }
 
     #[test]
     fn test_datetime_type_specific_behavior() {
         use chrono::Timelike;
-        
-        // Test that DateTime<FixedOffset> preserves timezone regardless of PostgreSQL type
+
+        // Test that DateTime<FixedOffset> preserves timezone
         let sql_text = "2024-11-24 11:00:00+08";
-        
-        // For TIMESTAMP type
-        let result_timestamp = DateTime::<FixedOffset>::from_sql_text(
-            &Type::TIMESTAMP, 
-            sql_text.as_bytes(), 
-            &FormatOptions::default()
-        ).unwrap();
+
+        let result = DateTime::<FixedOffset>::from_sql_text(
+            &Type::TIMESTAMPTZ,
+            sql_text.as_bytes(),
+            &FormatOptions::default(),
+        )
+        .unwrap();
         let offset = FixedOffset::east_opt(8 * 3600).unwrap();
-        assert_eq!(result_timestamp.offset(), &offset);
-        assert_eq!(result_timestamp.hour(), 11); // Should preserve local time
-        
-        // For TIMESTAMPTZ type
-        let result_timestamptz = DateTime::<FixedOffset>::from_sql_text(
-            &Type::TIMESTAMPTZ, 
-            sql_text.as_bytes(), 
-            &FormatOptions::default()
-        ).unwrap();
-        assert_eq!(result_timestamptz.offset(), &offset);
-        assert_eq!(result_timestamptz.hour(), 11); // Should preserve local time
+        assert_eq!(result.offset(), &offset);
+        assert_eq!(result.hour(), 11); // Should preserve local time
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_from_sql_text_for_naive_date_with_timezone() {
+        // Test parsing date with pgjdbc timezone format: "2024-06-20 +08"
+        let sql_text = "2024-06-20 +08".as_bytes();
+        let result =
+            NaiveDate::from_sql_text(&Type::DATE, sql_text, &FormatOptions::default()).unwrap();
+        let expected = NaiveDate::from_ymd_opt(2024, 6, 20).unwrap();
+        assert_eq!(result, expected);
+
+        // Test parsing date with negative timezone: "2024-06-20 -05"
+        let sql_text = "2024-06-20 -05".as_bytes();
+        let result =
+            NaiveDate::from_sql_text(&Type::DATE, sql_text, &FormatOptions::default()).unwrap();
+        let expected = NaiveDate::from_ymd_opt(2024, 6, 20).unwrap();
+        assert_eq!(result, expected);
+
+        // Test parsing date with datetime and timezone (should extract date part)
+        let sql_text = "2024-06-20 11:00:00+08:00".as_bytes();
+        let result =
+            NaiveDate::from_sql_text(&Type::DATE, sql_text, &FormatOptions::default()).unwrap();
+        let expected = NaiveDate::from_ymd_opt(2024, 6, 20).unwrap();
+        assert_eq!(result, expected);
+
+        // Test parsing date without timezone (should still work)
+        let sql_text = "2024-06-20".as_bytes();
+        let result =
+            NaiveDate::from_sql_text(&Type::DATE, sql_text, &FormatOptions::default()).unwrap();
+        let expected = NaiveDate::from_ymd_opt(2024, 6, 20).unwrap();
+        assert_eq!(result, expected);
     }
 }
