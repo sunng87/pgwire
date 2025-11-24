@@ -425,6 +425,115 @@ impl_vec_from_sql_text!(char);
 impl_vec_from_sql_text!(bool);
 impl_vec_from_sql_text!(String);
 
+// Helper function to extract array elements including NULL values for Option types
+fn extract_array_elements_with_nulls(input: &str) -> Result<Vec<String>, Box<dyn Error + Sync + Send>> {
+    if input.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut elements = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut escape_next = false;
+    let mut depth = 0; // For nested arrays
+
+    for ch in input.chars() {
+        match ch {
+            '\\' if !escape_next => {
+                escape_next = true;
+                if in_quotes {
+                    current.push(ch);
+                }
+            }
+            '"' if !escape_next => {
+                in_quotes = !in_quotes;
+                // Don't include the quotes in the output
+            }
+            '{' if !in_quotes && !escape_next => {
+                depth += 1;
+                current.push(ch);
+            }
+            '}' if !in_quotes && !escape_next => {
+                depth -= 1;
+                current.push(ch);
+            }
+            ',' if !in_quotes && depth == 0 && !escape_next => {
+                // End of current element - include NULL values for Option types
+                elements.push(std::mem::take(&mut current));
+            }
+            _ => {
+                current.push(ch);
+                escape_next = false;
+            }
+        }
+    }
+
+    // Process the last element
+    if !current.is_empty() {
+        elements.push(current);
+    }
+
+    Ok(elements)
+}
+
+macro_rules! impl_vec_option_from_sql_text {
+    ($t:ty) => {
+        impl<'a> FromSqlText<'a> for Vec<Option<$t>> {
+            fn from_sql_text(
+                ty: &Type,
+                input: &'a [u8],
+                format_options: &FormatOptions,
+            ) -> Result<Self, Box<dyn Error + Sync + Send>> {
+                // PostgreSQL array text format: {elem1,elem2,elem3}
+                // Remove the outer braces
+                let input_str = to_str(input)?;
+
+                if input_str.is_empty() {
+                    return Ok(Vec::new());
+                }
+
+                // Check if it's an array format
+                if !input_str.starts_with('{') || !input_str.ends_with('}') {
+                    return Err("Invalid array format: must start with '{' and end with '}'".into());
+                }
+
+                let inner = &input_str[1..input_str.len() - 1];
+
+                if inner.is_empty() {
+                    return Ok(Vec::new());
+                }
+
+                let elements = extract_array_elements_with_nulls(inner)?;
+                let mut result = Vec::new();
+
+                for element_str in elements {
+                    if element_str.trim().eq_ignore_ascii_case("NULL") {
+                        result.push(None);
+                    } else if element_str.is_empty() {
+                        result.push(None);
+                    } else {
+                        let element = <$t>::from_sql_text(ty, element_str.as_bytes(), format_options).map(Some)?;
+                        result.push(element);
+                    }
+                }
+
+                Ok(result)
+            }
+        }
+    };
+}
+
+impl_vec_option_from_sql_text!(i8);
+impl_vec_option_from_sql_text!(i16);
+impl_vec_option_from_sql_text!(i32);
+impl_vec_option_from_sql_text!(i64);
+impl_vec_option_from_sql_text!(u32);
+impl_vec_option_from_sql_text!(f32);
+impl_vec_option_from_sql_text!(f64);
+impl_vec_option_from_sql_text!(char);
+impl_vec_option_from_sql_text!(bool);
+impl_vec_option_from_sql_text!(String);
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -717,5 +826,77 @@ mod tests {
         let result =
             Vec::<i32>::from_sql_text(&Type::INT4_ARRAY, sql_text, &FormatOptions::default());
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_option_i32() {
+        let sql_text = "{1,2,3}".as_bytes();
+        let result =
+            Vec::<Option<i32>>::from_sql_text(&Type::INT4_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec![Some(1), Some(2), Some(3)]);
+
+        let sql_text = "{}".as_bytes();
+        let result =
+            Vec::<Option<i32>>::from_sql_text(&Type::INT4_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, Vec::<Option<i32>>::new());
+
+        let sql_text = "".as_bytes();
+        let result =
+            Vec::<Option<i32>>::from_sql_text(&Type::INT4_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, Vec::<Option<i32>>::new());
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_option_string() {
+        let sql_text = "{hello,world}".as_bytes();
+        let result =
+            Vec::<Option<String>>::from_sql_text(&Type::VARCHAR_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec![Some("hello".to_string()), Some("world".to_string())]);
+
+        // Test with quoted strings containing commas
+        let sql_text = r#"{"hello,world",test}"#.as_bytes();
+        let result =
+            Vec::<Option<String>>::from_sql_text(&Type::VARCHAR_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec![Some("hello,world".to_string()), Some("test".to_string())]);
+
+        // Test with empty array
+        let sql_text = "{}".as_bytes();
+        let result =
+            Vec::<Option<String>>::from_sql_text(&Type::VARCHAR_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, Vec::<Option<String>>::new());
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_option_bool() {
+        let sql_text = "{t,f,true,false}".as_bytes();
+        let result =
+            Vec::<Option<bool>>::from_sql_text(&Type::BOOL_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec![Some(true), Some(false), Some(true), Some(false)]);
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_option_f64() {
+        let sql_text = "{1.23,4.56,7.89}".as_bytes();
+        let result =
+            Vec::<Option<f64>>::from_sql_text(&Type::FLOAT8_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec![Some(1.23), Some(4.56), Some(7.89)]);
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_option_with_nulls() {
+        // Test that NULL values are converted to None
+        let sql_text = "{1,NULL,3,NULL,5}".as_bytes();
+        let result =
+            Vec::<Option<i32>>::from_sql_text(&Type::INT4_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec![Some(1), None, Some(3), None, Some(5)]);
     }
 }
