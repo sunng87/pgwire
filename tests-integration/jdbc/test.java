@@ -64,8 +64,8 @@ public class test {
                                                         "double_field = ? AND " +
                                                         "string_field = ? AND " +
                                                         "boolean_field = ? AND " +
-                                                        "timestamp_field = ? AND " +
-                                                        "date_field = ? AND " +
+                                                        "timestamp_field = ?::TIMESTAMP AND " +
+                                                        "date_field = ?::DATE AND " +
                                                         "decimal_field = ? AND " +
                                                         "bytes_field = ?")) {
 

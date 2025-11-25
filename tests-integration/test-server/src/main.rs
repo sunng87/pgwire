@@ -4,7 +4,9 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime};
 use futures::{stream, StreamExt};
+use rust_decimal::Decimal;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::net::TcpListener;
@@ -24,7 +26,7 @@ use pgwire::api::results::{
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
-use pgwire::error::PgWireResult;
+use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
 
 const ITERATIONS: usize = 4096;
@@ -148,6 +150,69 @@ impl ExtendedQueryHandler for DummyDatabase {
         let query = &portal.statement.statement;
         println!("extended query: {:?}", query);
         if query.starts_with("SELECT") {
+            // try to parse all parameters
+            for idx in 0..portal.parameter_len() {
+                let param_type = portal
+                    .statement
+                    .parameter_types
+                    .get(idx)
+                    .and_then(|f| f.clone());
+
+                dbg!(&param_type);
+                dbg!(portal.parameters.get(idx));
+                match &param_type {
+                    Some(Type::INT8) => {
+                        let _ = portal.parameter::<i64>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::INT4) => {
+                        let _ = portal.parameter::<i32>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::FLOAT4) => {
+                        let _ = portal.parameter::<f32>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::FLOAT8) => {
+                        let _ = portal.parameter::<f64>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::TEXT) | Some(Type::VARCHAR) => {
+                        let _ = portal.parameter::<String>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::TIMESTAMP) => {
+                        let _ =
+                            portal.parameter::<NaiveDateTime>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::TIMESTAMPTZ) => {
+                        let _ = portal.parameter::<DateTime<FixedOffset>>(
+                            idx,
+                            param_type.as_ref().unwrap(),
+                        )?;
+                    }
+                    Some(Type::DATE) => {
+                        let _ = portal.parameter::<NaiveDate>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::NUMERIC) => {
+                        let _ = portal.parameter::<Decimal>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::BYTEA) => {
+                        let _ = portal.parameter::<Vec<u8>>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::BOOL) => {
+                        let _ = portal.parameter::<bool>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    _ => {
+                        // JDBC doesn't provide type information for some cases,
+                        // we try to parse them as TIMESTAMP or DATE accordingly
+
+                        if let Err(_) = portal.parameter::<NaiveDateTime>(idx, &Type::TIMESTAMP) {
+                            if let Err(_) = portal.parameter::<NaiveDate>(idx, &Type::DATE) {
+                                Err(PgWireError::ApiError(
+                                    format!("Unknown input type {:?}", param_type).into(),
+                                ))?
+                            }
+                        }
+                    }
+                }
+            }
+
             let data = vec![
                 (
                     Some(0),
