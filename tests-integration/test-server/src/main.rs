@@ -158,14 +158,15 @@ impl ExtendedQueryHandler for DummyDatabase {
                     .get(idx)
                     .and_then(|f| f.clone());
 
-                dbg!(&param_type);
-                dbg!(portal.parameters.get(idx));
                 match &param_type {
                     Some(Type::INT8) => {
                         let _ = portal.parameter::<i64>(idx, param_type.as_ref().unwrap())?;
                     }
                     Some(Type::INT4) => {
                         let _ = portal.parameter::<i32>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::INT2) => {
+                        let _ = portal.parameter::<i16>(idx, param_type.as_ref().unwrap())?;
                     }
                     Some(Type::FLOAT4) => {
                         let _ = portal.parameter::<f32>(idx, param_type.as_ref().unwrap())?;
