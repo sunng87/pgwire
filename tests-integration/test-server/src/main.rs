@@ -26,7 +26,7 @@ use pgwire::api::results::{
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
-use pgwire::error::{PgWireError, PgWireResult};
+use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 
 const ITERATIONS: usize = 4096;
@@ -204,11 +204,7 @@ impl ExtendedQueryHandler for DummyDatabase {
                         // we try to parse them as TIMESTAMP or DATE accordingly
 
                         if let Err(_) = portal.parameter::<NaiveDateTime>(idx, &Type::TIMESTAMP) {
-                            if let Err(_) = portal.parameter::<NaiveDate>(idx, &Type::DATE) {
-                                Err(PgWireError::ApiError(
-                                    format!("Unknown input type {:?}", param_type).into(),
-                                ))?
-                            }
+                            let _ = portal.parameter::<NaiveDate>(idx, &Type::DATE);
                         }
                     }
                 }
