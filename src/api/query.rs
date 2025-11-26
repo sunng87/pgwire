@@ -1,3 +1,4 @@
+use std::cmp::max;
 use std::fmt::Debug;
 use std::ops::DerefMut;
 use std::sync::Arc;
@@ -16,6 +17,7 @@ use crate::api::results::{
     DescribePortalResponse, DescribeResponse, DescribeStatementResponse, QueryResponse, Response,
 };
 use crate::api::PgWireConnectionState;
+use crate::api::Type;
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::data::{NoData, ParameterDescription};
 use crate::messages::extendedquery::{
@@ -427,26 +429,55 @@ pub trait ExtendedQueryHandler: Send + Sync {
     /// Return resultset metadata without actually executing statement
     async fn do_describe_statement<C>(
         &self,
-        client: &mut C,
+        _client: &mut C,
         target: &StoredStatement<Self::Statement>,
     ) -> PgWireResult<DescribeStatementResponse>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::PortalStore: PortalStore<Statement = Self::Statement>,
         C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        let stmt = &target.statement;
+        let query_parser = self.query_parser();
+
+        let server_param_types = query_parser.get_parameter_types(stmt)?;
+        let result_schema = query_parser.get_result_schema(stmt)?;
+
+        // use client given types, and fallback to server types if it's not available
+        let param_types = (0usize..max(target.parameter_types.len(), server_param_types.len()))
+            .map(|idx| {
+                target
+                    .parameter_types
+                    .get(idx)
+                    .cloned()
+                    .and_then(|f| f)
+                    .or_else(|| server_param_types.get(idx).cloned())
+                    .unwrap_or(Type::UNKNOWN)
+            })
+            .collect::<Vec<Type>>();
+
+        Ok(DescribeStatementResponse::new(param_types, result_schema))
+    }
 
     /// Return resultset metadata without actually executing portal
     async fn do_describe_portal<C>(
         &self,
-        client: &mut C,
+        _client: &mut C,
         target: &Portal<Self::Statement>,
     ) -> PgWireResult<DescribePortalResponse>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::PortalStore: PortalStore<Statement = Self::Statement>,
         C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+    {
+        let stmt = &target.statement.statement;
+        let query_parser = self.query_parser();
+
+        let result_schema = query_parser.get_result_schema(stmt)?;
+        Ok(DescribePortalResponse::new(result_schema))
+    }
 
     /// This is the main implementation for query execution. Context has
     /// been provided:

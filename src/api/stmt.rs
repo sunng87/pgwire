@@ -8,6 +8,7 @@ use crate::error::PgWireResult;
 use crate::messages::extendedquery::Parse;
 use crate::messages::PgWireBackendMessage;
 
+use super::results::FieldInfo;
 use super::{ClientInfo, DEFAULT_NAME};
 
 #[non_exhaustive]
@@ -63,6 +64,24 @@ pub trait QueryParser {
     ) -> PgWireResult<Self::Statement>
     where
         C: ClientInfo + Unpin + Send + Sync;
+
+    /// Get parameter type information from parsed statement
+    ///
+    /// Implement this if your query engine can provide type resolution for
+    /// parameters. `ExtendedQueryHandler` will use this information for auto
+    /// implementation of `do_describe_statement`
+    fn get_parameter_types(&self, _stmt: &Self::Statement) -> PgWireResult<Vec<Type>> {
+        Ok(vec![])
+    }
+
+    /// Get query result type information from parsed statement
+    ///
+    /// Implement this if your query engine can provide resultset schema
+    /// resolution. `ExtendedQueryHandler` will use this information for auto
+    /// implementation of `do_describe_portal` and `do_describe_portal`
+    fn get_result_schema(&self, _stmt: &Self::Statement) -> PgWireResult<Vec<FieldInfo>> {
+        Ok(vec![])
+    }
 }
 
 #[async_trait]
