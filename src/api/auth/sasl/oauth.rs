@@ -323,10 +323,7 @@ impl Oauth {
 
                 // TODO: handle user mapping with skip_usermap
 
-                Ok((
-                    Authentication::SASLFinal(Bytes::from("")),
-                    SASLState::Finished,
-                ))
+                Ok((Authentication::Ok, SASLState::Finished))
             }
             SASLState::OauthStateError => {
                 let res = msg.into_sasl_response()?;
@@ -336,9 +333,8 @@ impl Oauth {
                     ));
                 }
 
-                Ok((
-                    Authentication::SASLFinal(Bytes::from("")),
-                    SASLState::Finished,
+                Err(PgWireError::OAuthAuthenticationFailed(
+                    "OAuth authentication failed".to_string(),
                 ))
             }
             _ => Err(PgWireError::InvalidSASLState),

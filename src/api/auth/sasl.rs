@@ -120,17 +120,22 @@ impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
                     return Err(PgWireError::InvalidSASLState);
                 };
 
-                client
-                    .send(PgWireBackendMessage::Authentication(res))
-                    .await?;
+                // we need to skip sending Authentication::Ok for Oauth after successful
+                // validation, but we mustn't also prevent other messages from getting sent.
+                match (state.is_oauth(), &res, &new_state) {
+                    (true, Authentication::Ok, SASLState::Finished) => {
+                        // we skip sending Authentication::Ok for OAuth because finish_authentication will send it
+                    }
+                    _ => {
+                        client
+                            .send(PgWireBackendMessage::Authentication(res))
+                            .await?;
+                    }
+                };
+
                 *state = new_state;
 
                 if matches!(*state, SASLState::Finished) {
-                    // if state.is_oauth() {
-                    //     client
-                    //         .send(PgWireBackendMessage::Authentication(Authentication::Ok))
-                    //         .await?;
-                    // }
                     super::finish_authentication(client, self.parameter_provider.as_ref()).await?;
                 }
             }
