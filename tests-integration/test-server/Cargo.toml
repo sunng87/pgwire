@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 pgwire = { path = "../../" }
 async-trait = "0.1"
+chrono = "0.4"
 futures = "0.3"
 tokio = { version = "1", features = ["full"] }
 tokio-rustls = { version = "0.26.2", default-features = false, features = [
@@ -17,3 +18,4 @@ tokio-rustls = { version = "0.26.2", default-features = false, features = [
 ] }
 rustls-pemfile = "2.0"
 rustls-pki-types = "1.0"
+rust_decimal = { version = "1.35", features = ["db-postgres"] }

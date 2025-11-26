@@ -23,6 +23,7 @@ popd
 ### jdbc
 pushd jdbc
 bb test.bb
+jbang test.java
 popd
 
 ### node
