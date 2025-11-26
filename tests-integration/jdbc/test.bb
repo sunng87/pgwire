@@ -1,5 +1,5 @@
 (require '[babashka.pods :as pods])
-(pods/load-pod 'org.babashka/postgresql "0.1.1")
+(pods/load-pod 'org.babashka/postgresql "0.1.4")
 
 (require '[pod.babashka.postgresql :as pg])
 

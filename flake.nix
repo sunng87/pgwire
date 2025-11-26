@@ -15,6 +15,7 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         pythonEnv = pkgs.python3.withPackages (ps: with ps; [
+          psycopg
           psycopg-c
           psycopg2
         ]);
@@ -52,6 +53,8 @@
             nodejs_24
             go
             openssh
+            jbang
+            jdk_headless
           ];
 
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;

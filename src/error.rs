@@ -42,7 +42,7 @@ pub enum PgWireError {
     StatementNotFound(String),
     #[error("Parameter index out of bound: {0}")]
     ParameterIndexOutOfBound(usize),
-    #[error("Cannot convert postgre type {0} to given rust type")]
+    #[error("Cannot convert postgres type {0} to given rust type")]
     InvalidRustTypeForParameter(String),
     #[error("Failed to parse parameter: {0}")]
     FailedToParseParameter(Box<dyn std::error::Error + Send + Sync>),
