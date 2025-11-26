@@ -114,7 +114,6 @@ impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
                         PgWireError::UnsupportedSASLAuthMethod("OAUTHBEARER".to_string())
                     })?;
                     let r = oauth.process_oauth_message(client, msg, &state).await?;
-                    println!("{r:#?}");
                     r
                 } else {
                     return Err(PgWireError::InvalidSASLState);
