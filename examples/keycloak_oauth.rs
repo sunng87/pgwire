@@ -1,3 +1,6 @@
+use base64::prelude::BASE64_URL_SAFE_NO_PAD;
+use base64::Engine;
+use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 /// This example shows how to use pgwire with Keycloak OAuth.
 /// To connect with psql:
 /// 1. Install libq-oauth: sudo apt-get install libpq-oauth
@@ -22,7 +25,7 @@ use tokio_rustls::TlsAcceptor;
 use pgwire::api::auth::sasl::SASLAuthStartupHandler;
 use pgwire::api::auth::{DefaultServerParameterProvider, StartupHandler};
 use pgwire::api::PgWireServerHandlers;
-use pgwire::error::PgWireResult;
+use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::tokio::process_socket;
 
 pub fn random_salt() -> Vec<u8> {
@@ -35,7 +38,7 @@ struct RealmAccess {
     roles: Vec<String>,
 }
 
-#[derive(Debug, Serialiaze, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct KeyCloakClaims {
     sub: String,
     scope: Option<String>,
@@ -102,6 +105,59 @@ impl KeyCloakValidator {
         let jwks: Jwks = response.json().await?;
         Ok(jwks)
     }
+
+    /// this gets the public key for a given key ID (kid)
+    async fn get_public_key(&self, kid: &str) -> Result<DecodingKey, Box<dyn std::error::Error>> {
+        {
+            let cache = self.jwks_cache.read().await;
+            if let Some(pem) = cache.get(kid) {
+                return Ok(DecodingKey::from_rsa_pem(pem.as_bytes())?);
+            }
+        }
+
+        let jwks = self.fetch_jwks().await?;
+        let jwk = jwks
+            .keys
+            .iter()
+            .find(|k| k.kid == kid)
+            .ok_or("Key ID not found in JWKS")?;
+
+        let pem = self.jwk_to_pem(jwk)?;
+        {
+            let mut cache = self.jwks_cache.write().await;
+            cache.insert(kid.to_string(), pem.clone());
+        }
+        Ok(DecodingKey::from_rsa_pem(pem.as_bytes())?)
+    }
+
+    fn jwk_to_pem(&self, jwk: &Jwk) -> Result<String, Box<dyn std::error::Error>> {
+        let n_bytes = BASE64_URL_SAFE_NO_PAD.decode(&jwk.n)?;
+        let e_bytes = BASE64_URL_SAFE_NO_PAD.decode(&jwk.e)?;
+
+        use rsa::BigUint;
+        use rsa::RsaPublicKey;
+
+        let n = BigUint::from_bytes_be(&n_bytes);
+        let e = BigUint::from_bytes_be(&e_bytes);
+
+        let public_key = RsaPublicKey::new(n, e)?;
+
+        use rsa::pkcs8::EncodePublicKey;
+        let pem = public_key.to_public_key_pem(rsa::pkcs8::LineEnding::LF)?;
+
+        Ok(pem)
+    }
+
+    fn split_scopes(scope_str: &str) -> Vec<String> {
+        scope_str
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect()
+    }
+
+    fn check_scopes(granted: &[String], required: &[String]) -> bool {
+        required.iter().all(|req| granted.contains(req))
+    }
 }
 
 #[async_trait]
@@ -113,7 +169,75 @@ impl OauthValidator for KeyCloakValidator {
         issuer: &str,
         required_scopes: &str,
     ) -> PgWireResult<ValidatorModuleResult> {
-        todo!()
+        println!("Validating Keycloak token for user: {}", username);
+        println!("Expected issuer: {}", issuer);
+        println!("Required scopes: {}", required_scopes);
+
+        //get kid from header
+        let header = decode_header(token).map_err(|e| {
+            PgWireError::OAuthValidationError(format!("Invalid token header: {}", e))
+        })?;
+
+        let kid = header.kid.ok_or_else(|| {
+            PgWireError::OAuthValidationError("Missing 'kid' in token header".to_string())
+        })?;
+
+        // public key for the specified kid
+        let decoding_key = self.get_public_key(&kid).await.map_err(|e| {
+            PgWireError::OAuthValidationError(format!("Failed to get public key: {}", e))
+        })?;
+
+        let mut validation = Validation::new(Algorithm::RS256);
+        validation.set_issuer(&[&self.issuer]);
+
+        let token_data =
+            decode::<KeyCloakClaims>(token, &decoding_key, &validation).map_err(|e| {
+                PgWireError::OAuthValidationError(format!("Token validation failed: {}", e))
+            })?;
+
+        let claims = token_data.claims;
+
+        // get 'sub' (user ID)
+        let authn_id = claims.sub.clone();
+
+        // get scopes and validate them
+        let granted_scopes = if let Some(scope) = &claims.scope {
+            Self::split_scopes(scope)
+        } else {
+            // use the realm roles if we can't ffind scopes
+            claims.realm_access.roles.clone()
+        };
+
+        let required_scopes_list = Self::split_scopes(required_scopes);
+
+        let scopes_match = Self::check_scopes(&granted_scopes, &required_scopes_list);
+
+        if !scopes_match {
+            println!(
+                "Scope mismatch. Granted: {:?}, Required: {:?}",
+                granted_scopes, required_scopes_list
+            );
+            return Ok(ValidatorModuleResult {
+                authorized: false,
+                authn_id: Some(authn_id),
+                metadata: None,
+            });
+        }
+
+        Ok(ValidatorModuleResult {
+            authorized: true,
+            authn_id: Some(authn_id),
+            metadata: Some({
+                let mut meta = HashMap::new();
+                if let Some(email) = claims.email {
+                    meta.insert("email".to_string(), email);
+                }
+                if let Some(username) = claims.preferred_username {
+                    meta.insert("preferred_username".to_string(), username);
+                }
+                meta
+            }),
+        })
     }
 }
 
@@ -139,10 +263,12 @@ struct DummyProcessorFactory;
 
 impl PgWireServerHandlers for DummyProcessorFactory {
     fn startup_handler(&self) -> Arc<impl StartupHandler> {
-        let validator = SimpleTokenValidator::new();
+        let validator =
+            KeyCloakValidator::new("http://localhost:8080/realms/postgres-realm".to_string());
+
         let oauth = Oauth::new(
-            "https://auth.com".to_string(),
-            "openid email".to_string(),
+            "http://localhost:8080/realms/postgres-realm".to_string(),
+            "openid postgres".to_string(),
             Arc::new(validator),
         );
 
