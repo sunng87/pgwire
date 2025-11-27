@@ -53,7 +53,10 @@ lazy-regex = { version = "3.3", default-features = false, features = ["lite"] }
 ryu = "1"
 ## config
 percent-encoding = { version = "2.0", optional = true }
+## oauth
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"], optional = true }
+rsa = { version = "0.9", optional = true }
+reqwest = { version = "0.12", features = ["json"], optional = true }
 
 [features]
 default = ["server-api-aws-lc-rs", "pg-ext-types"]
@@ -102,7 +105,7 @@ pg-type-rust-decimal = ["dep:rust_decimal"]
 pg-type-serde-json = ["dep:serde", "dep:serde_json", "postgres-types/with-serde_json-1"]
 _sqlite = []
 _bundled = ["rusqlite/bundled"]
-jwt-validator = ["dep:jsonwebtoken"]
+keycloak-oauth-validator = ["dep:jsonwebtoken", "dep:rsa", "dep:reqwest", "dep:base64"]
 
 [dev-dependencies]
 chrono-tz = "0.10"
@@ -164,6 +167,10 @@ required-features = ["server-api-aws-lc-rs"]
 [[example]]
 name = "oauth"
 required-features = ["server-api-aws-lc-rs"]
+
+[[example]]
+name = "keycloak_oauth"
+required-features = ["server-api-aws-lc-rs", "keycloak-oauth-validator"]
 
 [[example]]
 name = "transaction"
