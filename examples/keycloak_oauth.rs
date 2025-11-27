@@ -1,11 +1,11 @@
-use base64::prelude::BASE64_URL_SAFE_NO_PAD;
-use base64::Engine;
-use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 /// This example shows how to use pgwire with Keycloak OAuth.
 /// To connect with psql:
 /// 1. Install libq-oauth: sudo apt-get install libpq-oauth
 /// 2. Setup keycloak. check this for more details: https://habr.com/en/companies/tantor/articles/959776/
-/// 2. Execute: psql "postgres://postgres@localhost:5432/postgres?oauth_issuer=http://localhost:8080/realms/postgres-realm&oauth_client_id=postgres-client&oauth_client_secret=<my-client-secret>"
+/// 3. Execute: psql "postgres://postgres@localhost:5432/postgres?oauth_issuer=http://localhost:8080/realms/postgres-realm&oauth_client_id=postgres-client&oauth_client_secret=<my-client-secret>"
+use base64::prelude::BASE64_URL_SAFE_NO_PAD;
+use base64::Engine;
+use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Error as IOError, ErrorKind};
@@ -48,7 +48,7 @@ struct KeyCloakClaims {
     email: Option<String>,
     exp: usize,
     iat: usize,
-    iss: usize,
+    iss: String,
 }
 
 /// ODIC discovery doc
@@ -189,6 +189,8 @@ impl OauthValidator for KeyCloakValidator {
 
         let mut validation = Validation::new(Algorithm::RS256);
         validation.set_issuer(&[&self.issuer]);
+        // in prod, the audience MUST be validated
+        validation.validate_aud = false;
 
         let token_data =
             decode::<KeyCloakClaims>(token, &decoding_key, &validation).map_err(|e| {
