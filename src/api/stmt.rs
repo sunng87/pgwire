@@ -56,6 +56,10 @@ impl<S> StoredStatement<S> {
 pub trait QueryParser {
     type Statement;
 
+    /// Convert sql string into the internal type of query execution
+    ///
+    /// The client may or may not provide type information with any parameters
+    /// from the sql.
     async fn parse_sql<C>(
         &self,
         client: &C,
@@ -70,18 +74,14 @@ pub trait QueryParser {
     /// Implement this if your query engine can provide type resolution for
     /// parameters. `ExtendedQueryHandler` will use this information for auto
     /// implementation of `do_describe_statement`
-    fn get_parameter_types(&self, _stmt: &Self::Statement) -> PgWireResult<Vec<Type>> {
-        Ok(vec![])
-    }
+    fn get_parameter_types(&self, _stmt: &Self::Statement) -> PgWireResult<Vec<Type>>;
 
     /// Get query result type information from parsed statement
     ///
     /// Implement this if your query engine can provide resultset schema
     /// resolution. `ExtendedQueryHandler` will use this information for auto
     /// implementation of `do_describe_portal` and `do_describe_portal`
-    fn get_result_schema(&self, _stmt: &Self::Statement) -> PgWireResult<Vec<FieldInfo>> {
-        Ok(vec![])
-    }
+    fn get_result_schema(&self, _stmt: &Self::Statement) -> PgWireResult<Vec<FieldInfo>>;
 }
 
 #[async_trait]
@@ -101,6 +101,14 @@ where
         C: ClientInfo + Unpin + Send + Sync,
     {
         (**self).parse_sql(client, sql, types).await
+    }
+
+    fn get_parameter_types(&self, stmt: &Self::Statement) -> PgWireResult<Vec<Type>> {
+        (**self).get_parameter_types(stmt)
+    }
+
+    fn get_result_schema(&self, stmt: &Self::Statement) -> PgWireResult<Vec<FieldInfo>> {
+        (**self).get_result_schema(stmt)
     }
 }
 
@@ -122,5 +130,13 @@ impl QueryParser for NoopQueryParser {
         C: ClientInfo + Unpin + Send + Sync,
     {
         Ok(sql.to_owned())
+    }
+
+    fn get_parameter_types(&self, _stmt: &Self::Statement) -> PgWireResult<Vec<Type>> {
+        Ok(vec![])
+    }
+
+    fn get_result_schema(&self, _stmt: &Self::Statement) -> PgWireResult<Vec<FieldInfo>> {
+        Ok(vec![])
     }
 }
