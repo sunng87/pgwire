@@ -176,14 +176,14 @@ impl<'a> FromSqlText<'a> for Vec<u8> {
 #[cfg(feature = "pg-type-chrono")]
 impl<'a> FromSqlText<'a> for SystemTime {
     fn from_sql_text(
-        _ty: &Type,
+        ty: &Type,
         value: &[u8],
-        _format_options: &FormatOptions,
+        format_options: &FormatOptions,
     ) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
     {
-        let datetime = NaiveDateTime::parse_from_str(to_str(value)?, "%Y-%m-%d %H:%M:%S.6f")?;
+        let datetime = NaiveDateTime::from_sql_text(ty, value, format_options)?;
         let system_time =
             UNIX_EPOCH + Duration::from_millis(datetime.and_utc().timestamp_millis() as u64);
 
@@ -299,7 +299,7 @@ impl<'a> FromSqlText<'a> for NaiveTime {
     where
         Self: Sized,
     {
-        let time = NaiveTime::parse_from_str(to_str(value)?, "%H:%M:%S")?;
+        let time = NaiveTime::parse_from_str(to_str(value)?, "%H:%M:%S%.6f")?;
         Ok(time)
     }
 }
