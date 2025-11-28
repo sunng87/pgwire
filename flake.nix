@@ -24,7 +24,8 @@
           sqlite.dev
           sqlite.out
           openssl.out
-          libpq
+          libpq.dev
+          libpq.out
         ];
       in
       {
@@ -57,7 +58,8 @@
             jdk_headless
           ];
 
-          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
+          buildInputs = buildInputs;
+
           shellHook = ''
             export CC=clang
             export CXX=clang++

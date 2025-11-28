@@ -10,6 +10,11 @@ This library implements PostgreSQL Wire Protocol, and provide essential APIs to
 write PostgreSQL compatible servers and clients. It's like
 [hyper](https://github.com/hyperium/hyper/), but for postgres wire protocol.
 
+The
+[datafusion-postgres](https://github.com/datafusion-contrib/datafusion-postgres)
+project is a more complete library built on top of pgwire, with datafusion as
+query engine, as well as pg_catalog implementation over datafusion.
+
 If you are interested in related topic, you can check [project
 ideas](https://github.com/sunng87/pgwire/discussions/204) to build on top of
 this library.
@@ -167,7 +172,9 @@ application development, you can use
 * [restate](https://github.com/restatedev/restate) Framework for building
   resilient workflow
 * [pg_catalog](https://github.com/ybrs/pg_catalog) Provides a postgres
-compatibility layer for custom databases.
+  compatibility layer for custom databases.
+* [SpacetimeDB](https://github.com/clockworklabs/SpacetimeDB) The database for
+  multiplayer games. It's using pgwire for postgres protocol interface.
 
 Submit a pull request if your project isn't listed here.
 
