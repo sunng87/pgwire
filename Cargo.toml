@@ -86,6 +86,7 @@ server-api = [
   "dep:md5",
   "dep:hex",
   "dep:postgres-types",
+  "dep:serde_json"
 ]
 server-api-ring = ["server-api", "_ring"]
 server-api-aws-lc-rs = ["server-api", "_aws-lc-rs"]
