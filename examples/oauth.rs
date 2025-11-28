@@ -1,6 +1,6 @@
 /// This example shows how to use pgwire with OAuth.
 /// To connect with psql:
-/// 1. Install libq-oauth: sudo apt-get install libpq-oauth
+/// 1. Install libpq-oauth: sudo apt-get install libpq-oauth
 /// 2. Execute: psql "postgres://postgres@localhost:5432/db?oauth_issuer=https://auth.example.com&oauth_client_id=my-app-client-id"
 use std::collections::HashMap;
 use std::fs::File;

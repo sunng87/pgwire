@@ -84,10 +84,13 @@ impl Oauth {
         let config = config.replace('\\', "\\\\").replace('"', "\\\"");
         let scope = self.scope.replace('\\', "\\\\").replace('"', "\\\"");
 
-        format!(
-            r#"{{"status":"invalid_token","openid-configuration":"{}","scope":"{}"}}"#,
-            config, scope
-        )
+        let error = serde_json::json!({
+            "status": "invalid_token",
+            "openid-configuration": config,
+            "scope": scope
+        });
+
+        error.to_string()
     }
 
     fn parse_client_initial_response(&self, data: &[u8]) -> PgWireResult<Option<String>> {

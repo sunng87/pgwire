@@ -113,8 +113,7 @@ impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
                     let oauth = self.oauth.as_ref().ok_or_else(|| {
                         PgWireError::UnsupportedSASLAuthMethod("OAUTHBEARER".to_string())
                     })?;
-                    let r = oauth.process_oauth_message(client, msg, &state).await?;
-                    r
+                    oauth.process_oauth_message(client, msg, &state).await?
                 } else {
                     return Err(PgWireError::InvalidSASLState);
                 };

@@ -3,17 +3,16 @@
 /// 1. Install libq-oauth: sudo apt-get install libpq-oauth
 /// 2. Setup keycloak. check this for more details: https://habr.com/en/companies/tantor/articles/959776/
 /// 3. Execute: psql "postgres://postgres@localhost:5432/postgres?oauth_issuer=http://localhost:8080/realms/postgres-realm&oauth_client_id=postgres-client&oauth_client_secret=<my-client-secret>"
-use base64::prelude::BASE64_URL_SAFE_NO_PAD;
-use base64::Engine;
-use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Error as IOError, ErrorKind};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use base64::prelude::BASE64_URL_SAFE_NO_PAD;
+use base64::Engine;
+use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 
-use pgwire::api::auth::sasl::oauth::{Oauth, OauthValidator, ValidatorModuleResult};
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use serde::{Deserialize, Serialize};
@@ -22,6 +21,7 @@ use tokio::sync::RwLock;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 
+use pgwire::api::auth::sasl::oauth::{Oauth, OauthValidator, ValidatorModuleResult};
 use pgwire::api::auth::sasl::SASLAuthStartupHandler;
 use pgwire::api::auth::{DefaultServerParameterProvider, StartupHandler};
 use pgwire::api::PgWireServerHandlers;
@@ -54,7 +54,7 @@ struct KeyCloakClaims {
 /// ODIC discovery doc
 #[derive(Debug, Deserialize)]
 struct OidcDiscovery {
-    issuer: String,
+    _issuer: String,
     jwks_uri: String,
 }
 
