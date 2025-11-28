@@ -41,7 +41,7 @@ pub struct ValidatorModuleResult {
     pub metadata: Option<HashMap<String, String>>,
 }
 
-/// validate a bearer tokjn for a specific user
+/// validate a bearer token for a specific user
 #[async_trait]
 pub trait OauthValidator: Send + Sync + Debug {
     async fn validate(
