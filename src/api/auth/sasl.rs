@@ -104,34 +104,29 @@ impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
                     PasswordMessageFamily::SASLResponse(sasl_response)
                 };
 
-                let (res, new_state) = if state.is_scram() {
+                if state.is_scram() {
                     let scram = self.scram.as_ref().ok_or_else(|| {
                         PgWireError::UnsupportedSASLAuthMethod("SCRAM".to_string())
                     })?;
-                    scram.process_scram_message(client, msg, &state).await?
+                    let (res, new_state) = scram.process_scram_message(client, msg, &state).await?;
+                    client
+                        .send(PgWireBackendMessage::Authentication(res))
+                        .await?;
+                    *state = new_state;
                 } else if state.is_oauth() {
                     let oauth = self.oauth.as_ref().ok_or_else(|| {
                         PgWireError::UnsupportedSASLAuthMethod("OAUTHBEARER".to_string())
                     })?;
-                    oauth.process_oauth_message(client, msg, &state).await?
-                } else {
-                    return Err(PgWireError::InvalidSASLState);
-                };
-
-                // we need to skip sending Authentication::Ok for Oauth after successful
-                // validation, but we mustn't also prevent other messages from getting sent.
-                match (state.is_oauth(), &res, &new_state) {
-                    (true, Authentication::Ok, SASLState::Finished) => {
-                        // we skip sending Authentication::Ok for OAuth because finish_authentication will send it
-                    }
-                    _ => {
+                    let (res, new_state) = oauth.process_oauth_message(client, msg, &state).await?;
+                    if let Some(res) = res {
                         client
                             .send(PgWireBackendMessage::Authentication(res))
                             .await?;
                     }
+                    *state = new_state;
+                } else {
+                    return Err(PgWireError::InvalidSASLState);
                 };
-
-                *state = new_state;
 
                 if matches!(*state, SASLState::Finished) {
                     super::finish_authentication(client, self.parameter_provider.as_ref()).await?;
