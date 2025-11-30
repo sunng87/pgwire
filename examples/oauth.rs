@@ -8,19 +8,17 @@ use std::io::{BufReader, Error as IOError, ErrorKind};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-
-use rustls_pemfile::{certs, pkcs8_private_keys};
-use rustls_pki_types::{CertificateDer, PrivateKeyDer};
-use tokio::net::TcpListener;
-use tokio_rustls::rustls::ServerConfig;
-use tokio_rustls::TlsAcceptor;
-
 use pgwire::api::auth::sasl::oauth::{Oauth, OauthValidator, ValidatorModuleResult};
 use pgwire::api::auth::sasl::SASLAuthStartupHandler;
 use pgwire::api::auth::{DefaultServerParameterProvider, StartupHandler};
 use pgwire::api::PgWireServerHandlers;
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
+use rustls_pemfile::{certs, pkcs8_private_keys};
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
+use tokio::net::TcpListener;
+use tokio_rustls::rustls::ServerConfig;
+use tokio_rustls::TlsAcceptor;
 
 pub fn random_salt() -> Vec<u8> {
     Vec::from(rand::random::<[u8; 10]>())
