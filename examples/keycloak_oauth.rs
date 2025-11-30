@@ -12,7 +12,12 @@ use async_trait::async_trait;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use base64::Engine;
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
-
+use pgwire::api::auth::sasl::oauth::{Oauth, OauthValidator, ValidatorModuleResult};
+use pgwire::api::auth::sasl::SASLAuthStartupHandler;
+use pgwire::api::auth::{DefaultServerParameterProvider, StartupHandler};
+use pgwire::api::PgWireServerHandlers;
+use pgwire::error::{PgWireError, PgWireResult};
+use pgwire::tokio::process_socket;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use serde::{Deserialize, Serialize};
@@ -20,13 +25,6 @@ use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
-
-use pgwire::api::auth::sasl::oauth::{Oauth, OauthValidator, ValidatorModuleResult};
-use pgwire::api::auth::sasl::SASLAuthStartupHandler;
-use pgwire::api::auth::{DefaultServerParameterProvider, StartupHandler};
-use pgwire::api::PgWireServerHandlers;
-use pgwire::error::{PgWireError, PgWireResult};
-use pgwire::tokio::process_socket;
 
 pub fn random_salt() -> Vec<u8> {
     Vec::from(rand::random::<[u8; 10]>())
