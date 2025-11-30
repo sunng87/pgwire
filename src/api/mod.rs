@@ -39,6 +39,7 @@ pub enum PgWireConnectionState {
     AwaitingSync,
 }
 
+// TODO: add oauth scope and issuer
 /// Describe a client information holder
 pub trait ClientInfo {
     fn socket_addr(&self) -> SocketAddr;

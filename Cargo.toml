@@ -82,6 +82,7 @@ server-api = [
   "dep:md5",
   "dep:hex",
   "dep:postgres-types",
+  "dep:serde_json"
 ]
 server-api-ring = ["server-api", "_ring"]
 server-api-aws-lc-rs = ["server-api", "_aws-lc-rs"]
@@ -121,6 +122,11 @@ gluesql = { version = "0.18", default-features = false, features = [
   "gluesql_memory_storage",
 ] }
 
+## oauth
+jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
+rsa = { version = "0.9" }
+reqwest = { version = "0.12", features = ["json"] }
+
 [patch.crates-io]
 pgwire = { path = "." }
 
@@ -157,6 +163,14 @@ required-features = ["server-api-aws-lc-rs"]
 
 [[example]]
 name = "scram"
+required-features = ["server-api-aws-lc-rs"]
+
+[[example]]
+name = "oauth"
+required-features = ["server-api-aws-lc-rs"]
+
+[[example]]
+name = "keycloak_oauth"
 required-features = ["server-api-aws-lc-rs"]
 
 [[example]]

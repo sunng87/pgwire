@@ -13,6 +13,7 @@ use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 use super::{ServerParameterProvider, StartupHandler};
 
+pub mod oauth;
 pub mod scram;
 
 #[derive(Debug)]
@@ -22,6 +23,10 @@ pub enum SASLState {
     ScramClientFirstReceived,
     // cached password, channel_binding and partial auth-message
     ScramServerFirstSent(Password, String, String),
+    // oauth authentication method selected
+    OauthStateInit,
+    // failure during authentication
+    OauthStateError,
     // finished
     Finished,
 }
@@ -33,6 +38,10 @@ impl SASLState {
             SASLState::ScramClientFirstReceived | SASLState::ScramServerFirstSent(_, _, _)
         )
     }
+
+    fn is_oauth(&self) -> bool {
+        matches!(self, SASLState::OauthStateInit | SASLState::OauthStateError)
+    }
 }
 
 #[derive(Debug)]
@@ -42,6 +51,8 @@ pub struct SASLAuthStartupHandler<P> {
     state: Mutex<SASLState>,
     /// scram configuration
     scram: Option<scram::ScramAuth>,
+    /// oauth configuration
+    oauth: Option<oauth::Oauth>,
 }
 
 #[async_trait]
@@ -70,39 +81,57 @@ impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
             }
             PgWireFrontendMessage::PasswordMessageFamily(mut msg) => {
                 let mut state = self.state.lock().await;
-                if let SASLState::Initial = *state {
+
+                msg = if let SASLState::Initial = *state {
                     let sasl_initial_response = msg.into_sasl_initial_response()?;
                     let selected_mechanism = sasl_initial_response.auth_method.as_str();
 
-                    if [Self::SCRAM_SHA_256, Self::SCRAM_SHA_256_PLUS].contains(&selected_mechanism)
+                    *state = if [Self::SCRAM_SHA_256, Self::SCRAM_SHA_256_PLUS]
+                        .contains(&selected_mechanism)
                     {
-                        *state = SASLState::ScramClientFirstReceived;
+                        SASLState::ScramClientFirstReceived
+                    } else if Self::OAUTHBEARER == selected_mechanism {
+                        SASLState::OauthStateInit
                     } else {
                         return Err(PgWireError::UnsupportedSASLAuthMethod(
                             selected_mechanism.to_string(),
                         ));
-                    }
+                    };
 
-                    msg = PasswordMessageFamily::SASLInitialResponse(sasl_initial_response);
+                    PasswordMessageFamily::SASLInitialResponse(sasl_initial_response)
                 } else {
                     let sasl_response = msg.into_sasl_response()?;
-                    msg = PasswordMessageFamily::SASLResponse(sasl_response);
-                }
+                    PasswordMessageFamily::SASLResponse(sasl_response)
+                };
 
-                // SCRAM authentication
-                if state.is_scram() {
-                    if let Some(scram) = &self.scram {
-                        let (resp, new_state) =
-                            scram.process_scram_message(client, msg, &state).await?;
-                        client
-                            .send(PgWireBackendMessage::Authentication(resp))
-                            .await?;
-                        *state = new_state;
-                    } else {
-                        // scram is not configured
-                        return Err(PgWireError::UnsupportedSASLAuthMethod("SCRAM".to_string()));
+                let (res, new_state) = if state.is_scram() {
+                    let scram = self.scram.as_ref().ok_or_else(|| {
+                        PgWireError::UnsupportedSASLAuthMethod("SCRAM".to_string())
+                    })?;
+                    scram.process_scram_message(client, msg, &state).await?
+                } else if state.is_oauth() {
+                    let oauth = self.oauth.as_ref().ok_or_else(|| {
+                        PgWireError::UnsupportedSASLAuthMethod("OAUTHBEARER".to_string())
+                    })?;
+                    oauth.process_oauth_message(client, msg, &state).await?
+                } else {
+                    return Err(PgWireError::InvalidSASLState);
+                };
+
+                // we need to skip sending Authentication::Ok for Oauth after successful
+                // validation, but we mustn't also prevent other messages from getting sent.
+                match (state.is_oauth(), &res, &new_state) {
+                    (true, Authentication::Ok, SASLState::Finished) => {
+                        // we skip sending Authentication::Ok for OAuth because finish_authentication will send it
                     }
-                }
+                    _ => {
+                        client
+                            .send(PgWireBackendMessage::Authentication(res))
+                            .await?;
+                    }
+                };
+
+                *state = new_state;
 
                 if matches!(*state, SASLState::Finished) {
                     super::finish_authentication(client, self.parameter_provider.as_ref()).await?;
@@ -121,6 +150,7 @@ impl<P> SASLAuthStartupHandler<P> {
             parameter_provider,
             state: Mutex::new(SASLState::Initial),
             scram: None,
+            oauth: None,
         }
     }
 
@@ -129,8 +159,14 @@ impl<P> SASLAuthStartupHandler<P> {
         self
     }
 
+    pub fn with_oauth(mut self, oauth: oauth::Oauth) -> Self {
+        self.oauth = Some(oauth);
+        self
+    }
+
     const SCRAM_SHA_256: &str = "SCRAM-SHA-256";
     const SCRAM_SHA_256_PLUS: &str = "SCRAM-SHA-256-PLUS";
+    const OAUTHBEARER: &str = "OAUTHBEARER";
 
     fn supported_mechanisms(&self) -> Vec<String> {
         let mut mechanisms = vec![];
@@ -141,6 +177,10 @@ impl<P> SASLAuthStartupHandler<P> {
             if scram.server_cert_sig.is_some() {
                 mechanisms.push(Self::SCRAM_SHA_256_PLUS.to_owned());
             }
+        }
+
+        if self.oauth.is_some() {
+            mechanisms.push(Self::OAUTHBEARER.to_owned());
         }
 
         mechanisms
