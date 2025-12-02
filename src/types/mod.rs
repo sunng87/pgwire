@@ -187,7 +187,13 @@ mod roundtrip_tests {
             vec!["hello".to_string(), "world".to_string()],
             &Type::VARCHAR_ARRAY
         );
+        test_roundtrip!(
+            Vec<String>,
+            vec!["hello\\".to_string(), "world\\".to_string()],
+            &Type::VARCHAR_ARRAY
+        );
         test_roundtrip!(Vec<String>, Vec::<String>::new(), &Type::VARCHAR_ARRAY);
+        test_roundtrip!(Vec<String>, vec![String::new()], &Type::VARCHAR_ARRAY);
 
         // Test boolean arrays
         test_roundtrip!(Vec<bool>, vec![true, false, true], &Type::BOOL_ARRAY);
@@ -197,6 +203,9 @@ mod roundtrip_tests {
 
         // Test char arrays
         test_roundtrip!(Vec<char>, vec!['a', 'b', 'c'], &Type::CHAR_ARRAY);
+
+        // Test Vec<u8> arrays
+        test_roundtrip!(Vec<&[u8]>, vec![b"a", b"b", b"c"], &Type::BYTEA_ARRAY);
     }
 
     #[test]
