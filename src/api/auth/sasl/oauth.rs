@@ -261,7 +261,7 @@ impl Oauth {
         client: &C,
         msg: PasswordMessageFamily,
         state: &SASLState,
-    ) -> PgWireResult<(Authentication, SASLState)>
+    ) -> PgWireResult<(Option<Authentication>, SASLState)>
     where
         C: ClientInfo + Unpin + Send,
     {
@@ -273,7 +273,7 @@ impl Oauth {
                     None => {
                         // if dtata is empty, that means it is for discovery
                         return Ok((
-                            Authentication::SASLContinue(Bytes::from("")),
+                            Some(Authentication::SASLContinue(Bytes::from(""))),
                             SASLState::OauthStateInit,
                         ));
                     }
@@ -285,7 +285,7 @@ impl Oauth {
                     Ok(None) => {
                         let err = self.generate_error_response();
                         return Ok((
-                            Authentication::SASLContinue(Bytes::from(err)),
+                            Some(Authentication::SASLContinue(Bytes::from(err))),
                             SASLState::OauthStateError,
                         ));
                     }
@@ -326,7 +326,7 @@ impl Oauth {
 
                 // TODO: handle user mapping with skip_usermap
 
-                Ok((Authentication::Ok, SASLState::Finished))
+                Ok((None, SASLState::Finished))
             }
             SASLState::OauthStateError => {
                 let res = msg.into_sasl_response()?;
