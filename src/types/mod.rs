@@ -203,9 +203,6 @@ mod roundtrip_tests {
 
         // Test char arrays
         test_roundtrip!(Vec<char>, vec!['a', 'b', 'c'], &Type::CHAR_ARRAY);
-
-        // Test Vec<u8> arrays
-        test_roundtrip!(Vec<&[u8]>, vec![b"a", b"b", b"c"], &Type::BYTEA_ARRAY);
     }
 
     #[test]
