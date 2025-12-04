@@ -409,17 +409,18 @@ fn extract_array_elements(input: &str) -> Result<Vec<String>, Box<dyn Error + Sy
     let mut in_quotes = false;
     let mut escape_next = false;
     let mut depth = 0; // For nested arrays
+    let mut seen_content = false;
 
     for ch in input.chars() {
         match ch {
             '\\' if !escape_next => {
                 escape_next = true;
-                if in_quotes {
-                    current.push(ch);
-                }
             }
             '"' if !escape_next => {
                 in_quotes = !in_quotes;
+                if !in_quotes {
+                    seen_content = true;
+                }
                 // Don't include the quotes in the output
             }
             '{' if !in_quotes && !escape_next => {
@@ -434,6 +435,7 @@ fn extract_array_elements(input: &str) -> Result<Vec<String>, Box<dyn Error + Sy
                 // End of current element
                 if !current.trim().eq_ignore_ascii_case("NULL") {
                     elements.push(std::mem::take(&mut current));
+                    seen_content = false;
                 }
             }
             _ => {
@@ -444,7 +446,7 @@ fn extract_array_elements(input: &str) -> Result<Vec<String>, Box<dyn Error + Sy
     }
 
     // Process the last element
-    if !current.is_empty() && !current.trim().eq_ignore_ascii_case("NULL") {
+    if (seen_content || !current.is_empty()) && !current.trim().eq_ignore_ascii_case("NULL") {
         elements.push(current);
     }
 
@@ -516,17 +518,19 @@ fn extract_array_elements_with_nulls(
     let mut in_quotes = false;
     let mut escape_next = false;
     let mut depth = 0; // For nested arrays
+    let mut seen_content = false;
 
     for ch in input.chars() {
         match ch {
             '\\' if !escape_next => {
                 escape_next = true;
-                if in_quotes {
-                    current.push(ch);
-                }
             }
             '"' if !escape_next => {
                 in_quotes = !in_quotes;
+                // helps to track we have seen some element but it is an empty string
+                if !in_quotes {
+                    seen_content = true
+                }
                 // Don't include the quotes in the output
             }
             '{' if !in_quotes && !escape_next => {
@@ -540,6 +544,7 @@ fn extract_array_elements_with_nulls(
             ',' if !in_quotes && depth == 0 && !escape_next => {
                 // End of current element - include NULL values for Option types
                 elements.push(std::mem::take(&mut current));
+                seen_content = false;
             }
             _ => {
                 current.push(ch);
@@ -549,7 +554,7 @@ fn extract_array_elements_with_nulls(
     }
 
     // Process the last element
-    if !current.is_empty() {
+    if seen_content || !current.is_empty() {
         elements.push(current);
     }
 
@@ -836,6 +841,27 @@ mod tests {
             Vec::<String>::from_sql_text(&Type::VARCHAR_ARRAY, sql_text, &FormatOptions::default())
                 .unwrap();
         assert_eq!(result, vec!["hello,world".to_string(), "test".to_string()]);
+
+        // Test with quoted strings containing backlash (backslash is escaped in sent bytes)
+        let sql_text = r#"{"hello\\world",test}"#.as_bytes();
+        let result =
+            Vec::<String>::from_sql_text(&Type::VARCHAR_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec!["hello\\world".to_string(), "test".to_string()]);
+
+        // Test that single backslash is still treated as a literal
+        let sql_text = r#"{"hello\world",test}"#.as_bytes();
+        let result =
+            Vec::<String>::from_sql_text(&Type::VARCHAR_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec!["helloworld".to_string(), "test".to_string()]);
+
+        // Test string vec that ends in empty string
+        let sql_text = r#"{"hello",""}"#.as_bytes();
+        let result =
+            Vec::<String>::from_sql_text(&Type::VARCHAR_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, vec!["hello".to_string(), "".to_string()]);
 
         // Test with empty array
         let sql_text = "{}".as_bytes();
