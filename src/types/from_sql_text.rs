@@ -269,14 +269,14 @@ impl<'a> FromSqlText<'a> for NaiveDate {
 
         // Handle formats with time components that might include timezone
         let datetime_formats = [
-            "%Y-%m-%d %H:%M:%S%.6f%:z", // "2024-06-20 11:00:00.123456+08:00"
-            "%Y-%m-%d %H:%M:%S%.6f%#z", // "2024-06-20 11:00:00.123456+08"
-            "%Y-%m-%d %H:%M:%S%.6f%z",  // "2024-06-20 11:00:00.123456+0800"
-            "%Y-%m-%d %H:%M:%S%:z",     // "2024-06-20 11:00:00+08:00"
-            "%Y-%m-%d %H:%M:%S%#z",     // "2024-06-20 11:00:00+08"
-            "%Y-%m-%d %H:%M:%S%z",      // "2024-06-20 11:00:00+0800"
-            "%Y-%m-%d %H:%M:%S%.6f",    // "2024-06-20 11:00:00.123456"
-            "%Y-%m-%d %H:%M:%S",        // "2024-06-20 11:00:00"
+            "%Y-%m-%d %H:%M:%S%.f%:z", // "2024-06-20 11:00:00.123456+08:00"
+            "%Y-%m-%d %H:%M:%S%.f%#z", // "2024-06-20 11:00:00.123456+08"
+            "%Y-%m-%d %H:%M:%S%.f%z",  // "2024-06-20 11:00:00.123456+0800"
+            "%Y-%m-%d %H:%M:%S%:z",    // "2024-06-20 11:00:00+08:00"
+            "%Y-%m-%d %H:%M:%S%#z",    // "2024-06-20 11:00:00+08"
+            "%Y-%m-%d %H:%M:%S%z",     // "2024-06-20 11:00:00+0800"
+            "%Y-%m-%d %H:%M:%S%.f",    // "2024-06-20 11:00:00.123456"
+            "%Y-%m-%d %H:%M:%S",       // "2024-06-20 11:00:00"
         ];
 
         for format in &datetime_formats {
@@ -318,8 +318,9 @@ impl<'a> FromSqlText<'a> for NaiveDateTime {
 
         // For TIMESTAMP, ignore timezone and parse as naive datetime
         let naive_formats = [
-            "%Y-%m-%d %H:%M:%S%.6f", // "2024-11-24 11:00:00.123456"
-            "%Y-%m-%d %H:%M:%S",     // "2024-11-24 11:00:00"
+            "%Y-%m-%d %H:%M:%S%.f", // "2024-11-24 11:00:00.123456"
+            "%Y-%m-%d %H:%M:%S%.f", // "2024-11-24 11:00:00.123456"
+            "%Y-%m-%d %H:%M:%S",    // "2024-11-24 11:00:00"
         ];
 
         for format in &naive_formats {
@@ -330,12 +331,12 @@ impl<'a> FromSqlText<'a> for NaiveDateTime {
 
         // Fallback: try to parse with timezone and extract naive part
         let timezone_formats = [
-            "%Y-%m-%d %H:%M:%S%.6f%:z", // "2024-11-24 11:00:00.123456+08:00"
-            "%Y-%m-%d %H:%M:%S%.6f%#z", // "2024-11-24 11:00:00.123456+08"
-            "%Y-%m-%d %H:%M:%S%.6f%z",  // "2024-11-24 11:00:00.123456+0800"
-            "%Y-%m-%d %H:%M:%S%:z",     // "2024-11-24 11:00:00+08:00"
-            "%Y-%m-%d %H:%M:%S%#z",     // "2024-11-24 11:00:00+08"
-            "%Y-%m-%d %H:%M:%S%z",      // "2024-11-24 11:00:00+0800"
+            "%Y-%m-%d %H:%M:%S%.f%:z", // "2024-11-24 11:00:00.123456+08:00"
+            "%Y-%m-%d %H:%M:%S%.f%#z", // "2024-11-24 11:00:00.123456+08"
+            "%Y-%m-%d %H:%M:%S%.f%z",  // "2024-11-24 11:00:00.123456+0800"
+            "%Y-%m-%d %H:%M:%S%:z",    // "2024-11-24 11:00:00+08:00"
+            "%Y-%m-%d %H:%M:%S%#z",    // "2024-11-24 11:00:00+08"
+            "%Y-%m-%d %H:%M:%S%z",     // "2024-11-24 11:00:00+0800"
         ];
 
         for format in &timezone_formats {
@@ -505,6 +506,17 @@ impl_vec_from_sql_text!(char);
 impl_vec_from_sql_text!(bool);
 impl_vec_from_sql_text!(String);
 
+#[cfg(feature = "pg-type-chrono")]
+impl_vec_from_sql_text!(NaiveDate);
+#[cfg(feature = "pg-type-chrono")]
+impl_vec_from_sql_text!(NaiveTime);
+#[cfg(feature = "pg-type-chrono")]
+impl_vec_from_sql_text!(NaiveDateTime);
+#[cfg(feature = "pg-type-chrono")]
+impl_vec_from_sql_text!(DateTime<FixedOffset>);
+#[cfg(feature = "pg-type-chrono")]
+impl_vec_from_sql_text!(SystemTime);
+
 // Helper function to extract array elements including NULL values for Option types
 fn extract_array_elements_with_nulls(
     input: &str,
@@ -620,6 +632,17 @@ impl_vec_option_from_sql_text!(f64);
 impl_vec_option_from_sql_text!(char);
 impl_vec_option_from_sql_text!(bool);
 impl_vec_option_from_sql_text!(String);
+
+#[cfg(feature = "pg-type-chrono")]
+impl_vec_option_from_sql_text!(NaiveDate);
+#[cfg(feature = "pg-type-chrono")]
+impl_vec_option_from_sql_text!(NaiveTime);
+#[cfg(feature = "pg-type-chrono")]
+impl_vec_option_from_sql_text!(NaiveDateTime);
+#[cfg(feature = "pg-type-chrono")]
+impl_vec_option_from_sql_text!(DateTime<FixedOffset>);
+#[cfg(feature = "pg-type-chrono")]
+impl_vec_option_from_sql_text!(SystemTime);
 
 #[cfg(test)]
 mod tests {
@@ -1246,5 +1269,196 @@ mod tests {
             NaiveDate::from_sql_text(&Type::DATE, sql_text, &FormatOptions::default()).unwrap();
         let expected = NaiveDate::from_ymd_opt(2024, 6, 20).unwrap();
         assert_eq!(result, expected);
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_from_sql_text_for_vec_naive_date() {
+        let sql_text = "{2024-01-01,2024-12-31}".as_bytes();
+        let result =
+            Vec::<NaiveDate>::from_sql_text(&Type::DATE_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(
+            result,
+            vec![
+                NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+                NaiveDate::from_ymd_opt(2024, 12, 31).unwrap()
+            ]
+        );
+
+        // Test empty array
+        let sql_text = "{}".as_bytes();
+        let result =
+            Vec::<NaiveDate>::from_sql_text(&Type::DATE_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, Vec::<NaiveDate>::new());
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_from_sql_text_for_vec_naive_time() {
+        let sql_text = "{12:30:45,23:59:59.123456}".as_bytes();
+        let result =
+            Vec::<NaiveTime>::from_sql_text(&Type::TIME_ARRAY, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(
+            result,
+            vec![
+                NaiveTime::from_hms_opt(12, 30, 45).unwrap(),
+                NaiveTime::from_hms_micro_opt(23, 59, 59, 123456).unwrap()
+            ]
+        );
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_from_sql_text_for_vec_naive_datetime() {
+        let sql_text = "{2024-01-01 12:30:45,2024-12-31 23:59:59.123456}".as_bytes();
+        let result = Vec::<NaiveDateTime>::from_sql_text(
+            &Type::TIMESTAMP_ARRAY,
+            sql_text,
+            &FormatOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            vec![
+                NaiveDate::from_ymd_opt(2024, 1, 1)
+                    .unwrap()
+                    .and_hms_opt(12, 30, 45)
+                    .unwrap(),
+                NaiveDate::from_ymd_opt(2024, 12, 31)
+                    .unwrap()
+                    .and_hms_micro_opt(23, 59, 59, 123456)
+                    .unwrap()
+            ]
+        );
+
+        // Test with timezone info (should be ignored for NaiveDateTime)
+        let sql_text = "{2024-01-01 12:30:45+08:00,2024-12-31 23:59:59.123456-05:00}".as_bytes();
+        let result = Vec::<NaiveDateTime>::from_sql_text(
+            &Type::TIMESTAMP_ARRAY,
+            sql_text,
+            &FormatOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            vec![
+                NaiveDate::from_ymd_opt(2024, 1, 1)
+                    .unwrap()
+                    .and_hms_opt(12, 30, 45)
+                    .unwrap(),
+                NaiveDate::from_ymd_opt(2024, 12, 31)
+                    .unwrap()
+                    .and_hms_micro_opt(23, 59, 59, 123456)
+                    .unwrap()
+            ]
+        );
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_from_sql_text_for_vec_datetime_fixed_offset() {
+        use chrono::Timelike;
+
+        let sql_text = "{2024-01-01 12:30:45+08:00,2024-12-31 23:59:59.123456-05:00}".as_bytes();
+        let result = Vec::<DateTime<FixedOffset>>::from_sql_text(
+            &Type::TIMESTAMPTZ_ARRAY,
+            sql_text,
+            &FormatOptions::default(),
+        )
+        .unwrap();
+
+        let offset_plus_8 = FixedOffset::east_opt(8 * 3600).unwrap();
+        let offset_minus_5 = FixedOffset::west_opt(5 * 3600).unwrap();
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].offset(), &offset_plus_8);
+        assert_eq!(result[0].hour(), 12);
+        assert_eq!(result[1].offset(), &offset_minus_5);
+        assert_eq!(result[1].hour(), 23);
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_from_sql_text_for_vec_option_naive_date() {
+        let sql_text = "{2024-01-01,NULL,2024-12-31}".as_bytes();
+        let result = Vec::<Option<NaiveDate>>::from_sql_text(
+            &Type::DATE_ARRAY,
+            sql_text,
+            &FormatOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Some(NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()),
+                None,
+                Some(NaiveDate::from_ymd_opt(2024, 12, 31).unwrap())
+            ]
+        );
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_from_sql_text_for_vec_option_naive_datetime() {
+        let sql_text =
+            "{2024-01-01 12:30:45,NULL,2024-12-31 23:59:59.123456,2024-12-31 23:59:59.0}"
+                .as_bytes();
+        let result = Vec::<Option<NaiveDateTime>>::from_sql_text(
+            &Type::TIMESTAMP_ARRAY,
+            sql_text,
+            &FormatOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Some(
+                    NaiveDate::from_ymd_opt(2024, 1, 1)
+                        .unwrap()
+                        .and_hms_opt(12, 30, 45)
+                        .unwrap()
+                ),
+                None,
+                Some(
+                    NaiveDate::from_ymd_opt(2024, 12, 31)
+                        .unwrap()
+                        .and_hms_micro_opt(23, 59, 59, 123456)
+                        .unwrap()
+                ),
+                Some(
+                    NaiveDate::from_ymd_opt(2024, 12, 31)
+                        .unwrap()
+                        .and_hms_micro_opt(23, 59, 59, 0)
+                        .unwrap()
+                )
+            ]
+        );
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_from_sql_text_for_vec_option_datetime_fixed_offset() {
+        let sql_text =
+            "{2024-01-01 12:30:45+08:00,NULL,2024-12-31 23:59:59.123456-05:00}".as_bytes();
+        let result = Vec::<Option<DateTime<FixedOffset>>>::from_sql_text(
+            &Type::TIMESTAMPTZ_ARRAY,
+            sql_text,
+            &FormatOptions::default(),
+        )
+        .unwrap();
+
+        let offset_plus_8 = FixedOffset::east_opt(8 * 3600).unwrap();
+        let offset_minus_5 = FixedOffset::west_opt(5 * 3600).unwrap();
+
+        assert_eq!(result.len(), 3);
+        assert!(result[0].is_some());
+        assert!(result[1].is_none());
+        assert!(result[2].is_some());
+
+        assert_eq!(result[0].as_ref().unwrap().offset(), &offset_plus_8);
+        assert_eq!(result[2].as_ref().unwrap().offset(), &offset_minus_5);
     }
 }
