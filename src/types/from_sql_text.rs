@@ -502,6 +502,7 @@ impl_vec_from_sql_text!(f64);
 impl_vec_from_sql_text!(char);
 impl_vec_from_sql_text!(bool);
 impl_vec_from_sql_text!(String);
+impl_vec_from_sql_text!(Vec<u8>);
 
 // Helper function to extract array elements including NULL values for Option types
 fn extract_array_elements_with_nulls(
@@ -615,6 +616,7 @@ impl_vec_option_from_sql_text!(f64);
 impl_vec_option_from_sql_text!(char);
 impl_vec_option_from_sql_text!(bool);
 impl_vec_option_from_sql_text!(String);
+impl_vec_option_from_sql_text!(Vec<u8>);
 
 #[cfg(test)]
 mod tests {
