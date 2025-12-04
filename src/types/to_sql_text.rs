@@ -175,12 +175,18 @@ impl ToSqlText for f64 {
 impl ToSqlText for &[u8] {
     fn to_sql_text(
         &self,
-        _ty: &Type,
+        ty: &Type,
         out: &mut BytesMut,
         format_options: &FormatOptions,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         let bytea_output =
             ByteaOutput::try_from(format_options.bytea_output.as_str()).map_err(Box::new)?;
+
+        // for a bytea_array, the bytes are enclosed in quotes,
+        // and \x is escaped
+        if ty == &Type::BYTEA_ARRAY {
+            out.put_slice(b"\"\\");
+        }
 
         match bytea_output {
             ByteaOutput::Hex => {
@@ -197,6 +203,10 @@ impl ToSqlText for &[u8] {
                     32..=126 => out.put_u8(*b),
                 });
             }
+        }
+
+        if ty == &Type::BYTEA_ARRAY {
+            out.put_slice(b"\"");
         }
 
         Ok(IsNull::No)
@@ -664,6 +674,19 @@ mod test {
             .unwrap();
         assert_eq!(
             r#"{"{",abc,"}","\"","","a,b","null","NULL",NULL!,"\\"," ","\"\""}"#,
+            String::from_utf8_lossy(buf.freeze().as_ref())
+        );
+    }
+
+    #[test]
+    fn test_bytea_array() {
+        let data = vec![b"hello", b"world"];
+        let mut buf = BytesMut::new();
+        data.to_sql_text(&Type::BYTEA_ARRAY, &mut buf, &FormatOptions::default())
+            .unwrap();
+
+        assert_eq!(
+            "{\"\\\\x68656c6c6f\",\"\\\\x776f726c64\"}",
             String::from_utf8_lossy(buf.freeze().as_ref())
         );
     }
