@@ -505,6 +505,7 @@ impl_vec_from_sql_text!(f64);
 impl_vec_from_sql_text!(char);
 impl_vec_from_sql_text!(bool);
 impl_vec_from_sql_text!(String);
+impl_vec_from_sql_text!(Vec<u8>);
 
 #[cfg(feature = "pg-type-chrono")]
 impl_vec_from_sql_text!(NaiveDate);
@@ -632,6 +633,7 @@ impl_vec_option_from_sql_text!(f64);
 impl_vec_option_from_sql_text!(char);
 impl_vec_option_from_sql_text!(bool);
 impl_vec_option_from_sql_text!(String);
+impl_vec_option_from_sql_text!(Vec<u8>);
 
 #[cfg(feature = "pg-type-chrono")]
 impl_vec_option_from_sql_text!(NaiveDate);
