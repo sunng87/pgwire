@@ -43,6 +43,12 @@ ring = { version = "0.17", optional = true }
 aws-lc-rs = { version = "1.7", optional = true }
 stringprep = { version = "0.1.2", optional = true }
 x509-certificate = { version = "0.25", optional = true }
+
+## oauth
+jsonwebtoken = { version = "10", features = ["aws_lc_rs"], optional = true }
+rsa = { version = "0.9", optional = true }
+reqwest = { version = "0.12", features = ["json"], optional = true }
+
 ## types
 postgres-types = { version = "0.2", features = ["array-impls"], optional = true }
 chrono = { version = "0.4", features = ["std"], optional = true }
@@ -82,7 +88,11 @@ server-api = [
   "dep:md5",
   "dep:hex",
   "dep:postgres-types",
-  "dep:serde_json"
+  "dep:serde_json",
+  "dep:reqwest",
+  "dep:jsonwebtoken",
+  "dep:rsa",
+  "dep:serde"
 ]
 server-api-ring = ["server-api", "_ring"]
 server-api-aws-lc-rs = ["server-api", "_aws-lc-rs"]
