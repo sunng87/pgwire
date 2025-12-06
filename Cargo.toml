@@ -88,10 +88,13 @@ server-api = [
   "dep:md5",
   "dep:hex",
   "dep:postgres-types",
-  "dep:serde_json"
+  "dep:serde_json",
+  "dep:reqwest",
+  "dep:jsonwebtoken",
+  "dep:rsa"
 ]
 server-api-ring = ["server-api", "_ring"]
-server-api-aws-lc-rs = ["server-api", "_aws-lc-rs", "oauth"]
+server-api-aws-lc-rs = ["server-api", "_aws-lc-rs"]
 client-api = [
   "dep:percent-encoding",
   "dep:pin-project",
@@ -106,7 +109,6 @@ client-api-aws-lc-rs = ["client-api", "_aws-lc-rs", "dep:rustls-pki-types"]
 pg-type-chrono = ["dep:chrono", "postgres-types/with-chrono-0_4"]
 pg-type-rust-decimal = ["dep:rust_decimal"]
 pg-type-serde-json = ["dep:serde", "dep:serde_json", "postgres-types/with-serde_json-1"]
-oauth = ["dep:reqwest", "dep:jsonwebtoken", "dep:rsa"]
 _sqlite = []
 _bundled = ["rusqlite/bundled"]
 
