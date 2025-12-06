@@ -350,6 +350,7 @@ where
 pub mod cleartext;
 pub mod md5pass;
 pub mod noop;
+#[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
 pub mod noop_oauth;
 #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
 pub mod sasl;
