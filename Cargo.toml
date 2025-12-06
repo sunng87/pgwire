@@ -91,7 +91,8 @@ server-api = [
   "dep:serde_json",
   "dep:reqwest",
   "dep:jsonwebtoken",
-  "dep:rsa"
+  "dep:rsa",
+  "dep:serde"
 ]
 server-api-ring = ["server-api", "_ring"]
 server-api-aws-lc-rs = ["server-api", "_aws-lc-rs"]

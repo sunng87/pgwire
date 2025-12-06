@@ -153,16 +153,13 @@ impl NoopOidcValidator {
             .map_err(|err| {
                 PgWireError::OAuthValidationError(format!(
                     "failed to fetch jwks from uri: {uri}. Err: {}",
-                    err.to_string()
+                    err
                 ))
             })?
             .json()
             .await
             .map_err(|err| {
-                PgWireError::OAuthValidationError(format!(
-                    "invalid jwks format. Err {}",
-                    err.to_string()
-                ))
+                PgWireError::OAuthValidationError(format!("invalid jwks format. Err {}", err))
             })?;
 
         let jwk: Jwk = jwks
