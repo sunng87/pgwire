@@ -52,6 +52,7 @@ pub struct SimpleOidcValidator {
     issuer: String,
     client: reqwest::Client,
     key_cache: Arc<RwLock<HashMap<String, String>>>,
+    jwks_uri: Arc<RwLock<Option<String>>>,
 }
 
 impl SimpleOidcValidator {
@@ -59,26 +60,23 @@ impl SimpleOidcValidator {
         let issuer = issuer.into();
         let client = reqwest::Client::new();
 
-        let validator = Self {
+        let uri = Self::fetch_jwks_uri(&client, &issuer).await?;
+
+        Ok(Self {
             issuer,
             client,
             key_cache: Arc::new(RwLock::new(HashMap::new())),
-        };
-
-        // check if we can reach the issuer
-        validator.fetch_jwks_uri().await?;
-
-        Ok(validator)
+            jwks_uri: Arc::new(RwLock::new(Some(uri))),
+        })
     }
 
-    async fn fetch_jwks_uri(&self) -> Result<String, PgWireError> {
+    async fn fetch_jwks_uri(client: &reqwest::Client, issuer: &str) -> Result<String, PgWireError> {
         let url = format!(
             "{}/.well-known/openid-configuration",
-            self.issuer.trim_end_matches('/')
+            issuer.trim_end_matches('/')
         );
 
-        let discovery: SimpleOidcDiscovery = self
-            .client
+        let discovery: SimpleOidcDiscovery = client
             .get(&url)
             .send()
             .await
@@ -88,6 +86,20 @@ impl SimpleOidcValidator {
             .map_err(|e| PgWireError::OAuthValidationError(format!("Invalid discovery: {}", e)))?;
 
         Ok(discovery.jwks_uri)
+    }
+
+    /// retrieve uri from the cache
+    async fn get_uri(&self) -> Result<String, PgWireError> {
+        let cache = self.jwks_uri.read().await;
+        if let Some(uri) = cache.as_ref() {
+            return Ok(uri.clone());
+        }
+
+        // incase the uri is empty during startup
+        let uri = Self::fetch_jwks_uri(&self.client, &self.issuer).await?;
+        let mut cache = self.jwks_uri.write().await;
+        *cache = Some(uri.clone());
+        Ok(uri)
     }
 
     fn jwk_to_pem(&self, jwk: &Jwk) -> Result<String, PgWireError> {
@@ -144,7 +156,7 @@ impl SimpleOidcValidator {
             }
         }
 
-        let uri = self.fetch_jwks_uri().await?;
+        let uri = self.get_uri().await?;
         let jwks: Jwks = self
             .client
             .get(&uri)
