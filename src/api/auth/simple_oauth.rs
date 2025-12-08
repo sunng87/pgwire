@@ -16,7 +16,7 @@ use crate::{
 };
 
 #[derive(Debug, Deserialize)]
-struct NoopOidcDiscovery {
+struct SimpleOidcDiscovery {
     jwks_uri: String,
 }
 
@@ -48,13 +48,13 @@ struct Claims {
 
 /// A simple OIDC validator that works with most identity providers
 #[derive(Debug)]
-pub struct NoopOidcValidator {
+pub struct SimpleOidcValidator {
     issuer: String,
     client: reqwest::Client,
     key_cache: Arc<RwLock<HashMap<String, String>>>,
 }
 
-impl NoopOidcValidator {
+impl SimpleOidcValidator {
     pub async fn new(issuer: impl Into<String>) -> Result<Self, PgWireError> {
         let issuer = issuer.into();
         let client = reqwest::Client::new();
@@ -77,7 +77,7 @@ impl NoopOidcValidator {
             self.issuer.trim_end_matches('/')
         );
 
-        let discovery: NoopOidcDiscovery = self
+        let discovery: SimpleOidcDiscovery = self
             .client
             .get(&url)
             .send()
@@ -181,7 +181,7 @@ impl NoopOidcValidator {
 }
 
 #[async_trait]
-impl OauthValidator for NoopOidcValidator {
+impl OauthValidator for SimpleOidcValidator {
     async fn validate(
         &self,
         token: &str,
