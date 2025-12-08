@@ -88,11 +88,14 @@ server-api = [
   "dep:md5",
   "dep:hex",
   "dep:postgres-types",
-  "dep:serde_json",
-  "dep:reqwest",
+  "dep:serde_json"
+]
+simple-oidc-validator = [
   "dep:jsonwebtoken",
   "dep:rsa",
-  "dep:serde"
+  "dep:reqwest",
+  "dep:base64",
+  "dep:serde",
 ]
 server-api-ring = ["server-api", "_ring"]
 server-api-aws-lc-rs = ["server-api", "_aws-lc-rs"]
