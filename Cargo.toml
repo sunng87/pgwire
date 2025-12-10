@@ -180,7 +180,7 @@ required-features = ["server-api-aws-lc-rs"]
 
 [[example]]
 name = "oauth"
-required-features = ["server-api-aws-lc-rs"]
+required-features = ["server-api-aws-lc-rs", "simple-oidc-validator"]
 
 [[example]]
 name = "keycloak_oauth"
