@@ -13,6 +13,9 @@ use crate::{
     messages::startup::{Authentication, PasswordMessageFamily},
 };
 
+#[cfg(feature = "simple-oidc-validator")]
+pub use crate::api::auth::simple_oidc_validator::SimpleOidcValidator;
+
 #[derive(Debug)]
 pub struct Oauth {
     pub issuer: String,

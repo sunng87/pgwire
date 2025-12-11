@@ -2,78 +2,21 @@
 /// To connect with psql:
 /// 1. Install libpq-oauth: sudo apt-get install libpq-oauth
 /// 2. Execute: psql "postgres://postgres@localhost:5432/db?oauth_issuer=https://auth.example.com&oauth_client_id=my-app-client-id"
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Error as IOError, ErrorKind};
 use std::sync::Arc;
 
-use async_trait::async_trait;
-use pgwire::api::auth::sasl::oauth::{Oauth, OauthValidator, ValidatorModuleResult};
+use pgwire::api::auth::sasl::oauth::Oauth;
 use pgwire::api::auth::sasl::SASLAuthStartupHandler;
+use pgwire::api::auth::simple_oidc_validator::SimpleOidcValidator;
 use pgwire::api::auth::{DefaultServerParameterProvider, StartupHandler};
 use pgwire::api::PgWireServerHandlers;
-use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::net::TcpListener;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
-
-pub fn random_salt() -> Vec<u8> {
-    Vec::from(rand::random::<[u8; 10]>())
-}
-
-// TODO: change to JSON web token validator, this is just for validating the current code
-#[derive(Debug)]
-struct SimpleTokenValidator {
-    valid_tokens: HashMap<String, String>,
-}
-
-impl SimpleTokenValidator {
-    pub fn new() -> Self {
-        let mut valid_tokens = HashMap::new();
-        valid_tokens.insert(
-            "secret_token_123".to_string(),
-            "user@example.com".to_string(),
-        );
-        valid_tokens.insert(
-            "admin_token_456".to_string(),
-            "admin@example.com".to_string(),
-        );
-
-        Self { valid_tokens }
-    }
-}
-
-#[async_trait]
-impl OauthValidator for SimpleTokenValidator {
-    async fn validate(
-        &self,
-        token: &str,
-        username: &str,
-        issuer: &str,
-        required_scopes: &str,
-    ) -> PgWireResult<ValidatorModuleResult> {
-        println!("Validating token for user: {}", username);
-        println!("Expected issuer: {}", issuer);
-        println!("Required scopes: {}", required_scopes);
-
-        if let Some(authenticated_user) = self.valid_tokens.get(token) {
-            Ok(ValidatorModuleResult {
-                authorized: true,
-                authn_id: Some(authenticated_user.clone()),
-                metadata: None,
-            })
-        } else {
-            Ok(ValidatorModuleResult {
-                authorized: false,
-                authn_id: None,
-                metadata: None,
-            })
-        }
-    }
-}
 
 /// configure TlsAcceptor and get server cert for SCRAM channel binding
 fn setup_tls() -> Result<TlsAcceptor, IOError> {
@@ -93,28 +36,34 @@ fn setup_tls() -> Result<TlsAcceptor, IOError> {
     Ok(TlsAcceptor::from(Arc::new(config)))
 }
 
-struct DummyProcessorFactory;
-
+struct DummyProcessorFactory {
+    startup_handler: Arc<SASLAuthStartupHandler<DefaultServerParameterProvider>>,
+}
 impl PgWireServerHandlers for DummyProcessorFactory {
     fn startup_handler(&self) -> Arc<impl StartupHandler> {
-        let validator = SimpleTokenValidator::new();
-        let oauth = Oauth::new(
-            "https://auth.com".to_string(),
-            "openid email".to_string(),
-            Arc::new(validator),
-        );
-
-        let authenticator =
-            SASLAuthStartupHandler::new(Arc::new(DefaultServerParameterProvider::default()))
-                .with_oauth(oauth);
-
-        Arc::new(authenticator)
+        self.startup_handler.clone()
     }
 }
 
 #[tokio::main]
 pub async fn main() {
-    let factory = Arc::new(DummyProcessorFactory);
+    let iss = "http://localhost:8080/realms/postgres-realm";
+    let validator = SimpleOidcValidator::new(iss)
+        .await
+        .expect("Failed to create OIDC validator");
+
+    let oauth = Oauth::new(
+        iss.to_string(),
+        "openid email".to_string(),
+        Arc::new(validator),
+    );
+
+    let startup_handler = Arc::new(
+        SASLAuthStartupHandler::new(Arc::new(DefaultServerParameterProvider::default()))
+            .with_oauth(oauth),
+    );
+
+    let factory = Arc::new(DummyProcessorFactory { startup_handler });
 
     let server_addr = "127.0.0.1:5432";
     let tls_acceptor = setup_tls().unwrap();
