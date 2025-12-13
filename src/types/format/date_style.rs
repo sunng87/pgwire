@@ -1,4 +1,5 @@
 use crate::error::PgWireError;
+use smol_str::{format_smolstr, SmolStr};
 
 pub const DATE_STYLE_ORDER_DMY: &str = "dmy";
 pub const DATE_STYLE_ORDER_MDY: &str = "mdy";
@@ -94,6 +95,14 @@ impl DateStyle {
         match self.style {
             DateStyleDisplayStyle::ISO => format!("{}%:::z", self.full_format_str()),
             _ => format!("{} %Z", self.full_format_str()),
+        }
+    }
+
+    /// Get datetime with tz format smolstr for current style
+    pub fn full_tz_format_smolstr(&self) -> SmolStr {
+        match self.style {
+            DateStyleDisplayStyle::ISO => format_smolstr!("{}%:::z", self.full_format_str()),
+            _ => format_smolstr!("{} %Z", self.full_format_str()),
         }
     }
 

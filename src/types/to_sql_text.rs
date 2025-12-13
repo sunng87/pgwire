@@ -126,7 +126,8 @@ macro_rules! impl_to_sql_text {
                 w: &mut BytesMut,
                 _format_options: &FormatOptions,
             ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
-                w.put_slice(self.to_string().as_bytes());
+                use std::fmt::Write;
+                write!(w, "{}", self)?;
                 Ok(IsNull::No)
             }
         }
@@ -260,12 +261,13 @@ where
         format_options: &FormatOptions,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         use crate::types::format::date_style::DateStyle;
+        use std::fmt::Write;
 
         let date_style = DateStyle::new(&format_options.date_style);
 
         let fmt = match *ty {
             Type::TIMESTAMP | Type::TIMESTAMP_ARRAY => date_style.full_format_str(),
-            Type::TIMESTAMPTZ | Type::TIMESTAMPTZ_ARRAY => &date_style.full_tz_format_str(),
+            Type::TIMESTAMPTZ | Type::TIMESTAMPTZ_ARRAY => &date_style.full_tz_format_smolstr(),
             Type::DATE | Type::DATE_ARRAY => date_style.date_format_str(),
             Type::TIME | Type::TIME_ARRAY => "%H:%M:%S%.6f",
             Type::TIMETZ | Type::TIMETZ_ARRAY => date_style.time_tz_format_str(),
@@ -273,7 +275,7 @@ where
                 ty.clone(),
             )))?,
         };
-        out.put_slice(self.format(fmt).to_string().as_bytes());
+        write!(out, "{}", self.format(fmt))?;
         Ok(IsNull::No)
     }
 }
@@ -287,6 +289,7 @@ impl ToSqlText for NaiveDateTime {
         format_options: &FormatOptions,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         use crate::types::format::date_style::DateStyle;
+        use std::fmt::Write;
 
         let date_style = DateStyle::new(&format_options.date_style);
 
@@ -298,7 +301,7 @@ impl ToSqlText for NaiveDateTime {
                 ty.clone(),
             )))?,
         };
-        out.put_slice(self.format(fmt).to_string().as_bytes());
+        write!(out, "{}", self.format(fmt))?;
         Ok(IsNull::No)
     }
 }
@@ -312,17 +315,16 @@ impl ToSqlText for NaiveDate {
         format_options: &FormatOptions,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         use crate::types::format::date_style::DateStyle;
+        use std::fmt::Write;
+
+        if !matches!(*ty, Type::DATE | Type::DATE_ARRAY) {
+            return Err(Box::new(postgres_types::WrongType::new::<NaiveDate>(
+                ty.clone(),
+            )));
+        }
 
         let date_style = DateStyle::new(&format_options.date_style);
-
-        let fmt = match *ty {
-            Type::DATE | Type::DATE_ARRAY => self.format(date_style.date_format_str()).to_string(),
-            _ => Err(Box::new(postgres_types::WrongType::new::<NaiveDate>(
-                ty.clone(),
-            )))?,
-        };
-
-        out.put_slice(fmt.as_bytes());
+        write!(out, "{}", self.format(date_style.date_format_str()))?;
         Ok(IsNull::No)
     }
 }
@@ -335,13 +337,14 @@ impl ToSqlText for NaiveTime {
         out: &mut BytesMut,
         _format_options: &FormatOptions,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
-        let fmt = match *ty {
-            Type::TIME | Type::TIME_ARRAY => self.format("%H:%M:%S%.6f").to_string(),
-            _ => Err(Box::new(postgres_types::WrongType::new::<NaiveTime>(
+        use std::fmt::Write;
+
+        if !matches!(*ty, Type::TIME | Type::TIME_ARRAY) {
+            return Err(Box::new(postgres_types::WrongType::new::<NaiveTime>(
                 ty.clone(),
-            )))?,
-        };
-        out.put_slice(fmt.as_bytes());
+            )));
+        }
+        write!(out, "{}", self.format("%H:%M:%S%.6f"))?;
         Ok(IsNull::No)
     }
 }
@@ -355,6 +358,7 @@ impl ToSqlText for Duration {
         format_options: &FormatOptions,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         use crate::types::format::interval_style::IntervalStyle;
+        use smol_str::format_smolstr;
 
         let interval_style =
             IntervalStyle::try_from(format_options.interval_style.as_str()).map_err(Box::new)?;
@@ -375,100 +379,106 @@ impl ToSqlText for Duration {
                 let mut parts = Vec::new();
 
                 if days != 0 {
-                    parts.push(format!("{days} days"));
+                    parts.push(format_smolstr!("{days} days"));
                 }
                 if hours != 0 || minutes != 0 || seconds != 0 || microseconds != 0 {
                     let time_str = if microseconds == 0 {
-                        format!("{hours:02}:{minutes:02}:{seconds:02}")
+                        format_smolstr!("{hours:02}:{minutes:02}:{seconds:02}")
                     } else {
-                        format!("{hours:02}:{minutes:02}:{seconds:02}.{microseconds:06}",)
+                        format_smolstr!("{hours:02}:{minutes:02}:{seconds:02}.{microseconds:06}")
                     };
                     parts.push(time_str);
                 }
 
                 if parts.is_empty() {
-                    format!("{sign}00:00:00")
+                    format_smolstr!("{sign}00:00:00")
                 } else {
-                    format!("{sign}{}", parts.join(" "))
+                    format_smolstr!("{sign}{}", parts.join(" "))
                 }
             }
             IntervalStyle::ISO8601 => {
                 let mut parts = Vec::new();
 
                 if days != 0 {
-                    parts.push(format!("{days}D"));
+                    parts.push(format_smolstr!("{days}D"));
                 }
 
                 let mut time_parts = Vec::new();
                 if hours != 0 {
-                    time_parts.push(format!("{hours}H"));
+                    time_parts.push(format_smolstr!("{hours}H"));
                 }
                 if minutes != 0 {
-                    time_parts.push(format!("{minutes}M",));
+                    time_parts.push(format_smolstr!("{minutes}M",));
                 }
                 if seconds != 0 || microseconds != 0 {
                     if microseconds == 0 {
-                        time_parts.push(format!("{seconds}S",));
+                        time_parts.push(format_smolstr!("{seconds}S",));
                     } else {
-                        time_parts.push(format!("{seconds}.{microseconds:06}S"));
+                        time_parts.push(format_smolstr!("{seconds}.{microseconds:06}S"));
                     }
                 }
 
                 if !time_parts.is_empty() {
-                    parts.push(format!("T{}", time_parts.join("")));
+                    parts.push(format_smolstr!("T{}", time_parts.join("")));
                 }
 
                 if parts.is_empty() {
-                    format!("{sign}PT0S",)
+                    format_smolstr!("{sign}PT0S",)
                 } else {
-                    format!("{sign}P{}", parts.join(""))
+                    format_smolstr!("{sign}P{}", parts.join(""))
                 }
             }
             IntervalStyle::SQLStandard => {
                 let mut parts = Vec::new();
 
                 if days != 0 {
-                    parts.push(format!("{days} {hours}"));
+                    parts.push(format_smolstr!("{days} {hours}"));
                 } else if hours != 0 || minutes != 0 || seconds != 0 || microseconds != 0 {
                     if microseconds == 0 {
-                        parts.push(format!("{hours:02}:{minutes:02}:{seconds:02}"));
+                        parts.push(format_smolstr!("{hours:02}:{minutes:02}:{seconds:02}"));
                     } else {
-                        parts.push(format!(
+                        parts.push(format_smolstr!(
                             "{hours:02}:{minutes:02}:{seconds:02}.{microseconds:06}",
                         ));
                     }
                 }
 
                 if parts.is_empty() {
-                    format!("{sign}00:00:00")
+                    format_smolstr!("{sign}00:00:00")
                 } else {
-                    format!("{sign}{}", parts.join(" "))
+                    format_smolstr!("{sign}{}", parts.join(" "))
                 }
             }
             IntervalStyle::PostgresVerbose => {
                 let mut parts = Vec::new();
 
                 if days != 0 {
-                    parts.push(format!("{days} day{}", if days != 1 { "s" } else { "" }));
+                    parts.push(format_smolstr!(
+                        "{days} day{}",
+                        if days != 1 { "s" } else { "" }
+                    ));
                 }
                 if hours != 0 {
-                    parts.push(format!("{hours} hour{}", if hours != 1 { "s" } else { "" }));
+                    parts.push(format_smolstr!(
+                        "{hours} hour{}",
+                        if hours != 1 { "s" } else { "" }
+                    ));
                 }
                 if minutes != 0 {
-                    parts.push(format!(
+                    parts.push(format_smolstr!(
                         "{minutes} min{}",
                         if minutes != 1 { "s" } else { "" }
                     ));
                 }
                 if seconds != 0 || microseconds != 0 {
                     if microseconds == 0 {
-                        parts.push(format!(
+                        parts.push(format_smolstr!(
                             "{seconds} sec{}",
                             if seconds != 1 { "s" } else { "" }
                         ));
                     } else {
                         let total_seconds = seconds as f64 + microseconds as f64 / 1_000_000.0;
-                        parts.push(format!(
+                        parts.push(format_smolstr!(
                             "{total_seconds} sec{}",
                             if total_seconds != 1.0 { "s" } else { "" }
                         ));
@@ -476,9 +486,9 @@ impl ToSqlText for Duration {
                 }
 
                 if parts.is_empty() {
-                    format!("{sign}@ 0")
+                    format_smolstr!("{sign}@ 0")
                 } else {
-                    format!("{sign}@ {}", parts.join(" "))
+                    format_smolstr!("{sign}@ {}", parts.join(" "))
                 }
             }
         };
@@ -499,14 +509,15 @@ impl ToSqlText for Decimal {
     where
         Self: Sized,
     {
-        let fmt = match *ty {
-            Type::NUMERIC | Type::NUMERIC_ARRAY => self.to_string(),
-            _ => Err(Box::new(postgres_types::WrongType::new::<Decimal>(
-                ty.clone(),
-            )))?,
-        };
+        use std::fmt::Write;
 
-        out.put_slice(fmt.as_bytes());
+        if !matches!(*ty, Type::NUMERIC | Type::NUMERIC_ARRAY) {
+            return Err(Box::new(postgres_types::WrongType::new::<Decimal>(
+                ty.clone(),
+            )));
+        }
+
+        write!(out, "{}", self)?;
         Ok(IsNull::No)
     }
 }

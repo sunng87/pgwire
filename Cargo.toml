@@ -17,6 +17,7 @@ rust-version = "1.89"
 derive-new = "0.7"
 bytes = "1.1.0"
 thiserror = "2"
+smol_str = "0.3.2"
 ## api
 tokio = { version = "1.19", features = [
   "net",

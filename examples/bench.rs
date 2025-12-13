@@ -75,9 +75,9 @@ pub async fn main() {
         handler: Arc::new(DummyProcessor),
     });
 
-    let server_addr = "127.0.0.1:5433";
-    let listener = TcpListener::bind(server_addr).await.unwrap();
-    println!("Listening to {}", server_addr);
+    let server_addr = std::env::var("PGWIRE_BENCH_ADDR").unwrap_or(String::from("127.0.0.1:5433"));
+    let listener = TcpListener::bind(&server_addr).await.unwrap();
+    println!("Listening to {}", &server_addr);
     loop {
         let incoming_socket = listener.accept().await.unwrap();
         let factory_ref = factory.clone();

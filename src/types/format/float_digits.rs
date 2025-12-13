@@ -1,4 +1,5 @@
 use crate::error::PgWireError;
+use smol_str::{format_smolstr, SmolStr, ToSmolStr};
 
 /// extra_float_digits sets the number of digits displayed for floating-point
 /// values.
@@ -27,23 +28,23 @@ impl ExtraFloatDigits {
     const FLT_DIG: i8 = 6;
     const DBL_DIG: i8 = 15;
 
-    pub fn format_f64(&self, value: f64) -> String {
+    pub fn format_f64(&self, value: f64) -> SmolStr {
         let extra = self.0.clamp(-15, 3);
 
         // Handle special cases
         if value.is_nan() {
-            return "NaN".to_string();
+            return "NaN".to_smolstr();
         }
         if value.is_infinite() {
             return if value.is_sign_positive() {
-                "inf".to_string()
+                "inf".to_smolstr()
             } else {
-                "-inf".to_string()
+                "-inf".to_smolstr()
             };
         }
 
         if value == 0.0 {
-            return "0".to_string();
+            return "0".to_smolstr();
         }
 
         // For extra_float_digits >= 1, use ryu for shortest-precise format
@@ -51,7 +52,7 @@ impl ExtraFloatDigits {
         // At most 17 digits for f64
         if extra >= 1 {
             let mut buffer = ryu::Buffer::new();
-            return buffer.format(value).to_string();
+            return buffer.format(value).to_smolstr();
         }
 
         // For negative values, round to DBL_DIG + extra_float_digits significant digits
@@ -60,23 +61,23 @@ impl ExtraFloatDigits {
         format_with_significant_digits(value, sig_digits)
     }
 
-    pub fn format_f32(&self, value: f32) -> String {
+    pub fn format_f32(&self, value: f32) -> SmolStr {
         let extra = self.0.clamp(-15, 3);
 
         // Handle special cases
         if value.is_nan() {
-            return "NaN".to_string();
+            return "NaN".to_smolstr();
         }
         if value.is_infinite() {
             return if value.is_sign_positive() {
-                "inf".to_string()
+                "inf".to_smolstr()
             } else {
-                "-inf".to_string()
+                "-inf".to_smolstr()
             };
         }
 
         if value == 0.0 {
-            return "0".to_string();
+            return "0".to_smolstr();
         }
 
         // For extra_float_digits >= 1, use ryu for shortest-precise format
@@ -84,7 +85,7 @@ impl ExtraFloatDigits {
         // At most 9 digits for f32
         if extra >= 1 {
             let mut buffer = ryu::Buffer::new();
-            return buffer.format(value).to_string();
+            return buffer.format(value).to_smolstr();
         }
 
         // For negative values, round to FLT_DIG + extra_float_digits significant digits
@@ -95,10 +96,10 @@ impl ExtraFloatDigits {
 }
 
 /// Format with specific number of significant digits
-fn format_with_significant_digits(value: f64, sig_digits: usize) -> String {
+fn format_with_significant_digits(value: f64, sig_digits: usize) -> SmolStr {
     if sig_digits == 0 {
         // Round to nearest integer
-        return format!("{:.0}", value.round());
+        return format_smolstr!("{:.0}", value.round());
     }
 
     let negative = value < 0.0;
@@ -122,26 +123,26 @@ fn format_with_significant_digits(value: f64, sig_digits: usize) -> String {
     };
 
     // Format with calculated precision
-    let formatted = format!("{abs_value:.decimal_places$}");
+    let formatted = format_smolstr!("{abs_value:.decimal_places$}");
 
     // Remove trailing zeros and unnecessary decimal point
     let trimmed = trim_trailing_zeros(&formatted);
 
     if negative {
-        format!("-{trimmed}",)
+        format_smolstr!("-{trimmed}",)
     } else {
-        trimmed
+        trimmed.to_smolstr()
     }
 }
 
 /// Remove trailing zeros from decimal representation
-fn trim_trailing_zeros(s: &str) -> String {
+fn trim_trailing_zeros(s: &str) -> SmolStr {
     if !s.contains('.') {
-        return s.to_string();
+        return s.to_smolstr();
     }
 
     let trimmed = s.trim_end_matches('0').trim_end_matches('.');
-    trimmed.to_string()
+    trimmed.to_smolstr()
 }
 #[cfg(test)]
 mod tests {
