@@ -279,6 +279,16 @@ impl DataRowEncoder {
     pub fn finish(self) -> PgWireResult<DataRow> {
         Ok(DataRow::new(self.row_buffer, self.col_index as i16))
     }
+
+    /// Takes the current row from the encoder, resetting the encoder for reuse.
+    ///
+    /// This method splits the inner buffer, taking the current row data and leaving the
+    /// encoder with an empty buffer (but retaining the capacity) enabling buffer reuse.
+    pub fn take_row(&mut self) -> DataRow {
+        let row = DataRow::new(self.row_buffer.split(), self.col_index as i16);
+        self.col_index = 0;
+        row
+    }
 }
 
 /// Get response data for a `Describe` command
