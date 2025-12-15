@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use bytes::{BufMut, BytesMut};
 use futures::Stream;
@@ -83,6 +83,22 @@ impl FieldFormat {
     }
 }
 
+// Default format options that are cloned in `FieldInfo::new` to avoid `Arc` allocation.
+//
+// Using thread-local storage avoids contention when multiple threads concurrently
+// clone the same `Arc<FormatOptions>` in `DataRowEncoder::encode_field`. Each thread
+// now clones its own thread-local instance rather than contending for a shared
+// global instance.
+//
+// This can be made a regular static if we remove format options cloning from
+// `DataRowEncoder::encode_field`.
+//
+// The issue with contention was observed in `examples/bench` benchmark:
+// https://github.com/sunng87/pgwire/pull/366#discussion_r2621917771
+thread_local! {
+    static DEFAULT_FORMAT_OPTIONS: LazyLock<Arc<FormatOptions>> = LazyLock::new(Default::default);
+}
+
 #[derive(Debug, new, Eq, PartialEq, Clone)]
 pub struct FieldInfo {
     name: String,
@@ -90,7 +106,7 @@ pub struct FieldInfo {
     column_id: Option<i16>,
     datatype: Type,
     format: FieldFormat,
-    #[new(default)]
+    #[new(value = "DEFAULT_FORMAT_OPTIONS.with(|opts| Arc::clone(&*opts))")]
     format_options: Arc<FormatOptions>,
 }
 
