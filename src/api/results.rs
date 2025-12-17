@@ -292,6 +292,10 @@ impl DataRowEncoder {
         self.encode_field_with_type_and_format(value, &data_type, format, format_options.as_ref())
     }
 
+    #[deprecated(
+        since = "0.37.0",
+        note = "DataRowEncoder is reusable since 0.37, use `take_row() instead`"
+    )]
     pub fn finish(self) -> PgWireResult<DataRow> {
         Ok(DataRow::new(self.row_buffer, self.col_index as i16))
     }
@@ -448,7 +452,7 @@ mod test {
         encoder.encode_field(&"udev").unwrap();
         encoder.encode_field(&now).unwrap();
 
-        let row = encoder.finish().unwrap();
+        let row = encoder.take_row();
 
         assert_eq!(row.field_count, 3);
 

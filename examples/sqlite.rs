@@ -73,7 +73,6 @@ impl SimpleQueryHandler for SqliteBackend {
 }
 
 fn name_to_type(name: &str) -> PgWireResult<Type> {
-    dbg!(name);
     match name.to_uppercase().as_ref() {
         "INT" => Ok(Type::INT8),
         "VARCHAR" => Ok(Type::VARCHAR),
@@ -114,8 +113,8 @@ fn encode_row_data(
 ) -> impl Stream<Item = PgWireResult<DataRow>> {
     let mut results = Vec::new();
     let ncols = schema.len();
+    let mut encoder = DataRowEncoder::new(schema.clone());
     while let Ok(Some(row)) = rows.next() {
-        let mut encoder = DataRowEncoder::new(schema.clone());
         for idx in 0..ncols {
             let data = row.get_ref_unwrap::<usize>(idx);
             match data {
@@ -137,7 +136,7 @@ fn encode_row_data(
             }
         }
 
-        results.push(encoder.finish());
+        results.push(Ok(encoder.take_row()));
     }
 
     stream::iter(results)
