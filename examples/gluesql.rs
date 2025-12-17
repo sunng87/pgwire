@@ -47,8 +47,8 @@ impl SimpleQueryHandler for GluesqlProcessor {
                             let format_options = FormatOptions::default();
 
                             let mut results = Vec::with_capacity(rows.len());
+                            let mut encoder = DataRowEncoder::new(fields.clone());
                             for row in rows {
-                                let mut encoder = DataRowEncoder::new(fields.clone());
                                 for field in row.iter() {
                                     match field {
                                         Value::Bool(v) => encoder
@@ -136,7 +136,7 @@ impl SimpleQueryHandler for GluesqlProcessor {
                                         _ => unimplemented!(),
                                     }
                                 }
-                                results.push(encoder.finish());
+                                results.push(Ok(encoder.take_row()));
                             }
 
                             Ok(Response::Query(QueryResponse::new(

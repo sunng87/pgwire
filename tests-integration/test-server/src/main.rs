@@ -107,16 +107,15 @@ impl SimpleQueryHandler for DummyDatabase {
                 ),
                 (Some(2), None, None, None, None),
             ];
+            let mut encoder = DataRowEncoder::new(schema_ref.clone());
             let data_row_stream = stream::iter(data).map(move |r| {
-                let mut encoder = DataRowEncoder::new(schema_ref.clone());
-
                 encoder.encode_field(&r.0)?;
                 encoder.encode_field(&r.1)?;
                 encoder.encode_field(&r.2)?;
                 encoder.encode_field(&r.3)?;
                 encoder.encode_field(&r.4)?;
 
-                encoder.finish()
+                Ok(encoder.take_row())
             });
 
             Ok(vec![Response::Query(QueryResponse::new(
@@ -229,16 +228,15 @@ impl ExtendedQueryHandler for DummyDatabase {
             ];
             let schema = Arc::new(self.schema(&portal.result_column_format));
             let schema_ref = schema.clone();
+            let mut encoder = DataRowEncoder::new(schema_ref.clone());
             let data_row_stream = stream::iter(data).map(move |r| {
-                let mut encoder = DataRowEncoder::new(schema_ref.clone());
-
                 encoder.encode_field(&r.0)?;
                 encoder.encode_field(&r.1)?;
                 encoder.encode_field(&r.2)?;
                 encoder.encode_field(&r.3)?;
                 encoder.encode_field(&r.4)?;
 
-                encoder.finish()
+                Ok(encoder.take_row())
             });
 
             Ok(Response::Query(QueryResponse::new(

@@ -62,11 +62,11 @@ impl SimpleQueryHandler for DummyProcessor {
                 let schema = Arc::new(vec![f1]);
                 let schema_ref = schema.clone();
 
+                let mut encoder = DataRowEncoder::new(schema_ref.clone());
                 let row = {
-                    let mut encoder = DataRowEncoder::new(schema_ref.clone());
                     encoder.encode_field(&Some(1))?;
 
-                    encoder.finish()
+                    Ok(encoder.take_row())
                 };
                 let data_row_stream = stream::iter(vec![row]);
                 Response::Query(QueryResponse::new(schema, data_row_stream))
