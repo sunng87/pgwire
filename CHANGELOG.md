@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Added
+
+- Postgres 18 OAuth Authentication support [#349]
+- More `ToSqlText` implementations [#364]
+
+### Changed
+
+- Deprecated `finish()` and make `DataRowEncoder` reusable for a massive
+  performance gain [#366]
+- Parameter type and result schema functions added to `QueryParser` trait,
+  for default implementation of describe statement and portal in
+  ExtendedQueryHandler. This change allow us to provide postgres compatible
+  default behavior for describing statement.[#356]
+
+## Fixed
+
+- `ToSqlText` for String array with backslash and empty strings [#361]
+- `FromSqlText` for timestamps [#363]
+
 ## [0.36.3] - 2025-12-04
 
 ### Fixed
@@ -13,11 +34,11 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - `FromSqlText` implementation for text and bytea arrays, with backslash or
 empty string [#361]
 - `FromSqlText` implementation for date time when JDBC encode `.0` in timestamp
-string [#363] 
+string [#363]
 
 ### Added
 
-- `FromSqlText` implementation for timestamp array and timestamptz array. [#363] 
+- `FromSqlText` implementation for timestamp array and timestamptz array. [#363]
 
 ## [0.36.2] - 2025-11-28
 
