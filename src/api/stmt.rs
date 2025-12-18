@@ -8,6 +8,7 @@ use crate::error::PgWireResult;
 use crate::messages::extendedquery::Parse;
 use crate::messages::PgWireBackendMessage;
 
+use super::portal::Format;
 use super::results::FieldInfo;
 use super::{ClientInfo, DEFAULT_NAME};
 
@@ -81,7 +82,11 @@ pub trait QueryParser {
     /// Implement this if your query engine can provide resultset schema
     /// resolution. `ExtendedQueryHandler` will use this information for auto
     /// implementation of `do_describe_portal` and `do_describe_portal`
-    fn get_result_schema(&self, _stmt: &Self::Statement) -> PgWireResult<Vec<FieldInfo>>;
+    fn get_result_schema(
+        &self,
+        _stmt: &Self::Statement,
+        column_format: Option<&Format>,
+    ) -> PgWireResult<Vec<FieldInfo>>;
 }
 
 #[async_trait]
@@ -107,8 +112,12 @@ where
         (**self).get_parameter_types(stmt)
     }
 
-    fn get_result_schema(&self, stmt: &Self::Statement) -> PgWireResult<Vec<FieldInfo>> {
-        (**self).get_result_schema(stmt)
+    fn get_result_schema(
+        &self,
+        stmt: &Self::Statement,
+        column_format: Option<&Format>,
+    ) -> PgWireResult<Vec<FieldInfo>> {
+        (**self).get_result_schema(stmt, column_format)
     }
 }
 
@@ -136,7 +145,11 @@ impl QueryParser for NoopQueryParser {
         Ok(vec![])
     }
 
-    fn get_result_schema(&self, _stmt: &Self::Statement) -> PgWireResult<Vec<FieldInfo>> {
+    fn get_result_schema(
+        &self,
+        _stmt: &Self::Statement,
+        _column_format: Option<&Format>,
+    ) -> PgWireResult<Vec<FieldInfo>> {
         Ok(vec![])
     }
 }

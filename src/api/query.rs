@@ -442,7 +442,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let query_parser = self.query_parser();
 
         let server_param_types = query_parser.get_parameter_types(stmt)?;
-        let result_schema = query_parser.get_result_schema(stmt)?;
+        let result_schema = query_parser.get_result_schema(stmt, None)?;
 
         // use client given types, and fallback to server types if it's not available
         let param_types = (0usize..max(target.parameter_types.len(), server_param_types.len()))
@@ -475,7 +475,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let stmt = &target.statement.statement;
         let query_parser = self.query_parser();
 
-        let result_schema = query_parser.get_result_schema(stmt)?;
+        let result_schema =
+            query_parser.get_result_schema(stmt, Some(&target.result_column_format))?;
         Ok(DescribePortalResponse::new(result_schema))
     }
 
