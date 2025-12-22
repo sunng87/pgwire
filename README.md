@@ -134,7 +134,7 @@ Examples are provided to demo the very basic usage of `pgwire` on server side:
   extended query implementation. `cargo run --features _sqlite --example
   sqlite`
 - `examples/duckdb.rs`: Now moved to
-  [arrow-pg](https://github.com/datafusion-contrib/datafusion-postgres)
+  [pgwire-duckdb](https://github.com/sunng87/pgwire-duckdb)
 - `examples/gluesql.rs`: uses an in-memory
   [gluesql](https://github.com/gluesql/gluesql) at its core and serves
   it with postgresql protocol.
@@ -148,6 +148,8 @@ Examples are provided to demo the very basic usage of `pgwire` on server side:
   protocol level.
 - `examples/datafusion.rs`: Now moved to
   [datafusion-postgres](https://github.com/sunng87/datafusion-postgres)
+- `examples/oauth.rs`, `examples/keycloak_oauth.rs`: Examples for Postgres 18
+  OAuth authentication.
 
 ### Client/Frontend
 
