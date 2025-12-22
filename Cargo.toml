@@ -126,7 +126,7 @@ tokio = { version = "1.19", features = [
   "time",
 ] }
 rustls-pki-types = { version = "1.10" }
-rusqlite = { version = "0.37.0", features = ["column_decltype"] }
+rusqlite = { version = "0.38.0", features = ["column_decltype"] }
 
 ## for loading custom cert files
 rustls-pemfile = "2.0"
