@@ -605,6 +605,7 @@ mod tests {
     use std::sync::Arc;
     use tokio::sync::oneshot;
     use tokio_rustls::rustls;
+    use tokio_rustls::rustls::crypto::CryptoProvider;
     use tokio_rustls::TlsAcceptor;
     use tokio_rustls::TlsConnector;
 
@@ -735,6 +736,12 @@ mod tests {
     #[tokio::test]
     async fn server_name_metadata_is_set_from_tls_sni_in_memory() {
         use std::net::SocketAddr;
+
+        #[cfg(feature = "_aws-lc-rs")]
+        CryptoProvider::install_default(tokio_rustls::rustls::crypto::aws_lc_rs::default_provider()).unwrap();
+        #[cfg(feature = "_ring")]
+        CryptoProvider::install_default(tokio_rustls::rustls::crypto::ring::default_provider())
+            .unwrap();
 
         // server and client rustls configs
         let server_cfg = Arc::new(load_test_server_config().expect("server config"));
