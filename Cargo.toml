@@ -48,7 +48,7 @@ x509-certificate = { version = "0.25", optional = true }
 ## oauth
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"], optional = true }
 rsa = { version = "0.9", optional = true }
-reqwest = { version = "0.12", features = ["json"], optional = true }
+reqwest = { version = "0.13", features = ["json", "rustls-no-provider"], optional = true }
 
 ## types
 postgres-types = { version = "0.2", features = ["array-impls"], optional = true }
@@ -140,7 +140,7 @@ bigdecimal = { version = ">=0.4.5, <0.4.10" }
 ## oauth
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 rsa = { version = "0.9" }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.13", features = ["json"] }
 
 [patch.crates-io]
 pgwire = { path = "." }
