@@ -142,6 +142,10 @@ jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 rsa = { version = "0.9" }
 reqwest = { version = "0.13", features = ["json"] }
 
+## duckdb for adbc example
+duckdb = { version = "1.4", features = ["bundled"] }
+arrow = "56"
+
 [patch.crates-io]
 pgwire = { path = "." }
 
@@ -195,3 +199,7 @@ required-features = ["server-api-aws-lc-rs"]
 [[example]]
 name = "client"
 required-features = ["client-api"]
+
+[[example]]
+name = "duckdb"
+required-features = ["server-api-aws-lc-rs"]
