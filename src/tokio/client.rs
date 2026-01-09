@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 use std::io::{Error as IOError, ErrorKind};
 use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
-use futures::{Sink, SinkExt, StreamExt};
+use futures::{Sink, SinkExt, Stream, StreamExt};
 use pin_project::pin_project;
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use rustls_pki_types::ServerName;
@@ -91,10 +92,7 @@ impl Sink<PgWireFrontendMessage> for PgWireClient {
     type Error =
         <Framed<ClientSocket, PgWireMessageClientCodec> as Sink<PgWireFrontendMessage>>::Error;
 
-    fn poll_ready(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Pin::new(self.project().socket).poll_ready(cx)
     }
 
@@ -102,17 +100,11 @@ impl Sink<PgWireFrontendMessage> for PgWireClient {
         Pin::new(self.project().socket).start_send(item)
     }
 
-    fn poll_flush(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Pin::new(self.project().socket).poll_flush(cx)
     }
 
-    fn poll_close(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Pin::new(self.project().socket).poll_close(cx)
     }
 }
@@ -170,7 +162,7 @@ impl PgWireClient {
     {
         simple_query_handler.simple_query(self, query).await?;
 
-        while let Some(message_result) = self.socket.next().await {
+        while let Some(message_result) = self.next().await {
             let message = message_result?;
 
             if let ReadyState::Ready(responses) =
@@ -184,6 +176,14 @@ impl PgWireClient {
     }
 }
 
+impl Stream for PgWireClient {
+    type Item = Result<PgWireBackendMessage, PgWireError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(self.project().socket).poll_next(cx)
+    }
+}
+
 #[pin_project(project = ClientSocketProj)]
 pub enum ClientSocket {
     Plain(#[pin] TcpStream),
@@ -194,9 +194,9 @@ pub enum ClientSocket {
 impl AsyncRead for ClientSocket {
     fn poll_read(
         self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        cx: &mut Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
+    ) -> Poll<std::io::Result<()>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_read(cx, buf),
             #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
@@ -207,10 +207,10 @@ impl AsyncRead for ClientSocket {
 
 impl AsyncWrite for ClientSocket {
     fn poll_write(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
         buf: &[u8],
-    ) -> std::task::Poll<Result<usize, std::io::Error>> {
+    ) -> Poll<Result<usize, std::io::Error>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_write(cx, buf),
             #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
@@ -218,10 +218,7 @@ impl AsyncWrite for ClientSocket {
         }
     }
 
-    fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), std::io::Error>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), std::io::Error>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_flush(cx),
             #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
@@ -230,9 +227,9 @@ impl AsyncWrite for ClientSocket {
     }
 
     fn poll_shutdown(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), std::io::Error>> {
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_shutdown(cx),
             #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
