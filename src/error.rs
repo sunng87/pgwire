@@ -67,7 +67,7 @@ pub enum PgWireError {
     #[error("{0}")]
     OauthAuthzIdError(String),
     #[error(transparent)]
-    ApiError(#[from] Box<dyn std::error::Error + 'static + Send + Sync>),
+    ApiError(#[from] Box<dyn std::error::Error + Send + Sync>),
 
     #[error("User provided error: {0}")]
     UserError(Box<ErrorInfo>),
@@ -373,7 +373,7 @@ pub enum PgWireClientError {
     RemoteError(Box<ErrorInfo>),
 
     #[error("Error parse command tag: {0}")]
-    InvalidTag(Box<dyn std::error::Error>),
+    InvalidTag(Box<dyn std::error::Error + Send + Sync>),
 
     #[error("ALPN postgresql is required for direct connect.")]
     AlpnRequired,
@@ -398,6 +398,7 @@ pub type PgWireClientResult<T> = Result<T, PgWireClientError>;
 #[cfg(test)]
 mod test {
     use super::*;
+    use std::error::Error;
 
     #[test]
     fn test_error_notice_info() {
@@ -410,5 +411,13 @@ mod test {
         assert_eq!("28P01", error_info.code);
         assert_eq!("Password authentication failed", error_info.message);
         assert!(error_info.file_name.is_none());
+    }
+
+    #[test]
+    fn test_error_send_and_sync() {
+        fn is_error_send_and_sync<T: Error + Send + Sync + 'static>() {}
+        is_error_send_and_sync::<PgWireError>();
+        #[cfg(feature = "client-api")]
+        is_error_send_and_sync::<PgWireClientError>();
     }
 }
