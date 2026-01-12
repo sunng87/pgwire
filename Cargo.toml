@@ -132,10 +132,9 @@ rusqlite = { version = "0.38.0", features = ["column_decltype"] }
 rustls-pemfile = "2.0"
 ## webpki-roots has mozilla's set of roots
 ## rustls-native-certs loads roots from current system
-gluesql = { version = "0.18", default-features = false, features = [
+gluesql = { version = "0.19", default-features = false, features = [
   "gluesql_memory_storage",
 ] }
-bigdecimal = { version = ">=0.4.5, <0.4.10" }
 
 ## oauth
 jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
