@@ -1,5 +1,8 @@
 use std::collections::BTreeMap;
 use std::io::{Error as IOError, ErrorKind};
+use std::net::SocketAddr;
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -10,6 +13,8 @@ use pin_project::pin_project;
 use rustls_pki_types::ServerName;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
+#[cfg(unix)]
+use tokio::net::UnixStream;
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use tokio_rustls::client::TlsStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
@@ -121,8 +126,18 @@ impl PgWireClient {
         S: StartupHandler,
     {
         // tcp connect
-        let socket = TcpStream::connect(get_addr(&config)?).await?;
-        let socket = Framed::new(socket, PgWireMessageClientCodec::default());
+        let socket = match get_addr(&config)? {
+            PgSocketAddr::Ip(socket_addr) => {
+                ClientSocket::Plain(TcpStream::connect(socket_addr).await?)
+            }
+            PgSocketAddr::Host(socket_addr) => {
+                ClientSocket::Plain(TcpStream::connect(socket_addr).await?)
+            }
+            #[cfg(unix)]
+            PgSocketAddr::Unix(socket_addr) => {
+                ClientSocket::Unix(UnixStream::connect(socket_addr).await?)
+            }
+        };
         // perform ssl handshake based on postgres configuration
         // if tls is not enabled, just return the socket and perform startup
         // directly
@@ -188,7 +203,9 @@ impl Stream for PgWireClient {
 pub enum ClientSocket {
     Plain(#[pin] TcpStream),
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
-    Secure(#[pin] Box<TlsStream<TcpStream>>),
+    Secure(#[pin] Box<TlsStream<ClientSocket>>),
+    #[cfg(unix)]
+    Unix(#[pin] UnixStream),
 }
 
 impl AsyncRead for ClientSocket {
@@ -201,6 +218,8 @@ impl AsyncRead for ClientSocket {
             ClientSocketProj::Plain(socket) => socket.poll_read(cx, buf),
             #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_read(cx, buf),
+            #[cfg(unix)]
+            ClientSocketProj::Unix(socket) => socket.poll_read(cx, buf),
         }
     }
 }
@@ -215,6 +234,8 @@ impl AsyncWrite for ClientSocket {
             ClientSocketProj::Plain(socket) => socket.poll_write(cx, buf),
             #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_write(cx, buf),
+            #[cfg(unix)]
+            ClientSocketProj::Unix(tls_socket) => tls_socket.poll_write(cx, buf),
         }
     }
 
@@ -223,6 +244,8 @@ impl AsyncWrite for ClientSocket {
             ClientSocketProj::Plain(socket) => socket.poll_flush(cx),
             #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_flush(cx),
+            #[cfg(unix)]
+            ClientSocketProj::Unix(tls_socket) => tls_socket.poll_flush(cx),
         }
     }
 
@@ -234,13 +257,15 @@ impl AsyncWrite for ClientSocket {
             ClientSocketProj::Plain(socket) => socket.poll_shutdown(cx),
             #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_shutdown(cx),
+            #[cfg(unix)]
+            ClientSocketProj::Unix(tls_socket) => tls_socket.poll_shutdown(cx),
         }
     }
 }
 
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 async fn connect_tls(
-    socket: TcpStream,
+    socket: ClientSocket,
     config: &Config,
     tls_connector: TlsConnector,
 ) -> PgWireClientResult<ClientSocket> {
@@ -266,7 +291,7 @@ async fn connect_tls(
 
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 pub(crate) async fn ssl_handshake(
-    mut socket: Framed<TcpStream, PgWireMessageClientCodec>,
+    socket: ClientSocket,
     config: &Config,
     tls_connector: Option<TlsConnector>,
 ) -> PgWireClientResult<ClientSocket> {
@@ -276,13 +301,14 @@ pub(crate) async fn ssl_handshake(
 
     // ssl is disabled on client side
     if config.ssl_mode == SslMode::Disable {
-        return Ok(ClientSocket::Plain(socket.into_inner()));
+        return Ok(socket);
     }
 
     if let Some(tls_connector) = tls_connector {
         if config.ssl_negotiation == SslNegotiation::Direct {
-            connect_tls(socket.into_inner(), config, tls_connector).await
+            connect_tls(socket, config, tls_connector).await
         } else {
+            let mut socket = Framed::new(socket, PgWireMessageClientCodec::default());
             // postgres ssl handshake
             socket
                 .send(PgWireFrontendMessage::SslNegotiation(
@@ -303,7 +329,7 @@ pub(crate) async fn ssl_handshake(
                             )
                             .into())
                         } else {
-                            Ok(ClientSocket::Plain(socket.into_inner()))
+                            Ok(socket.into_inner())
                         }
                     }
                 }
@@ -313,41 +339,37 @@ pub(crate) async fn ssl_handshake(
             }
         }
     } else {
-        Ok(ClientSocket::Plain(socket.into_inner()))
+        Ok(socket)
     }
 }
 
 #[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]
 pub(crate) async fn ssl_handshake(
-    socket: Framed<TcpStream, PgWireMessageClientCodec>,
+    socket: ClientSocket,
     _config: &Config,
     _tls_connector: Option<TlsConnector>,
 ) -> PgWireClientResult<ClientSocket> {
-    Ok(ClientSocket::Plain(socket.into_inner()))
+    Ok(socket)
 }
 
-fn get_addr(config: &Config) -> Result<String, PgWireClientError> {
-    if !config.get_hostaddrs().is_empty() {
-        return Ok(format!(
-            "{}:{}",
-            config.get_hostaddrs()[0],
-            config.get_ports().first().cloned().unwrap_or(5432u16)
-        ));
+enum PgSocketAddr {
+    Ip(SocketAddr),
+    Host((String, u16)),
+    Unix(PathBuf),
+}
+
+fn get_addr(config: &Config) -> Result<PgSocketAddr, PgWireClientError> {
+    let port = config.get_ports().first().cloned().unwrap_or(5432);
+
+    if let Some(hostaddr) = config.get_hostaddrs().first() {
+        return Ok(PgSocketAddr::Ip(SocketAddr::new(*hostaddr, port)));
     }
 
-    if !config.get_hosts().is_empty() {
-        match &config.get_hosts()[0] {
-            Host::Tcp(host) => {
-                return Ok(format!(
-                    "{}:{}",
-                    host,
-                    config.get_ports().first().cloned().unwrap_or(5432u16)
-                ))
-            }
-            _ => {
-                return Err(PgWireClientError::InvalidConfig("host".to_string()));
-            }
-        }
+    if let Some(host) = config.get_hosts().first() {
+        return Ok(match host {
+            Host::Tcp(host) => PgSocketAddr::Host((host.clone(), port)),
+            Host::Unix(path) => PgSocketAddr::Unix(path.join(format!(".s.PGSQL.{}", port))),
+        });
     }
 
     Err(PgWireClientError::InvalidConfig("host".to_string()))
