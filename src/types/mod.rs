@@ -1,5 +1,6 @@
 pub mod format;
 mod from_sql_text;
+pub mod postgis;
 mod to_sql_text;
 
 pub use from_sql_text::FromSqlText;
@@ -351,5 +352,16 @@ mod roundtrip_tests {
         // Test array with negative numbers
         let negative_numbers = vec![-1i32, -2i32, -3i32];
         test_roundtrip!(Vec<i32>, negative_numbers, &Type::INT4_ARRAY);
+    }
+
+    #[test]
+    fn test_geometry_point() {
+        let point = ::postgis::ewkb::Point {
+            x: 1.0,
+            y: 2.0,
+            srid: None,
+        };
+
+        test_roundtrip!(::postgis::ewkb::Point, point, &Type::TEXT);
     }
 }
