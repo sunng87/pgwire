@@ -43,7 +43,7 @@ macro_rules! impl_postgis_type {
 }
 
 fn read_ewkb<T: EwkbRead>(input: &[u8]) -> Result<T, Box<dyn Error + Sync + Send>> {
-    let bytes = hex::decode(input).map_err(|e| Box::new(e))?;
+    let bytes = hex::decode(input).map_err(Box::new)?;
     let mut cursor = Cursor::new(bytes.as_slice());
     T::read_ewkb(&mut cursor).map_err(|e| Box::new(e) as Box<dyn Error + Sync + Send>)
 }

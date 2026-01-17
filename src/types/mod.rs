@@ -1,5 +1,6 @@
 pub mod format;
 mod from_sql_text;
+#[cfg(feature = "pg-type-postgis")]
 pub mod postgis;
 mod to_sql_text;
 
@@ -355,6 +356,7 @@ mod roundtrip_tests {
     }
 
     #[test]
+    #[cfg(feature = "pg-type-postgis")]
     fn test_geometry_point() {
         let point = ::postgis::ewkb::Point {
             x: 1.0,
