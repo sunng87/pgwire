@@ -9,6 +9,7 @@ use chrono::offset::Utc;
 #[cfg(feature = "pg-type-chrono")]
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
 use lazy_regex::{lazy_regex, Lazy, Regex};
+use pg_interval::Interval;
 #[cfg(feature = "pg-type-serde-json")]
 use postgres_types::Json;
 use postgres_types::{IsNull, Kind, Type};
@@ -21,6 +22,7 @@ use serde_json::Value;
 
 use crate::types::format::bytea_output::ByteaOutput;
 use crate::types::format::float_digits::ExtraFloatDigits;
+use crate::types::format::interval_style::IntervalStyle;
 use crate::types::format::FormatOptions;
 
 pub static QUOTE_CHECK: Lazy<Regex> = lazy_regex!(r#"^$|["{},\\\s]|^null$"#i);
@@ -357,7 +359,6 @@ impl ToSqlText for Duration {
         out: &mut BytesMut,
         format_options: &FormatOptions,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
-        use crate::types::format::interval_style::IntervalStyle;
         use smol_str::format_smolstr;
 
         let interval_style =
@@ -595,6 +596,32 @@ impl<T: ToSqlText, const N: usize> ToSqlText for [T; N] {
         format_options: &FormatOptions,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         <&[T] as ToSqlText>::to_sql_text(&&self[..], ty, out, format_options)
+    }
+}
+
+impl ToSqlText for Interval {
+    fn to_sql_text(
+        &self,
+        _ty: &Type,
+        out: &mut BytesMut,
+        format_options: &FormatOptions,
+    ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
+        let interval_style =
+            IntervalStyle::try_from(format_options.interval_style.as_str()).map_err(Box::new)?;
+        match interval_style {
+            IntervalStyle::Postgres | IntervalStyle::PostgresVerbose => {
+                out.put_slice(self.to_postgres().as_bytes());
+                Ok(IsNull::No)
+            }
+            IntervalStyle::ISO8601 => {
+                out.put_slice(self.to_iso_8601().as_bytes());
+                Ok(IsNull::No)
+            }
+            IntervalStyle::SQLStandard => {
+                out.put_slice(self.to_sql().as_bytes());
+                Ok(IsNull::No)
+            }
+        }
     }
 }
 

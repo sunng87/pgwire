@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[cfg(feature = "pg-type-chrono")]
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Offset, Utc};
+use pg_interval::Interval;
 #[cfg(feature = "pg-type-serde-json")]
 use postgres_types::Json;
 use postgres_types::Type;
@@ -15,7 +16,9 @@ use serde::Deserialize;
 #[cfg(feature = "pg-type-serde-json")]
 use serde_json::Value;
 
-use crate::types::format::{string::parse_string_postgres, FormatOptions};
+use crate::types::format::{
+    interval_style::IntervalStyle, string::parse_string_postgres, FormatOptions,
+};
 
 pub trait FromSqlText<'a>: fmt::Debug {
     /// Converts value from postgres text format to rust.
@@ -376,6 +379,43 @@ impl<'a> FromSqlText<'a> for Value {
         Self: Sized,
     {
         serde_json::de::from_slice::<Value>(input).map_err(Into::into)
+    }
+}
+
+impl<'a> FromSqlText<'a> for Interval {
+    fn from_sql_text(
+        _ty: &Type,
+        input: &'a [u8],
+        format_options: &FormatOptions,
+    ) -> Result<Self, Box<dyn Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
+        let interval_style =
+            IntervalStyle::try_from(format_options.interval_style.as_str()).map_err(Box::new)?;
+        let input = to_str(input)?;
+
+        match interval_style {
+            IntervalStyle::Postgres | IntervalStyle::PostgresVerbose => {
+                let result = Interval::from_postgres(input).map_err(|_| {
+                    Box::new(std::io::Error::other(
+                        "Failed to parse interval.".to_string(),
+                    ))
+                })?;
+                Ok(result)
+            }
+            IntervalStyle::ISO8601 => {
+                let result = Interval::from_iso(input).map_err(|_| {
+                    Box::new(std::io::Error::other(
+                        "Failed to parse interval.".to_string(),
+                    ))
+                })?;
+                Ok(result)
+            }
+            IntervalStyle::SQLStandard => Err(Box::new(std::io::Error::other(
+                "Parsing interval from SQL style is not supported yet.".to_string(),
+            ))),
+        }
     }
 }
 
