@@ -638,9 +638,7 @@ where
         let mut result = Vec::new();
 
         for element_str in elements {
-            if element_str.trim().eq_ignore_ascii_case("NULL") {
-                result.push(None);
-            } else if element_str.is_empty() {
+            if element_str.trim().eq_ignore_ascii_case("NULL") || element_str.is_empty() {
                 result.push(None);
             } else {
                 let element: Option<T> =
