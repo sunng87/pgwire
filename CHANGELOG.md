@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Added
+
+- New data type supported: PostGIS types [#382]
+- New data type supported: Interval [#383]
+- UDS server and client socket support [#381] [#379]
+
 ## [0.37.0] - 2025-12-18
 
 ### Added
