@@ -355,147 +355,18 @@ impl ToSqlText for NaiveTime {
 impl ToSqlText for Duration {
     fn to_sql_text(
         &self,
-        _ty: &Type,
+        ty: &Type,
         out: &mut BytesMut,
         format_options: &FormatOptions,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
-        use smol_str::format_smolstr;
+        // Convert Duration to Interval and delegate to Interval's implementation
+        let interval = Interval::from_duration(*self).ok_or_else(|| {
+            Box::new(std::io::Error::other(
+                "Duration overflow, cannot convert to Interval",
+            ))
+        })?;
 
-        let interval_style =
-            IntervalStyle::try_from(format_options.interval_style.as_str()).map_err(Box::new)?;
-
-        let total_seconds = self.num_seconds();
-        let microseconds = self.num_microseconds().unwrap_or(0) % 1_000_000;
-
-        // Extract components
-        let sign = if total_seconds < 0 { "-" } else { "" };
-        let abs_seconds = total_seconds.abs();
-        let days = abs_seconds / 86400;
-        let hours = (abs_seconds % 86400) / 3600;
-        let minutes = (abs_seconds % 3600) / 60;
-        let seconds = abs_seconds % 60;
-
-        let output = match interval_style {
-            IntervalStyle::Postgres => {
-                let mut parts = Vec::new();
-
-                if days != 0 {
-                    parts.push(format_smolstr!("{days} days"));
-                }
-                if hours != 0 || minutes != 0 || seconds != 0 || microseconds != 0 {
-                    let time_str = if microseconds == 0 {
-                        format_smolstr!("{hours:02}:{minutes:02}:{seconds:02}")
-                    } else {
-                        format_smolstr!("{hours:02}:{minutes:02}:{seconds:02}.{microseconds:06}")
-                    };
-                    parts.push(time_str);
-                }
-
-                if parts.is_empty() {
-                    format_smolstr!("{sign}00:00:00")
-                } else {
-                    format_smolstr!("{sign}{}", parts.join(" "))
-                }
-            }
-            IntervalStyle::ISO8601 => {
-                let mut parts = Vec::new();
-
-                if days != 0 {
-                    parts.push(format_smolstr!("{days}D"));
-                }
-
-                let mut time_parts = Vec::new();
-                if hours != 0 {
-                    time_parts.push(format_smolstr!("{hours}H"));
-                }
-                if minutes != 0 {
-                    time_parts.push(format_smolstr!("{minutes}M",));
-                }
-                if seconds != 0 || microseconds != 0 {
-                    if microseconds == 0 {
-                        time_parts.push(format_smolstr!("{seconds}S",));
-                    } else {
-                        time_parts.push(format_smolstr!("{seconds}.{microseconds:06}S"));
-                    }
-                }
-
-                if !time_parts.is_empty() {
-                    parts.push(format_smolstr!("T{}", time_parts.join("")));
-                }
-
-                if parts.is_empty() {
-                    format_smolstr!("{sign}PT0S",)
-                } else {
-                    format_smolstr!("{sign}P{}", parts.join(""))
-                }
-            }
-            IntervalStyle::SQLStandard => {
-                let mut parts = Vec::new();
-
-                if days != 0 {
-                    parts.push(format_smolstr!("{days} {hours}"));
-                } else if hours != 0 || minutes != 0 || seconds != 0 || microseconds != 0 {
-                    if microseconds == 0 {
-                        parts.push(format_smolstr!("{hours:02}:{minutes:02}:{seconds:02}"));
-                    } else {
-                        parts.push(format_smolstr!(
-                            "{hours:02}:{minutes:02}:{seconds:02}.{microseconds:06}",
-                        ));
-                    }
-                }
-
-                if parts.is_empty() {
-                    format_smolstr!("{sign}00:00:00")
-                } else {
-                    format_smolstr!("{sign}{}", parts.join(" "))
-                }
-            }
-            IntervalStyle::PostgresVerbose => {
-                let mut parts = Vec::new();
-
-                if days != 0 {
-                    parts.push(format_smolstr!(
-                        "{days} day{}",
-                        if days != 1 { "s" } else { "" }
-                    ));
-                }
-                if hours != 0 {
-                    parts.push(format_smolstr!(
-                        "{hours} hour{}",
-                        if hours != 1 { "s" } else { "" }
-                    ));
-                }
-                if minutes != 0 {
-                    parts.push(format_smolstr!(
-                        "{minutes} min{}",
-                        if minutes != 1 { "s" } else { "" }
-                    ));
-                }
-                if seconds != 0 || microseconds != 0 {
-                    if microseconds == 0 {
-                        parts.push(format_smolstr!(
-                            "{seconds} sec{}",
-                            if seconds != 1 { "s" } else { "" }
-                        ));
-                    } else {
-                        let total_seconds = seconds as f64 + microseconds as f64 / 1_000_000.0;
-                        parts.push(format_smolstr!(
-                            "{total_seconds} sec{}",
-                            if total_seconds != 1.0 { "s" } else { "" }
-                        ));
-                    }
-                }
-
-                if parts.is_empty() {
-                    format_smolstr!("{sign}@ 0")
-                } else {
-                    format_smolstr!("{sign}@ {}", parts.join(" "))
-                }
-            }
-        };
-
-        out.put_slice(output.as_bytes());
-        Ok(IsNull::No)
+        interval.to_sql_text(ty, out, format_options)
     }
 }
 
@@ -609,8 +480,12 @@ impl ToSqlText for Interval {
         let interval_style =
             IntervalStyle::try_from(format_options.interval_style.as_str()).map_err(Box::new)?;
         match interval_style {
-            IntervalStyle::Postgres | IntervalStyle::PostgresVerbose => {
+            IntervalStyle::Postgres => {
                 out.put_slice(self.to_postgres().as_bytes());
+                Ok(IsNull::No)
+            }
+            IntervalStyle::PostgresVerbose => {
+                out.put_slice(self.to_postgres_verbose().as_bytes());
                 Ok(IsNull::No)
             }
             IntervalStyle::ISO8601 => {

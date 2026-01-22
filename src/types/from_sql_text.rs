@@ -396,25 +396,23 @@ impl<'a> FromSqlText<'a> for Interval {
         let input = to_str(input)?;
 
         match interval_style {
-            IntervalStyle::Postgres | IntervalStyle::PostgresVerbose => {
-                let result = Interval::from_postgres(input).map_err(|_| {
-                    Box::new(std::io::Error::other(
-                        "Failed to parse interval.".to_string(),
-                    ))
-                })?;
+            IntervalStyle::Postgres => {
+                let result = Interval::from_postgres(input).map_err(Box::new)?;
+                Ok(result)
+            }
+
+            IntervalStyle::PostgresVerbose => {
+                let result = Interval::from_postgres_verbose(input).map_err(Box::new)?;
                 Ok(result)
             }
             IntervalStyle::ISO8601 => {
-                let result = Interval::from_iso(input).map_err(|_| {
-                    Box::new(std::io::Error::other(
-                        "Failed to parse interval.".to_string(),
-                    ))
-                })?;
+                let result = Interval::from_iso(input).map_err(Box::new)?;
                 Ok(result)
             }
-            IntervalStyle::SQLStandard => Err(Box::new(std::io::Error::other(
-                "Parsing interval from SQL style is not supported yet.".to_string(),
-            ))),
+            IntervalStyle::SQLStandard => {
+                let result = Interval::from_sql(input).map_err(Box::new)?;
+                Ok(result)
+            }
         }
     }
 }
