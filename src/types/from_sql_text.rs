@@ -500,15 +500,12 @@ macro_rules! impl_vec_from_sql_text {
                 input: &'a [u8],
                 format_options: &FormatOptions,
             ) -> Result<Self, Box<dyn Error + Sync + Send>> {
-                // PostgreSQL array text format: {elem1,elem2,elem3}
-                // Remove the outer braces
                 let input_str = to_str(input)?;
 
                 if input_str.is_empty() {
                     return Ok(Vec::new());
                 }
 
-                // Check if it's an array format
                 if !input_str.starts_with('{') || !input_str.ends_with('}') {
                     return Err("Invalid array format: must start with '{' and end with '}'".into());
                 }
@@ -612,77 +609,47 @@ fn extract_array_elements_with_nulls(
     Ok(elements)
 }
 
-macro_rules! impl_vec_option_from_sql_text {
-    ($t:ty) => {
-        impl<'a> FromSqlText<'a> for Vec<Option<$t>> {
-            fn from_sql_text(
-                ty: &Type,
-                input: &'a [u8],
-                format_options: &FormatOptions,
-            ) -> Result<Self, Box<dyn Error + Sync + Send>> {
-                // PostgreSQL array text format: {elem1,elem2,elem3}
-                // Remove the outer braces
-                let input_str = to_str(input)?;
+impl<'a, T> FromSqlText<'a> for Vec<Option<T>>
+where
+    for<'b> T: FromSqlText<'b>,
+{
+    fn from_sql_text(
+        ty: &Type,
+        input: &'a [u8],
+        format_options: &FormatOptions,
+    ) -> Result<Self, Box<dyn Error + Sync + Send>> {
+        let input_str = to_str(input)?;
 
-                if input_str.is_empty() {
-                    return Ok(Vec::new());
-                }
+        if input_str.is_empty() {
+            return Ok(Vec::new());
+        }
 
-                // Check if it's an array format
-                if !input_str.starts_with('{') || !input_str.ends_with('}') {
-                    return Err("Invalid array format: must start with '{' and end with '}'".into());
-                }
+        if !input_str.starts_with('{') || !input_str.ends_with('}') {
+            return Err("Invalid array format: must start with '{' and end with '}'".into());
+        }
 
-                let inner = &input_str[1..input_str.len() - 1];
+        let inner = &input_str[1..input_str.len() - 1];
 
-                if inner.is_empty() {
-                    return Ok(Vec::new());
-                }
+        if inner.is_empty() {
+            return Ok(Vec::new());
+        }
 
-                let elements = extract_array_elements_with_nulls(inner)?;
-                let mut result = Vec::new();
+        let elements = extract_array_elements_with_nulls(inner)?;
+        let mut result = Vec::new();
 
-                for element_str in elements {
-                    if element_str.trim().eq_ignore_ascii_case("NULL") {
-                        result.push(None);
-                    } else if element_str.is_empty() {
-                        result.push(None);
-                    } else {
-                        let element =
-                            <$t>::from_sql_text(ty, element_str.as_bytes(), format_options)
-                                .map(Some)?;
-                        result.push(element);
-                    }
-                }
-
-                Ok(result)
+        for element_str in elements {
+            if element_str.trim().eq_ignore_ascii_case("NULL") || element_str.is_empty() {
+                result.push(None);
+            } else {
+                let element: Option<T> =
+                    Option::from_sql_text(ty, element_str.as_bytes(), format_options)?;
+                result.push(element);
             }
         }
-    };
+
+        Ok(result)
+    }
 }
-
-impl_vec_option_from_sql_text!(i8);
-impl_vec_option_from_sql_text!(i16);
-impl_vec_option_from_sql_text!(i32);
-impl_vec_option_from_sql_text!(i64);
-impl_vec_option_from_sql_text!(u32);
-impl_vec_option_from_sql_text!(f32);
-impl_vec_option_from_sql_text!(f64);
-impl_vec_option_from_sql_text!(char);
-impl_vec_option_from_sql_text!(bool);
-impl_vec_option_from_sql_text!(String);
-impl_vec_option_from_sql_text!(Vec<u8>);
-
-#[cfg(feature = "pg-type-chrono")]
-impl_vec_option_from_sql_text!(NaiveDate);
-#[cfg(feature = "pg-type-chrono")]
-impl_vec_option_from_sql_text!(NaiveTime);
-#[cfg(feature = "pg-type-chrono")]
-impl_vec_option_from_sql_text!(NaiveDateTime);
-#[cfg(feature = "pg-type-chrono")]
-impl_vec_option_from_sql_text!(DateTime<FixedOffset>);
-#[cfg(feature = "pg-type-chrono")]
-impl_vec_option_from_sql_text!(SystemTime);
 
 #[cfg(test)]
 mod tests {

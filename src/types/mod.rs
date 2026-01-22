@@ -217,9 +217,49 @@ mod roundtrip_tests {
     #[test]
     fn test_roundtrip_option_arrays() {
         test_roundtrip!(
+            Vec<Option<i8>>,
+            vec![Some(1i8), None::<i8>, Some(3i8)],
+            &Type::INT2_ARRAY
+        );
+        test_roundtrip!(
+            Vec<Option<i16>>,
+            vec![Some(1i16), None::<i16>, Some(3i16)],
+            &Type::INT2_ARRAY
+        );
+        test_roundtrip!(
             Vec<Option<i32>>,
             vec![Some(1i32), None::<i32>, Some(3i32)],
             &Type::INT4_ARRAY
+        );
+        test_roundtrip!(
+            Vec<Option<i64>>,
+            vec![Some(1i64), None::<i64>, Some(3i64)],
+            &Type::INT8_ARRAY
+        );
+        test_roundtrip!(
+            Vec<Option<u32>>,
+            vec![Some(1u32), None::<u32>, Some(3u32)],
+            &Type::INT4_ARRAY
+        );
+        test_roundtrip!(
+            Vec<Option<f32>>,
+            vec![Some(1.1f32), None::<f32>, Some(3.3f32)],
+            &Type::FLOAT4_ARRAY
+        );
+        test_roundtrip!(
+            Vec<Option<f64>>,
+            vec![Some(1.1f64), None::<f64>, Some(3.3f64)],
+            &Type::FLOAT8_ARRAY
+        );
+        test_roundtrip!(
+            Vec<Option<char>>,
+            vec![Some('a'), None::<char>, Some('c')],
+            &Type::CHAR_ARRAY
+        );
+        test_roundtrip!(
+            Vec<Option<bool>>,
+            vec![Some(true), None::<bool>, Some(false)],
+            &Type::BOOL_ARRAY
         );
         test_roundtrip!(
             Vec<Option<String>>,
@@ -231,9 +271,13 @@ mod roundtrip_tests {
             &Type::VARCHAR_ARRAY
         );
         test_roundtrip!(
-            Vec<Option<bool>>,
-            vec![Some(true), None::<bool>, Some(false)],
-            &Type::BOOL_ARRAY
+            Vec<Option<Vec<u8>>>,
+            vec![
+                Some(b"test".to_vec()),
+                None::<Vec<u8>>,
+                Some(b"data".to_vec())
+            ],
+            &Type::BYTEA_ARRAY
         );
     }
 
@@ -271,6 +315,77 @@ mod roundtrip_tests {
 
         let system_time = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1703505045);
         test_roundtrip!(SystemTime, system_time, &Type::TIMESTAMP);
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_roundtrip_chrono_option_arrays() {
+        use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
+        use std::time::SystemTime;
+
+        test_roundtrip!(
+            Vec<Option<NaiveDate>>,
+            vec![
+                Some(NaiveDate::from_ymd_opt(2023, 1, 1).unwrap()),
+                None::<NaiveDate>,
+                Some(NaiveDate::from_ymd_opt(2023, 12, 31).unwrap())
+            ],
+            &Type::DATE_ARRAY
+        );
+        test_roundtrip!(
+            Vec<Option<NaiveTime>>,
+            vec![
+                Some(NaiveTime::from_hms_opt(12, 30, 45).unwrap()),
+                None::<NaiveTime>,
+                Some(NaiveTime::from_hms_opt(23, 59, 59).unwrap())
+            ],
+            &Type::TIME_ARRAY
+        );
+        test_roundtrip!(
+            Vec<Option<NaiveDateTime>>,
+            vec![
+                Some(NaiveDateTime::new(
+                    NaiveDate::from_ymd_opt(2023, 1, 1).unwrap(),
+                    NaiveTime::from_hms_opt(12, 30, 45).unwrap(),
+                )),
+                None::<NaiveDateTime>,
+                Some(NaiveDateTime::new(
+                    NaiveDate::from_ymd_opt(2023, 12, 31).unwrap(),
+                    NaiveTime::from_hms_opt(23, 59, 59).unwrap(),
+                )),
+            ],
+            &Type::TIMESTAMP_ARRAY
+        );
+        test_roundtrip!(
+            Vec<Option<DateTime<FixedOffset>>>,
+            vec![
+                Some(DateTime::from_naive_utc_and_offset(
+                    NaiveDate::from_ymd_opt(2023, 1, 1)
+                        .unwrap()
+                        .and_hms_opt(12, 30, 45)
+                        .unwrap(),
+                    FixedOffset::east_opt(8 * 3600).unwrap(),
+                )),
+                None::<DateTime<FixedOffset>>,
+                Some(DateTime::from_naive_utc_and_offset(
+                    NaiveDate::from_ymd_opt(2023, 12, 31)
+                        .unwrap()
+                        .and_hms_opt(23, 59, 59)
+                        .unwrap(),
+                    FixedOffset::west_opt(5 * 3600).unwrap(),
+                )),
+            ],
+            &Type::TIMESTAMPTZ_ARRAY
+        );
+        test_roundtrip!(
+            Vec<Option<SystemTime>>,
+            vec![
+                Some(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1703505045)),
+                None::<SystemTime>,
+                Some(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1703505050)),
+            ],
+            &Type::TIMESTAMP_ARRAY
+        );
     }
 
     #[cfg(feature = "pg-type-rust-decimal")]
@@ -367,6 +482,7 @@ mod roundtrip_tests {
         test_roundtrip!(::postgis::ewkb::Point, point, &Type::TEXT);
     }
 
+    #[test]
     fn test_roundtrip_interval_postgres_style() {
         use pg_interval::Interval;
 
