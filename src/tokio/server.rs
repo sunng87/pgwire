@@ -8,6 +8,8 @@ use futures::{SinkExt, StreamExt};
 use rustls_pki_types::CertificateDer;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
+#[cfg(unix)]
+use tokio::net::UnixStream;
 use tokio::time::{sleep, Duration};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use tokio_rustls::server::TlsStream;
@@ -412,6 +414,8 @@ fn check_alpn_for_direct_ssl<IO>(tls_socket: &TlsStream<IO>) -> Result<(), io::E
 #[non_exhaustive]
 pub enum MaybeTls {
     Plain(TcpStream),
+    #[cfg(unix)]
+    Unix(UnixStream),
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     Tls(Box<TlsStream<TcpStream>>),
 }
@@ -420,6 +424,8 @@ macro_rules! maybe_tls {
     ($self:ident, $poll_x:ident($($args:expr),*)) => {
         match $self.get_mut() {
             MaybeTls::Plain(io) => Pin::new(io).$poll_x($($args),*),
+            #[cfg(unix)]
+            MaybeTls::Unix(io) => Pin::new(io).$poll_x($($args),*),
             #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             MaybeTls::Tls(io) => Pin::new(io).$poll_x($($args),*),
         }
@@ -520,6 +526,84 @@ pub async fn negotiate_tls<S>(
     Ok(None)
 }
 
+/// Process messages on an already-negotiated socket.
+///
+/// This is the common message processing loop shared by both TCP and Unix sockets.
+macro_rules! process_socket_messages {
+    ($socket:expr, $startup_timeout:expr, $handlers:expr) => {{
+        let startup_handler = $handlers.startup_handler();
+        let simple_query_handler = $handlers.simple_query_handler();
+        let extended_query_handler = $handlers.extended_query_handler();
+        let copy_handler = $handlers.copy_handler();
+        let cancel_handler = $handlers.cancel_handler();
+        let error_handler = $handlers.error_handler();
+
+        let socket = &mut $socket;
+        loop {
+            let msg = if matches!(
+                socket.state(),
+                PgWireConnectionState::AwaitingStartup
+                    | PgWireConnectionState::AuthenticationInProgress
+            ) {
+                tokio::select! {
+                    _ = &mut $startup_timeout => None,
+                    msg = socket.next() => msg,
+                }
+            } else {
+                socket.next().await
+            };
+
+            if let Some(Ok(msg)) = msg {
+                let is_extended_query = match socket.state() {
+                    PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
+                    _ => msg.is_extended_query(),
+                };
+                if let Err(mut e) = process_message(
+                    msg,
+                    socket,
+                    startup_handler.clone(),
+                    simple_query_handler.clone(),
+                    extended_query_handler.clone(),
+                    copy_handler.clone(),
+                    cancel_handler.clone(),
+                )
+                .await
+                {
+                    error_handler.on_error(socket, &mut e);
+                    process_error(socket, e, is_extended_query).await?;
+                }
+            } else {
+                break;
+            }
+        }
+    }};
+}
+
+/// Process Unix domain socket connection.
+#[cfg(unix)]
+pub async fn process_socket_unix<H>(unix_socket: UnixStream, handlers: H) -> Result<(), io::Error>
+where
+    H: PgWireServerHandlers,
+{
+    let startup_timeout = sleep(Duration::from_millis(STARTUP_TIMEOUT_MILLIS));
+    tokio::pin!(startup_timeout);
+
+    // Use a dummy socket address for Unix domain socket connections
+    // This is consistent with how PostgreSQL handles Unix socket connections
+    let addr = "127.0.0.1:0".parse().unwrap();
+
+    let client_info = DefaultClient::new(addr, false);
+    let mut socket = Framed::new(
+        MaybeTls::Unix(unix_socket),
+        PgWireMessageServerCodec::new(client_info),
+    );
+
+    socket.set_state(PgWireConnectionState::AwaitingStartup);
+
+    process_socket_messages!(socket, startup_timeout, handlers);
+    Ok(())
+}
+
 pub async fn process_socket<H>(
     tcp_socket: TcpStream,
     tls_acceptor: Option<crate::tokio::TlsAcceptor>,
@@ -549,51 +633,7 @@ where
         return Ok(());
     };
 
-    let startup_handler = handlers.startup_handler();
-    let simple_query_handler = handlers.simple_query_handler();
-    let extended_query_handler = handlers.extended_query_handler();
-    let copy_handler = handlers.copy_handler();
-    let cancel_handler = handlers.cancel_handler();
-    let error_handler = handlers.error_handler();
-
-    let socket = &mut socket;
-    loop {
-        let msg = if matches!(
-            socket.state(),
-            PgWireConnectionState::AwaitingStartup
-                | PgWireConnectionState::AuthenticationInProgress
-        ) {
-            tokio::select! {
-                _ = &mut startup_timeout => None,
-                msg = socket.next() => msg,
-            }
-        } else {
-            socket.next().await
-        };
-
-        if let Some(Ok(msg)) = msg {
-            let is_extended_query = match socket.state() {
-                PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
-                _ => msg.is_extended_query(),
-            };
-            if let Err(mut e) = process_message(
-                msg,
-                socket,
-                startup_handler.clone(),
-                simple_query_handler.clone(),
-                extended_query_handler.clone(),
-                copy_handler.clone(),
-                cancel_handler.clone(),
-            )
-            .await
-            {
-                error_handler.on_error(socket, &mut e);
-                process_error(socket, e, is_extended_query).await?;
-            }
-        } else {
-            break;
-        }
-    }
+    process_socket_messages!(socket, startup_timeout, handlers);
     Ok(())
 }
 

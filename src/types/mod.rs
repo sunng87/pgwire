@@ -366,4 +366,433 @@ mod roundtrip_tests {
 
         test_roundtrip!(::postgis::ewkb::Point, point, &Type::TEXT);
     }
+      
+    fn test_roundtrip_interval_postgres_style() {
+        use pg_interval::Interval;
+
+        let format_options = FormatOptions::default();
+
+        // Test interval with months
+        let interval1 = Interval::new(6, 0, 0);
+        let mut buf = BytesMut::new();
+        interval1
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval1, decoded);
+
+        // Test interval with days
+        let interval2 = Interval::new(0, 15, 0);
+        let mut buf = BytesMut::new();
+        interval2
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval2, decoded);
+
+        // Test interval with months and days
+        let interval3 = Interval::new(6, 15, 0);
+        let mut buf = BytesMut::new();
+        interval3
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval3, decoded);
+
+        // Test interval with time component
+        let interval4 = Interval::new(0, 0, 3661000000i64);
+        let mut buf = BytesMut::new();
+        interval4
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval4, decoded);
+
+        // Test complex interval with all components
+        let interval5 = Interval::new(12, 15, 1296060000000i64);
+        let mut buf = BytesMut::new();
+        interval5
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval5, decoded);
+
+        // Test zero interval
+        let interval6 = Interval::new(0, 0, 0);
+        let mut buf = BytesMut::new();
+        interval6
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval6, decoded);
+    }
+
+    #[test]
+    fn test_roundtrip_interval_iso8601_style() {
+        use pg_interval::Interval;
+
+        let mut format_options = FormatOptions::default();
+        format_options.interval_style = "iso_8601".to_string();
+
+        // Test simple time interval
+        let interval1 = Interval::new(0, 0, 3661000000i64);
+        let mut buf = BytesMut::new();
+        interval1
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval1, decoded);
+
+        // Test interval with days
+        let interval2 = Interval::new(0, 1, 86400000000i64);
+        let mut buf = BytesMut::new();
+        interval2
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval2, decoded);
+
+        // Test interval with months
+        let interval3 = Interval::new(6, 0, 0);
+        let mut buf = BytesMut::new();
+        interval3
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval3, decoded);
+
+        // Test complex interval
+        let interval4 = Interval::new(12, 15, 1296060000000i64);
+        let mut buf = BytesMut::new();
+        interval4
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval4, decoded);
+
+        // Test zero interval
+        let interval5 = Interval::new(0, 0, 0);
+        let mut buf = BytesMut::new();
+        interval5
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval5, decoded);
+    }
+
+    #[test]
+    fn test_roundtrip_interval_postgres_verbose_style() {
+        use pg_interval::Interval;
+
+        let mut format_options = FormatOptions::default();
+        format_options.interval_style = "postgres_verbose".to_string();
+
+        // Test interval with months
+        let interval1 = Interval::new(6, 0, 0);
+        let mut buf = BytesMut::new();
+        interval1
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval1, decoded);
+
+        // Test interval with days
+        let interval2 = Interval::new(0, 15, 0);
+        let mut buf = BytesMut::new();
+        interval2
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval2, decoded);
+
+        // Test interval with months and days
+        let interval3 = Interval::new(6, 15, 0);
+        let mut buf = BytesMut::new();
+        interval3
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval3, decoded);
+
+        // Test interval with time component
+        let interval4 = Interval::new(0, 0, 3661000000i64);
+        let mut buf = BytesMut::new();
+        interval4
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval4, decoded);
+
+        // Test complex interval with all components
+        let interval5 = Interval::new(12, 15, 1296060000000i64);
+        let mut buf = BytesMut::new();
+        interval5
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval5, decoded);
+
+        // Test zero interval
+        let interval6 = Interval::new(0, 0, 0);
+        let mut buf = BytesMut::new();
+        interval6
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval6, decoded);
+    }
+
+    #[test]
+    fn test_roundtrip_interval_negative_values() {
+        use pg_interval::Interval;
+
+        let format_options = FormatOptions::default();
+
+        let interval1 = Interval::new(-6, 0, 0);
+        let mut buf = BytesMut::new();
+        interval1
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval1, decoded);
+
+        let interval2 = Interval::new(0, -15, 0);
+        let mut buf = BytesMut::new();
+        interval2
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval2, decoded);
+
+        let interval3 = Interval::new(0, 0, -3600000000i64);
+        let mut buf = BytesMut::new();
+        interval3
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval3, decoded);
+
+        let interval4 = Interval::new(-12, -15, -86400000000i64);
+        let mut buf = BytesMut::new();
+        interval4
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval4, decoded);
+    }
+
+    #[test]
+    fn test_roundtrip_interval_negative_values_iso8601() {
+        use pg_interval::Interval;
+
+        let mut format_options = FormatOptions::default();
+        format_options.interval_style = "iso_8601".to_string();
+
+        let interval1 = Interval::new(-6, 0, 0);
+        let mut buf = BytesMut::new();
+        interval1
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval1, decoded);
+
+        let interval2 = Interval::new(0, -15, 0);
+        let mut buf = BytesMut::new();
+        interval2
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval2, decoded);
+    }
+
+    #[test]
+    fn test_roundtrip_interval_negative_values_postgres_verbose() {
+        use pg_interval::Interval;
+
+        let mut format_options = FormatOptions::default();
+        format_options.interval_style = "postgres_verbose".to_string();
+
+        let interval1 = Interval::new(-6, 0, 0);
+        let mut buf = BytesMut::new();
+        interval1
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval1, decoded);
+
+        let interval2 = Interval::new(0, -15, 0);
+        let mut buf = BytesMut::new();
+        interval2
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval2, decoded);
+    }
+
+    #[test]
+    fn test_interval_encoding_formats() {
+        use pg_interval::Interval;
+
+        let interval = Interval::new(12, 15, 1296060000000i64);
+
+        let mut format_options = FormatOptions::default();
+
+        // Test postgres encoding
+        format_options.interval_style = "postgres".to_string();
+        let mut buf = BytesMut::new();
+        interval
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let postgres_str = String::from_utf8_lossy(&buf);
+        eprintln!("postgres format: {}", postgres_str);
+
+        let parsed = Interval::from_postgres(&postgres_str);
+        assert!(parsed.is_ok(), "postgres style should roundtrip");
+        assert_eq!(
+            parsed.unwrap(),
+            interval,
+            "postgres roundtrip should preserve value"
+        );
+
+        // Test iso_8601 encoding
+        format_options.interval_style = "iso_8601".to_string();
+        buf.clear();
+        interval
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let iso_str = String::from_utf8_lossy(&buf);
+        eprintln!("iso_8601 format: {}", iso_str);
+
+        let parsed = Interval::from_iso(&iso_str);
+        assert!(parsed.is_ok(), "iso_8601 style should roundtrip");
+        assert_eq!(
+            parsed.unwrap(),
+            interval,
+            "iso_8601 roundtrip should preserve value"
+        );
+
+        // Test postgres_verbose encoding
+        format_options.interval_style = "postgres_verbose".to_string();
+        buf.clear();
+        interval
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let verbose_str = String::from_utf8_lossy(&buf);
+        eprintln!("postgres_verbose format: {}", verbose_str);
+
+        let parsed = Interval::from_postgres_verbose(&verbose_str);
+        assert!(parsed.is_ok(), "postgres_verbose style should roundtrip");
+        assert_eq!(
+            parsed.unwrap(),
+            interval,
+            "postgres_verbose roundtrip should preserve value"
+        );
+    }
+
+    #[test]
+    fn test_roundtrip_interval_comprehensive() {
+        use pg_interval::Interval;
+
+        let format_options = FormatOptions::default();
+
+        let interval1 = Interval::new(0, 0, 3661000000i64);
+        let mut buf = BytesMut::new();
+        interval1
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval1, decoded, "Time-only interval should roundtrip");
+
+        let interval2 = Interval::new(12, 0, 0);
+        let mut buf = BytesMut::new();
+        interval2
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval2, decoded, "12 months (1 year) should roundtrip");
+
+        let interval3 = Interval::new(0, 1, 0);
+        let mut buf = BytesMut::new();
+        interval3
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval3, decoded, "Single day should roundtrip");
+
+        let interval4 = Interval::new(0, 0, 0);
+        let mut buf = BytesMut::new();
+        interval4
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval4, decoded, "Zero interval should roundtrip");
+
+        let interval5 = Interval::new(12, 15, 1296060000000i64);
+        let mut buf = BytesMut::new();
+        interval5
+            .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
+            .unwrap();
+        let encoded = buf.freeze();
+        let decoded: Interval =
+            Interval::from_sql_text(&Type::INTERVAL, &encoded, &format_options).unwrap();
+        assert_eq!(interval5, decoded, "Complex interval should roundtrip");
+    }
 }
