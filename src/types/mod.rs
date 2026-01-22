@@ -366,7 +366,7 @@ mod roundtrip_tests {
 
         test_roundtrip!(::postgis::ewkb::Point, point, &Type::TEXT);
     }
-      
+
     fn test_roundtrip_interval_postgres_style() {
         use pg_interval::Interval;
 
