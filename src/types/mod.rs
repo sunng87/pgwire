@@ -1,5 +1,7 @@
 pub mod format;
 mod from_sql_text;
+#[cfg(feature = "pg-type-postgis")]
+pub mod postgis;
 mod to_sql_text;
 
 pub use from_sql_text::FromSqlText;
@@ -354,6 +356,17 @@ mod roundtrip_tests {
     }
 
     #[test]
+    #[cfg(feature = "pg-type-postgis")]
+    fn test_geometry_point() {
+        let point = ::postgis::ewkb::Point {
+            x: 1.0,
+            y: 2.0,
+            srid: None,
+        };
+
+        test_roundtrip!(::postgis::ewkb::Point, point, &Type::TEXT);
+    }
+
     fn test_roundtrip_interval_postgres_style() {
         use pg_interval::Interval;
 

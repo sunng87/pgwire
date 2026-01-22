@@ -30,7 +30,7 @@ jobs:
         components: clippy
         override: true
     - name: Lint default
-      run: cargo clippy -- -D warnings
+      run: cargo clippy --features pg-type-postgis -- -D warnings
     - name: Lint minimal
       run: cargo clippy --no-default-features -- -D warnings
     - name: Lint server-api without tls
@@ -55,7 +55,7 @@ jobs:
         override: true
     - name: Build and run tests on default feature set
       if: runner.os != 'Windows'
-      run: cargo test
+      run: cargo test --features pg-type-postgis
     - name: Run tests on minimal feature set
       run: cargo test --no-default-features
     - name: Run tests without tls
@@ -97,7 +97,7 @@ jobs:
       with:
         toolchain: "1.89"
         override: true
-    - run: cargo build
+    - run: cargo build --features pg-type-postgis
     - run: cargo build --no-default-features
     - run: cargo build --no-default-features --features server-api
     - run: cargo build --no-default-features --features server-api-ring
