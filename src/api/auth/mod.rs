@@ -102,7 +102,7 @@ impl Default for DefaultServerParameterProvider {
             time_zone: format_options.time_zone,
             date_style: format_options.date_style,
             interval_style: format_options.interval_style,
-            standard_conforming_strings: format_options.standard_conforming_strings,
+            standard_conforming_strings: true,
 
             client_encoding: Some("UTF8".to_owned()),
             application_name: None,

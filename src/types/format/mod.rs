@@ -15,7 +15,6 @@ pub struct FormatOptions {
     pub bytea_output: String,
     pub time_zone: String,
     pub extra_float_digits: i8,
-    pub standard_conforming_strings: bool,
 }
 
 impl Default for FormatOptions {
@@ -26,7 +25,6 @@ impl Default for FormatOptions {
             bytea_output: "hex".to_string(),
             time_zone: "Etc/UTC".to_string(),
             extra_float_digits: 1,
-            standard_conforming_strings: true,
         }
     }
 }
@@ -52,12 +50,6 @@ impl FormatOptions {
         if let Some(value) = metadata_map.get("extra_float_digits") {
             if let Ok(value) = value.parse::<i8>() {
                 format_options.extra_float_digits = value;
-            }
-        }
-
-        if let Some(value) = metadata_map.get("standard_conforming_strings") {
-            if value == "off" {
-                format_options.standard_conforming_strings = false;
             }
         }
 

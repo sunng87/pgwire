@@ -113,12 +113,12 @@ impl<'a> FromSqlText<'a> for String {
     fn from_sql_text(
         _ty: &Type,
         input: &[u8],
-        format_options: &FormatOptions,
+        _format_options: &FormatOptions,
     ) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
     {
-        to_str(input).map(|s| parse_string_postgres(s, format_options.standard_conforming_strings))
+        to_str(input).map(parse_string_postgres)
     }
 }
 
