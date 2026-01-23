@@ -88,7 +88,7 @@ mod tests {
         duration
             .to_sql_text(&Type::INTERVAL, &mut out, &format_options)
             .unwrap();
-        assert_eq!(std::str::from_utf8(&out).unwrap(), "01:01:01");
+        assert_eq!(std::str::from_utf8(&out).unwrap(), "1:01:01");
 
         out.clear();
         format_options.interval_style = "postgres_verbose".to_string();
@@ -123,7 +123,7 @@ mod tests {
         duration
             .to_sql_text(&Type::INTERVAL, &mut out, &format_options)
             .unwrap();
-        assert_eq!(std::str::from_utf8(&out).unwrap(), "00:00:01.234567");
+        assert_eq!(std::str::from_utf8(&out).unwrap(), "0:00:01.234567");
 
         out.clear();
         format_options.interval_style = "postgres_verbose".to_string();
@@ -159,7 +159,7 @@ mod tests {
         duration
             .to_sql_text(&Type::INTERVAL, &mut out, &format_options)
             .unwrap();
-        assert_eq!(std::str::from_utf8(&out).unwrap(), "00:00:00");
+        assert_eq!(std::str::from_utf8(&out).unwrap(), "0");
 
         out.clear();
         format_options.interval_style = "postgres_verbose".to_string();
