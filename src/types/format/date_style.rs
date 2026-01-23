@@ -84,7 +84,7 @@ impl DateStyle {
 
             (DateStyleDisplayStyle::ISO, _) => "%Y-%m-%d %H:%M:%S%.6f",
 
-            (DateStyleDisplayStyle::Postgres, _) => "%a %b %e %H:%M:%S %.6f %Y",
+            (DateStyleDisplayStyle::Postgres, _) => "%a %b %e %H:%M:%S%.6f %Y",
 
             (DateStyleDisplayStyle::German, _) => "%d.%m.%Y %H:%M:%S%.6f",
         }
@@ -238,16 +238,16 @@ mod tests {
             (
                 "postgres",
                 None,
-                "%a %b %e %H:%M:%S %.6f %Y",
-                "%a %b %e %H:%M:%S %.6f %Y %Z",
+                "%a %b %e %H:%M:%S%.6f %Y",
+                "%a %b %e %H:%M:%S%.6f %Y %Z",
                 "%m-%d-%Y",
                 "%H:%M:%S%.6f %Z",
             ),
             (
                 "postgres",
                 Some("DMY"),
-                "%a %b %e %H:%M:%S %.6f %Y",
-                "%a %b %e %H:%M:%S %.6f %Y %Z",
+                "%a %b %e %H:%M:%S%.6f %Y",
+                "%a %b %e %H:%M:%S%.6f %Y %Z",
                 "%d-%m-%Y",
                 "%H:%M:%S%.6f %Z",
             ),
@@ -416,5 +416,24 @@ mod tests {
 
         let result = dt.to_sql_text(&Type::BOOL, &mut out, &format_options);
         assert!(result.is_err());
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_postgres_date_style_with_microseconds() {
+        use crate::types::format::FormatOptions;
+
+        let dt = NaiveDate::from_ymd_opt(2023, 12, 25)
+            .unwrap()
+            .and_hms_micro_opt(14, 30, 45, 123456)
+            .unwrap();
+        let mut out = BytesMut::new();
+        let mut format_options = FormatOptions::default();
+        format_options.date_style = "postgres".to_string();
+
+        dt.to_sql_text(&Type::TIMESTAMP, &mut out, &format_options)
+            .unwrap();
+        let result = std::str::from_utf8(&out).unwrap();
+        assert!(result.contains("14:30:45.123456"));
     }
 }
