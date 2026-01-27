@@ -56,6 +56,7 @@
             openssh
             jbang
             jdk_headless
+            gnumake
           ];
 
 
