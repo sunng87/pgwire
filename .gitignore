@@ -7,3 +7,4 @@ node_modules
 .direnv
 .envrc
 result
+tests-integration/libpq-client/client

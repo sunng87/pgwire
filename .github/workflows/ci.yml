@@ -74,18 +74,10 @@ jobs:
     timeout-minutes: 15
     needs: [test]
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        override: true
-    - run: |
-        pip install psycopg
-        pip install psycopg2
-    - uses: turtlequeue/setup-babashka@v1.5.0
-      with:
-        babashka-version: 1.1.173
-    - uses: jbangdev/setup-jbang@main
+    - uses: actions/checkout@v6
+    - uses: DeterminateSystems/nix-installer-action@main
+    - uses: DeterminateSystems/magic-nix-cache-action@main
+    - uses: nicknovitski/nix-develop@v1
     - run: ./tests-integration/test.sh
 
   msrv:
