@@ -76,7 +76,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: cachix/install-nix-action@v31
-    - run: nix develop --command ./tests-integration/test.sh
+    - run: nix develop --command bash -c './tests-integration/test.sh'
 
   msrv:
     name: MSRV
