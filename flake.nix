@@ -21,11 +21,9 @@
         ]);
         buildInputs = with pkgs; [
           llvmPackages.libclang
-          sqlite.dev
-          sqlite.out
+          sqlite
           openssl
-          libpq.dev
-          libpq.out
+          libpq
         ];
       in
       {
@@ -57,7 +55,6 @@
             jbang
             jdk_headless
             gnumake
-            openssl
           ];
 
 
@@ -68,13 +65,6 @@
             export CXX=clang++
             export SQLITE3_LIB_DIR="${pkgs.sqlite.dev}/lib"
             export SQLITE3_INCLUDE_DIR="${pkgs.sqlite.dev}/include"
-
-            export OPENSSL_DIR="${pkgs.openssl.dev}"
-            export OPENSSL_LIB_DIR="${pkgs.openssl.out}/lib"
-            export OPENSSL_INCLUDE_DIR="${pkgs.openssl.dev}/include"
-
-            export LD_LIBRARY_PATH="${pkgs.openssl.out}/lib:$LD_LIBRARY_PATH"
-            export LIBRARY_PATH="${pkgs.openssl.out}/lib:$LIBRARY_PATH"
           '';
         };
       });
