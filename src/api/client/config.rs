@@ -90,6 +90,7 @@ impl Host {
     pub(crate) fn get_hostname(&self) -> Option<String> {
         match self {
             Host::Tcp(host) => Some(host.clone()),
+            #[cfg(unix)]
             Host::Unix(_) => None,
         }
     }
@@ -1092,7 +1093,7 @@ impl<'a> UrlParser<'a> {
     }
 
     #[cfg(not(unix))]
-    fn host_param(&mut self, s: &str) -> Result<(), Error> {
+    fn host_param(&mut self, s: &str) -> Result<(), PgWireClientError> {
         let s = self.decode(s)?;
         self.config.param("host", &s)
     }
