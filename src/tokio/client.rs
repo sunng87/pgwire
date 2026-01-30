@@ -126,7 +126,7 @@ impl PgWireClient {
         S: StartupHandler,
     {
         // tcp connect
-        let socket = match get_addr(&config)? {
+        let mut socket = match get_addr(&config)? {
             PgSocketAddr::Ip(socket_addr) => {
                 ClientSocket::Plain(TcpStream::connect(socket_addr).await?)
             }
@@ -138,10 +138,12 @@ impl PgWireClient {
                 ClientSocket::Unix(UnixStream::connect(socket_addr).await?)
             }
         };
-        // perform ssl handshake based on postgres configuration
-        // if tls is not enabled, just return the socket and perform startup
-        // directly
-        let socket = ssl_handshake(socket, &config, tls_connector).await?;
+        if let ClientSocket::Plain(tcp_socket) = socket {
+            // perform ssl handshake based on postgres configuration
+            // if tls is not enabled, just return the socket and perform startup
+            // directly
+            socket = ssl_handshake(tcp_socket, &config, tls_connector).await?;
+        };
         let socket = Framed::new(socket, PgWireMessageClientCodec::default());
 
         let mut client = PgWireClient {
@@ -203,7 +205,7 @@ impl Stream for PgWireClient {
 pub enum ClientSocket {
     Plain(#[pin] TcpStream),
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
-    Secure(#[pin] Box<TlsStream<ClientSocket>>),
+    Secure(#[pin] Box<TlsStream<TcpStream>>),
     #[cfg(unix)]
     Unix(#[pin] UnixStream),
 }
@@ -265,7 +267,7 @@ impl AsyncWrite for ClientSocket {
 
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 async fn connect_tls(
-    socket: ClientSocket,
+    socket: TcpStream,
     config: &Config,
     tls_connector: TlsConnector,
 ) -> PgWireClientResult<ClientSocket> {
@@ -291,7 +293,7 @@ async fn connect_tls(
 
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 pub(crate) async fn ssl_handshake(
-    socket: ClientSocket,
+    socket: TcpStream,
     config: &Config,
     tls_connector: Option<TlsConnector>,
 ) -> PgWireClientResult<ClientSocket> {
@@ -301,7 +303,7 @@ pub(crate) async fn ssl_handshake(
 
     // ssl is disabled on client side
     if config.ssl_mode == SslMode::Disable {
-        return Ok(socket);
+        return Ok(ClientSocket::Plain(socket));
     }
 
     if let Some(tls_connector) = tls_connector {
@@ -329,7 +331,7 @@ pub(crate) async fn ssl_handshake(
                             )
                             .into())
                         } else {
-                            Ok(socket.into_inner())
+                            Ok(ClientSocket::Plain(socket.into_inner()))
                         }
                     }
                 }
@@ -339,7 +341,7 @@ pub(crate) async fn ssl_handshake(
             }
         }
     } else {
-        Ok(socket)
+        Ok(ClientSocket::Plain(socket))
     }
 }
 
