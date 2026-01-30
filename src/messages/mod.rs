@@ -103,8 +103,8 @@ pub trait Message: Sized {
         let len = self.message_length();
         if len > Self::max_message_length() {
             return Err(PgWireError::MessageTooLarge(
-                len,
                 Self::max_message_length(),
+                len,
             ));
         }
 

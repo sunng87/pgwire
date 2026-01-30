@@ -70,7 +70,7 @@ where
 {
     if let Some(msg_len) = get_length(buf, offset) {
         if msg_len > max_size {
-            return Err(PgWireError::MessageTooLarge(msg_len, max_size));
+            return Err(PgWireError::MessageTooLarge(max_size, msg_len));
         }
 
         if buf.remaining() >= msg_len + offset {
