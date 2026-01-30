@@ -438,7 +438,7 @@ impl PgWireBackendMessage {
                 }
                 extendedquery::MESSAGE_TYPE_BYTE_PORTAL_SUSPENDED => {
                     extendedquery::PortalSuspended::decode(buf, ctx)
-                        .map(|v| v.map(PgWireBackendMessage::PortalSuspended))
+                        .map(|v| v.map(Self::PortalSuspended))
                 }
 
                 response::MESSAGE_TYPE_BYTE_COMMAND_COMPLETE => {
