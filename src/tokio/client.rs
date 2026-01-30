@@ -11,7 +11,7 @@ use futures::{Sink, SinkExt, Stream, StreamExt};
 use pin_project::pin_project;
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use rustls_pki_types::ServerName;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::net::TcpStream;
 #[cfg(unix)]
 use tokio::net::UnixStream;
@@ -318,26 +318,28 @@ pub(crate) async fn ssl_handshake(
                 ))
                 .await?;
 
-            if let Some(Ok(PgWireBackendMessage::SslResponse(ssl_resp))) = socket.next().await {
-                match ssl_resp {
-                    SslResponse::Accept => {
-                        connect_tls(socket.into_inner(), config, tls_connector).await
-                    }
-                    SslResponse::Refuse => {
-                        if config.ssl_mode == SslMode::Require {
-                            Err(IOError::new(
-                                ErrorKind::ConnectionAborted,
-                                "TLS is not enabled on server ",
-                            )
-                            .into())
-                        } else {
-                            Ok(ClientSocket::Plain(socket.into_inner()))
-                        }
+            // We read a byte to get the answer
+            let mut output = [0];
+            socket.get_mut().read_exact(&mut output).await?;
+            match output[0] {
+                SslResponse::BYTE_ACCEPT => {
+                    connect_tls(socket.into_inner(), config, tls_connector).await
+                }
+                SslResponse::BYTE_REFUSE => {
+                    if config.ssl_mode == SslMode::Require {
+                        Err(IOError::new(
+                            ErrorKind::ConnectionAborted,
+                            "TLS is not enabled on server",
+                        )
+                        .into())
+                    } else {
+                        Ok(ClientSocket::Plain(socket.into_inner()))
                     }
                 }
-            } else {
-                // connection closed
-                Err(IOError::new(ErrorKind::ConnectionAborted, "Expect SslResponse").into())
+                _ => {
+                    // connection closed
+                    Err(IOError::new(ErrorKind::ConnectionAborted, "Expect SslResponse").into())
+                }
             }
         }
     } else {
