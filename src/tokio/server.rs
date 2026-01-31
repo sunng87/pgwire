@@ -50,14 +50,19 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
         self.decode_context.protocol_version = self.client_info.protocol_version;
 
         match self.client_info.state() {
-            PgWireConnectionState::AwaitingSslRequest => {}
+            PgWireConnectionState::AwaitingSslRequest => {
+                self.decode_context.awaiting_ssl = true;
+                self.decode_context.awaiting_startup = true;
+            }
 
             PgWireConnectionState::AwaitingStartup => {
                 self.decode_context.awaiting_ssl = false;
+                self.decode_context.awaiting_startup = true;
             }
 
             _ => {
                 self.decode_context.awaiting_startup = false;
+                self.decode_context.awaiting_ssl = false;
             }
         }
 
