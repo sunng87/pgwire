@@ -11,7 +11,7 @@ use futures::{Sink, SinkExt, Stream, StreamExt};
 use pin_project::pin_project;
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use rustls_pki_types::ServerName;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 #[cfg(unix)]
 use tokio::net::UnixStream;
@@ -32,13 +32,17 @@ use crate::messages::{
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct PgWireMessageClientCodec {
-    protocol_version: ProtocolVersion,
+    decode_context: DecodeContext,
 }
 
 impl Default for PgWireMessageClientCodec {
     fn default() -> Self {
         Self {
-            protocol_version: ProtocolVersion::PROTOCOL3_0,
+            decode_context: DecodeContext {
+                protocol_version: ProtocolVersion::PROTOCOL3_0,
+                awaiting_ssl: false,
+                awaiting_startup: false,
+            },
         }
     }
 }
@@ -48,11 +52,7 @@ impl Decoder for PgWireMessageClientCodec {
     type Error = PgWireError;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        let decode_context = DecodeContext::default();
-
-        //TODO: update protocol according to negotiation result
-
-        PgWireBackendMessage::decode(src, &decode_context)
+        PgWireBackendMessage::decode(src, &self.decode_context)
     }
 }
 
@@ -64,6 +64,7 @@ impl Encoder<PgWireFrontendMessage> for PgWireMessageClientCodec {
         item: PgWireFrontendMessage,
         dst: &mut bytes::BytesMut,
     ) -> Result<(), Self::Error> {
+        self.decode_context.awaiting_ssl = matches!(item, PgWireFrontendMessage::SslNegotiation(_));
         item.encode(dst)
     }
 }
@@ -89,7 +90,7 @@ impl ClientInfo for PgWireClient {
     }
 
     fn protocol_version(&self) -> ProtocolVersion {
-        self.socket.codec().protocol_version
+        self.socket.codec().decode_context.protocol_version
     }
 }
 
@@ -318,28 +319,26 @@ pub(crate) async fn ssl_handshake(
                 ))
                 .await?;
 
-            // We read a byte to get the answer
-            let mut output = [0];
-            socket.get_mut().read_exact(&mut output).await?;
-            match output[0] {
-                SslResponse::BYTE_ACCEPT => {
-                    connect_tls(socket.into_inner(), config, tls_connector).await
-                }
-                SslResponse::BYTE_REFUSE => {
-                    if config.ssl_mode == SslMode::Require {
-                        Err(IOError::new(
-                            ErrorKind::ConnectionAborted,
-                            "TLS is not enabled on server",
-                        )
-                        .into())
-                    } else {
-                        Ok(ClientSocket::Plain(socket.into_inner()))
+            if let Some(Ok(PgWireBackendMessage::SslResponse(ssl_resp))) = socket.next().await {
+                match ssl_resp {
+                    SslResponse::Accept => {
+                        connect_tls(socket.into_inner(), config, tls_connector).await
+                    }
+                    SslResponse::Refuse => {
+                        if config.ssl_mode == SslMode::Require {
+                            Err(IOError::new(
+                                ErrorKind::ConnectionAborted,
+                                "TLS is not enabled on server ",
+                            )
+                            .into())
+                        } else {
+                            Ok(ClientSocket::Plain(socket.into_inner()))
+                        }
                     }
                 }
-                _ => {
-                    // connection closed
-                    Err(IOError::new(ErrorKind::ConnectionAborted, "Expect SslResponse").into())
-                }
+            } else {
+                // connection closed
+                Err(IOError::new(ErrorKind::ConnectionAborted, "Expect SslResponse").into())
             }
         }
     } else {

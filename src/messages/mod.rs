@@ -226,7 +226,7 @@ impl PgWireFrontendMessage {
 
     pub fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
         if ctx.awaiting_ssl {
-            // Connection just estabilished, the incoming message can be:
+            // Connection just established, the incoming message can be:
             // - SSLRequest
             // - GssRequest
             // - Startup
@@ -238,25 +238,19 @@ impl PgWireFrontendMessage {
                 if startup::SslRequest::is_ssl_request_packet(buf) {
                     startup::SslRequest::decode(buf, ctx).map(|opt| {
                         opt.map(|msg| {
-                            PgWireFrontendMessage::SslNegotiation(
-                                SslNegotiationMetaMessage::PostgresSsl(msg),
-                            )
+                            Self::SslNegotiation(SslNegotiationMetaMessage::PostgresSsl(msg))
                         })
                     })
                 } else if startup::GssEncRequest::is_gss_enc_request_packet(buf) {
                     startup::GssEncRequest::decode(buf, ctx).map(|opt| {
                         opt.map(|msg| {
-                            PgWireFrontendMessage::SslNegotiation(
-                                SslNegotiationMetaMessage::PostgresGss(msg),
-                            )
+                            Self::SslNegotiation(SslNegotiationMetaMessage::PostgresGss(msg))
                         })
                     })
                 } else {
                     // the message can be cancel or startup, we will update the
                     // state in `DecodeContext` and read them in next loop
-                    Ok(Some(PgWireFrontendMessage::SslNegotiation(
-                        SslNegotiationMetaMessage::None,
-                    )))
+                    Ok(Some(Self::SslNegotiation(SslNegotiationMetaMessage::None)))
                 }
             } else {
                 Ok(None)
@@ -408,7 +402,10 @@ impl PgWireBackendMessage {
     }
 
     pub fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
-        if buf.remaining() > 1 {
+        if ctx.awaiting_ssl {
+            // We are waiting for the SSL response
+            response::SslResponse::decode(buf, ctx).map(|opt| opt.map(Self::SslResponse))
+        } else if buf.remaining() > 1 {
             let first_byte = buf[0];
             match first_byte {
                 startup::MESSAGE_TYPE_BYTE_AUTHENTICATION => {
