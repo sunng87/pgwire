@@ -5,17 +5,17 @@ use bytes::Bytes;
 use postgres_types::FromSqlOwned;
 use tokio::sync::Mutex;
 
-use crate::api::results::QueryResponse;
 use crate::api::Type;
+use crate::api::results::QueryResponse;
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::data::FORMAT_CODE_BINARY;
 use crate::messages::extendedquery::Bind;
-use crate::types::format::FormatOptions;
 use crate::types::FromSqlText;
+use crate::types::format::FormatOptions;
 
+use super::DEFAULT_NAME;
 use super::results::FieldFormat;
 use super::stmt::StoredStatement;
-use super::DEFAULT_NAME;
 
 /// Represent a prepared sql statement and its parameters bound by a `Bind`
 /// request.
@@ -63,7 +63,7 @@ impl Format {
         match self {
             Format::UnifiedText => FieldFormat::Text,
             Format::UnifiedBinary => FieldFormat::Binary,
-            Format::Individual(ref fv) => FieldFormat::from(fv[idx]),
+            Format::Individual(fv) => FieldFormat::from(fv[idx]),
         }
     }
 
@@ -136,7 +136,7 @@ impl<S: Clone> Portal<S> {
 
         let _format = self.parameter_format.format_for(idx);
 
-        if let Some(ref param) = param {
+        if let Some(param) = param {
             if self.parameter_format.is_binary(idx) {
                 T::from_sql(pg_type, param)
                     .map(|v| Some(v))

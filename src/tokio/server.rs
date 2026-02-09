@@ -10,7 +10,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 #[cfg(unix)]
 use tokio::net::UnixStream;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use tokio_rustls::server::TlsStream;
 use tokio_util::codec::{Decoder, Encoder, Framed, FramedParts};
@@ -18,7 +18,7 @@ use tokio_util::codec::{Decoder, Encoder, Framed, FramedParts};
 use crate::api::auth::StartupHandler;
 use crate::api::cancel::CancelHandler;
 use crate::api::copy::CopyHandler;
-use crate::api::query::{send_ready_for_query, ExtendedQueryHandler, SimpleQueryHandler};
+use crate::api::query::{ExtendedQueryHandler, SimpleQueryHandler, send_ready_for_query};
 use crate::api::{
     ClientInfo, ClientPortalStore, DefaultClient, ErrorHandler, PgWireConnectionState,
     PgWireServerHandlers,
@@ -400,10 +400,10 @@ fn check_alpn_for_direct_ssl<IO>(tls_socket: &TlsStream<IO>) -> Result<(), io::E
     let (_, the_conn) = tls_socket.get_ref();
     let mut accept = false;
 
-    if let Some(alpn) = the_conn.alpn_protocol() {
-        if alpn == super::POSTGRESQL_ALPN_NAME {
-            accept = true;
-        }
+    if let Some(alpn) = the_conn.alpn_protocol()
+        && alpn == super::POSTGRESQL_ALPN_NAME
+    {
+        accept = true;
     }
 
     if !accept {
@@ -649,10 +649,10 @@ mod tests {
     use std::io::{BufReader, Error as IOError};
     use std::sync::Arc;
     use tokio::sync::oneshot;
-    use tokio_rustls::rustls;
-    use tokio_rustls::rustls::crypto::CryptoProvider;
     use tokio_rustls::TlsAcceptor;
     use tokio_rustls::TlsConnector;
+    use tokio_rustls::rustls;
+    use tokio_rustls::rustls::crypto::CryptoProvider;
 
     fn load_test_server_config() -> Result<rustls::ServerConfig, IOError> {
         use rustls_pemfile::{certs, pkcs8_private_keys};

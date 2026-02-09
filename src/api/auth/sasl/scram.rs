@@ -4,14 +4,14 @@ use std::num::NonZeroU32;
 use std::ops::BitXor;
 use std::sync::Arc;
 
-use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use bytes::Bytes;
-use x509_certificate::certificate::CapturedX509Certificate;
 use x509_certificate::SignatureAlgorithm;
+use x509_certificate::certificate::CapturedX509Certificate;
 
-use crate::api::auth::{AuthSource, LoginInfo};
 use crate::api::ClientInfo;
+use crate::api::auth::{AuthSource, LoginInfo};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::{Authentication, PasswordMessageFamily};
 
@@ -159,9 +159,9 @@ impl ScramAuth {
                 Ok((resp, next_state))
             }
             SASLState::ScramServerFirstSent(
-                ref salt_and_salted_pass,
-                ref channel_binding_prefix,
-                ref partial_auth_msg,
+                salt_and_salted_pass,
+                channel_binding_prefix,
+                partial_auth_msg,
             ) => {
                 // second response, client_final
                 let resp = msg.into_sasl_response()?;
