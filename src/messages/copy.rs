@@ -1,6 +1,6 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
-use super::{codec, DecodeContext, Message};
+use super::{DecodeContext, Message, codec};
 use crate::error::PgWireResult;
 
 pub const MESSAGE_TYPE_BYTE_COPY_DATA: u8 = b'd';

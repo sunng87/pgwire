@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{stream, Sink, SinkExt};
+use futures::{Sink, SinkExt, stream};
 use pgwire::api::auth::StartupHandler;
 use tokio::net::TcpListener;
 

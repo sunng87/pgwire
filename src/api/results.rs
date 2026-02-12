@@ -8,11 +8,11 @@ use postgres_types::{IsNull, Oid, ToSql, Type};
 
 use crate::error::{ErrorInfo, PgWireResult};
 use crate::messages::data::{
-    DataRow, FieldDescription, RowDescription, FORMAT_CODE_BINARY, FORMAT_CODE_TEXT,
+    DataRow, FORMAT_CODE_BINARY, FORMAT_CODE_TEXT, FieldDescription, RowDescription,
 };
 use crate::messages::response::CommandComplete;
-use crate::types::format::FormatOptions;
 use crate::types::ToSqlText;
+use crate::types::format::FormatOptions;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Tag {

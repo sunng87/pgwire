@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{stream, StreamExt};
+use futures::{StreamExt, stream};
 use tokio::net::TcpListener;
 
 use pgwire::api::query::SimpleQueryHandler;

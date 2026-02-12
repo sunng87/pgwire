@@ -3,13 +3,13 @@ use futures::sink::{Sink, SinkExt};
 use std::fmt::Debug;
 
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
+use crate::messages::PgWireBackendMessage;
 use crate::messages::copy::{
     CopyBothResponse, CopyData, CopyDone, CopyFail, CopyInResponse, CopyOutResponse,
 };
-use crate::messages::PgWireBackendMessage;
 
-use super::results::CopyResponse;
 use super::ClientInfo;
+use super::results::CopyResponse;
 
 /// handler for copy messages
 #[async_trait]

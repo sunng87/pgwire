@@ -5,12 +5,12 @@ use std::sync::Arc;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::net::TcpListener;
-use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
+use tokio_rustls::rustls::ServerConfig;
 
+use pgwire::api::PgWireServerHandlers;
 use pgwire::api::auth::StartupHandler;
 use pgwire::api::query::SimpleQueryHandler;
-use pgwire::api::PgWireServerHandlers;
 use pgwire::tokio::process_socket;
 
 mod common;

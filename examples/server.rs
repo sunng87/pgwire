@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use tokio::net::TcpListener;
 
+use pgwire::api::PgWireServerHandlers;
 use pgwire::api::auth::StartupHandler;
 use pgwire::api::query::SimpleQueryHandler;
-use pgwire::api::PgWireServerHandlers;
 use pgwire::tokio::process_socket;
 
 mod common;

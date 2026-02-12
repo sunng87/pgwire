@@ -1,5 +1,5 @@
 use crate::error::PgWireError;
-use smol_str::{format_smolstr, SmolStr};
+use smol_str::{SmolStr, format_smolstr};
 
 pub const DATE_STYLE_ORDER_DMY: &str = "dmy";
 pub const DATE_STYLE_ORDER_MDY: &str = "mdy";

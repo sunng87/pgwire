@@ -1,5 +1,5 @@
 use crate::error::PgWireError;
-use smol_str::{format_smolstr, SmolStr, ToSmolStr};
+use smol_str::{SmolStr, ToSmolStr, format_smolstr};
 
 /// extra_float_digits sets the number of digits displayed for floating-point
 /// values.

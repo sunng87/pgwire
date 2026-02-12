@@ -1,6 +1,6 @@
 use bytes::{Buf, BufMut, Bytes};
 
-use super::{codec, DecodeContext, Message};
+use super::{DecodeContext, Message, codec};
 use crate::error::PgWireResult;
 
 /// Request from frontend to parse a prepared query string

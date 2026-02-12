@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
-use super::{codec, DecodeContext, Message, ProtocolVersion};
+use super::{DecodeContext, Message, ProtocolVersion, codec};
 use crate::error::{PgWireError, PgWireResult};
 
 pub(crate) const MINIMUM_STARTUP_MESSAGE_LEN: usize = 8;

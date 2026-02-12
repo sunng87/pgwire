@@ -1,11 +1,11 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use base64::{prelude::BASE64_URL_SAFE_NO_PAD, Engine};
-use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
+use base64::{Engine, prelude::BASE64_URL_SAFE_NO_PAD};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
 use rsa::{
-    pkcs8::{EncodePublicKey, LineEnding},
     BigUint, RsaPublicKey,
+    pkcs8::{EncodePublicKey, LineEnding},
 };
 use serde::Deserialize;
 use tokio::sync::RwLock;

@@ -6,17 +6,17 @@ use std::fs::File;
 use std::io::{BufReader, Error as IOError, ErrorKind};
 use std::sync::Arc;
 
-use pgwire::api::auth::sasl::oauth::Oauth;
+use pgwire::api::PgWireServerHandlers;
 use pgwire::api::auth::sasl::SASLAuthStartupHandler;
+use pgwire::api::auth::sasl::oauth::Oauth;
 use pgwire::api::auth::simple_oidc_validator::SimpleOidcValidator;
 use pgwire::api::auth::{DefaultServerParameterProvider, StartupHandler};
-use pgwire::api::PgWireServerHandlers;
 use pgwire::tokio::process_socket;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::net::TcpListener;
-use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
+use tokio_rustls::rustls::ServerConfig;
 
 /// configure TlsAcceptor and get server cert for SCRAM channel binding
 fn setup_tls() -> Result<TlsAcceptor, IOError> {

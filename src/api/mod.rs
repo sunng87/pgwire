@@ -9,9 +9,9 @@ pub use postgres_types::Type;
 use rustls_pki_types::CertificateDer;
 
 use crate::error::PgWireError;
+use crate::messages::ProtocolVersion;
 use crate::messages::response::TransactionStatus;
 use crate::messages::startup::SecretKey;
-use crate::messages::ProtocolVersion;
 
 pub mod auth;
 pub mod cancel;

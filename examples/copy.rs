@@ -10,9 +10,9 @@ use pgwire::api::query::SimpleQueryHandler;
 use pgwire::api::results::{CopyResponse, Response};
 use pgwire::api::{ClientInfo, PgWireConnectionState, PgWireServerHandlers};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
+use pgwire::messages::PgWireBackendMessage;
 use pgwire::messages::copy::{CopyData, CopyDone, CopyFail};
 use pgwire::messages::response::NoticeResponse;
-use pgwire::messages::PgWireBackendMessage;
 use pgwire::tokio::process_socket;
 
 pub struct DummyProcessor;

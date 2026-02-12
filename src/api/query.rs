@@ -8,17 +8,18 @@ use futures::sink::{Sink, SinkExt};
 use futures::stream::StreamExt;
 
 use super::portal::Portal;
-use super::results::{into_row_description, Tag};
+use super::results::{Tag, into_row_description};
 use super::stmt::{NoopQueryParser, QueryParser, StoredStatement};
 use super::store::PortalStore;
-use super::{copy, ClientInfo, ClientPortalStore, DEFAULT_NAME};
+use super::{ClientInfo, ClientPortalStore, DEFAULT_NAME, copy};
+use crate::api::PgWireConnectionState;
+use crate::api::Type;
 use crate::api::portal::PortalExecutionState;
 use crate::api::results::{
     DescribePortalResponse, DescribeResponse, DescribeStatementResponse, QueryResponse, Response,
 };
-use crate::api::PgWireConnectionState;
-use crate::api::Type;
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
+use crate::messages::PgWireBackendMessage;
 use crate::messages::data::{NoData, ParameterDescription};
 use crate::messages::extendedquery::{
     Bind, BindComplete, Close, CloseComplete, Describe, Execute, Flush, Parse, ParseComplete,
@@ -26,7 +27,6 @@ use crate::messages::extendedquery::{
 };
 use crate::messages::response::{EmptyQueryResponse, ReadyForQuery, TransactionStatus};
 use crate::messages::simplequery::Query;
-use crate::messages::PgWireBackendMessage;
 
 fn is_empty_query(q: &str) -> bool {
     let trimmed_query = q.trim();

@@ -2,13 +2,13 @@ use std::fs::File;
 use std::io::{BufReader, Error as IOError};
 use std::sync::Arc;
 
+use pgwire::api::client::ClientInfo;
 use pgwire::api::client::auth::DefaultStartupHandler;
 use pgwire::api::client::query::DefaultSimpleQueryHandler;
-use pgwire::api::client::ClientInfo;
 use pgwire::tokio::client::PgWireClient;
 use rustls_pki_types::CertificateDer;
-use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 use tokio_rustls::TlsConnector;
+use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 
 fn setup_tls() -> Result<Arc<ClientConfig>, IOError> {
     let mut roots = RootCertStore::empty();
