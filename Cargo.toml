@@ -146,6 +146,11 @@ jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
 rsa = { version = "0.9" }
 reqwest = { version = "0.13", features = ["json"] }
 
+## adbc example
+adbc_core = { version = "0.18", features = ["driver_manager"] }
+arrow-array = "55"
+arrow-schema = "55"
+
 [patch.crates-io]
 pgwire = { path = "." }
 
@@ -199,3 +204,7 @@ required-features = ["server-api-aws-lc-rs"]
 [[example]]
 name = "client"
 required-features = ["client-api"]
+
+[[example]]
+name = "adbc"
+required-features = ["server-api-aws-lc-rs"]
