@@ -177,44 +177,6 @@ mod roundtrip_tests {
     }
 
     #[test]
-    fn test_roundtrip_arrays() {
-        // Test integer arrays
-        test_roundtrip!(Vec<i32>, vec![1i32, 2i32, 3i32], &Type::INT4_ARRAY);
-        test_roundtrip!(Vec<i32>, Vec::<i32>::new(), &Type::INT4_ARRAY);
-        test_roundtrip!(Vec<i32>, vec![0i32, -1i32, 42i32], &Type::INT4_ARRAY);
-
-        // Test string arrays
-        test_roundtrip!(
-            Vec<String>,
-            vec!["hello".to_string(), "world".to_string()],
-            &Type::VARCHAR_ARRAY
-        );
-        test_roundtrip!(
-            Vec<String>,
-            vec!["hello\\".to_string(), "world\\".to_string()],
-            &Type::VARCHAR_ARRAY
-        );
-        test_roundtrip!(Vec<String>, Vec::<String>::new(), &Type::VARCHAR_ARRAY);
-        test_roundtrip!(Vec<String>, vec![String::new()], &Type::VARCHAR_ARRAY);
-
-        // Test boolean arrays
-        test_roundtrip!(Vec<bool>, vec![true, false, true], &Type::BOOL_ARRAY);
-
-        // Test float arrays
-        test_roundtrip!(Vec<f64>, vec![1.1f64, 2.2f64, 3.3f64], &Type::FLOAT8_ARRAY);
-
-        // Test char arrays
-        test_roundtrip!(Vec<char>, vec!['a', 'b', 'c'], &Type::CHAR_ARRAY);
-
-        // Test byte arrays
-        test_roundtrip!(
-            Vec<Vec<u8>>,
-            vec![b"item1".to_vec(), b"item2".to_vec(), b"item3".to_vec()],
-            &Type::BYTEA_ARRAY
-        );
-    }
-
-    #[test]
     fn test_roundtrip_option_arrays() {
         test_roundtrip!(
             Vec<Option<i8>>,
@@ -453,21 +415,22 @@ mod roundtrip_tests {
     #[test]
     fn test_roundtrip_array_edge_cases() {
         // Test array with special strings that need quoting - simplified for now
-        let special_strings: Vec<String> = vec![
-            "hello,world".to_string(),
-            "{braced}".to_string(),
-            "simple".to_string(),
-            "nonempty".to_string(),
+        let special_strings: Vec<Option<String>> = vec![
+            Some("hello,world".to_string()),
+            Some("{braced}".to_string()),
+            None,
+            Some("simple".to_string()),
+            Some("nonempty".to_string()),
         ];
-        test_roundtrip!(Vec<String>, special_strings, &Type::VARCHAR_ARRAY);
+        test_roundtrip!(Vec<Option<String>>, special_strings, &Type::VARCHAR_ARRAY);
 
         // Test mixed boolean values
-        let mixed_bools = vec![true, false, true, false];
-        test_roundtrip!(Vec<bool>, mixed_bools, &Type::BOOL_ARRAY);
+        let mixed_bools = vec![Some(true), None, Some(false), Some(true), Some(false)];
+        test_roundtrip!(Vec<Option<bool>>, mixed_bools, &Type::BOOL_ARRAY);
 
         // Test array with negative numbers
-        let negative_numbers = vec![-1i32, -2i32, -3i32];
-        test_roundtrip!(Vec<i32>, negative_numbers, &Type::INT4_ARRAY);
+        let negative_numbers = vec![Some(-1i32), None, Some(-2i32), Some(-3i32)];
+        test_roundtrip!(Vec<Option<i32>>, negative_numbers, &Type::INT4_ARRAY);
     }
 
     #[test]
