@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{Sink, SinkExt};
+use futures::{Sink, SinkExt, StreamExt};
 use tokio::net::TcpListener;
 
 use pgwire::api::copy::CopyHandler;
@@ -35,7 +35,12 @@ impl SimpleQueryHandler for DummyProcessor {
             )))
             .await?;
 
-        Ok(vec![Response::CopyIn(CopyResponse::new(0, 1, vec![0]))])
+        Ok(vec![Response::CopyIn(CopyResponse::new(
+            0,
+            1,
+            vec![0],
+            futures::stream::empty(),
+        ))])
     }
 }
 

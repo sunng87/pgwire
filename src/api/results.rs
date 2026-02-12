@@ -9,11 +9,11 @@ use postgres_types::{IsNull, Oid, ToSql, Type};
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
 use crate::messages::copy::CopyData;
 use crate::messages::data::{
-    DataRow, FieldDescription, RowDescription, FORMAT_CODE_BINARY, FORMAT_CODE_TEXT,
+    DataRow, FORMAT_CODE_BINARY, FORMAT_CODE_TEXT, FieldDescription, RowDescription,
 };
 use crate::messages::response::CommandComplete;
-use crate::types::format::FormatOptions;
 use crate::types::ToSqlText;
+use crate::types::format::FormatOptions;
 use smol_str::SmolStr;
 
 #[derive(Debug, Eq, PartialEq, Clone)]
@@ -214,10 +214,13 @@ pub(crate) fn into_row_description(fields: &[FieldInfo]) -> RowDescription {
 
 pub type SendableRowStream = Pin<Box<dyn Stream<Item = PgWireResult<DataRow>> + Send>>;
 
+pub type SendableCopyDataStream = Pin<Box<dyn Stream<Item = PgWireResult<CopyData>> + Send>>;
+
+#[non_exhaustive]
 pub struct QueryResponse {
-    command_tag: String,
-    row_schema: Arc<Vec<FieldInfo>>,
-    data_rows: SendableRowStream,
+    pub command_tag: String,
+    pub row_schema: Arc<Vec<FieldInfo>>,
+    pub data_rows: SendableRowStream,
 }
 
 impl Debug for QueryResponse {
@@ -655,9 +658,193 @@ impl CopyEncoder {
     }
 }
 
+/// Get response data for a `Describe` command
+pub trait DescribeResponse {
+    fn parameters(&self) -> Option<&[Type]>;
+
+    fn fields(&self) -> &[FieldInfo];
+
+    /// Create an no_data instance of `DescribeResponse`. This is typically used
+    /// when client tries to describe an empty query.
+    fn no_data() -> Self;
+
+    /// Return true if the `DescribeResponse` is empty/nodata
+    fn is_no_data(&self) -> bool;
+}
+
+/// Response for frontend describe statement requests.
+#[non_exhaustive]
+#[derive(Debug, new)]
+pub struct DescribeStatementResponse {
+    pub parameters: Vec<Type>,
+    pub fields: Vec<FieldInfo>,
+}
+
+impl DescribeResponse for DescribeStatementResponse {
+    fn parameters(&self) -> Option<&[Type]> {
+        Some(self.parameters.as_ref())
+    }
+
+    fn fields(&self) -> &[FieldInfo] {
+        &self.fields
+    }
+
+    /// Create an no_data instance of `DescribeStatementResponse`. This is typically used
+    /// when client tries to describe an empty query.
+    fn no_data() -> Self {
+        DescribeStatementResponse {
+            parameters: vec![],
+            fields: vec![],
+        }
+    }
+
+    /// Return true if the `DescribeStatementResponse` is empty/nodata
+    fn is_no_data(&self) -> bool {
+        self.parameters.is_empty() && self.fields.is_empty()
+    }
+}
+
+/// Response for frontend describe portal requests.
+#[non_exhaustive]
+#[derive(Debug, new)]
+pub struct DescribePortalResponse {
+    pub fields: Vec<FieldInfo>,
+}
+
+impl DescribeResponse for DescribePortalResponse {
+    fn parameters(&self) -> Option<&[Type]> {
+        None
+    }
+
+    fn fields(&self) -> &[FieldInfo] {
+        &self.fields
+    }
+
+    /// Create an no_data instance of `DescribePortalResponse`. This is typically used
+    /// when client tries to describe an empty query.
+    fn no_data() -> Self {
+        DescribePortalResponse { fields: vec![] }
+    }
+
+    /// Return true if the `DescribePortalResponse` is empty/nodata
+    fn is_no_data(&self) -> bool {
+        self.fields.is_empty()
+    }
+}
+
+/// Response for copy operations
+#[non_exhaustive]
+pub struct CopyResponse {
+    pub format: i8,
+    pub columns: usize,
+    pub column_formats: Vec<i16>,
+    pub data_stream: SendableCopyDataStream,
+}
+
+impl std::fmt::Debug for CopyResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CopyResponse")
+            .field("format", &self.format)
+            .field("columns", &self.columns)
+            .field("column_formats", &self.column_formats)
+            .finish()
+    }
+}
+
+impl CopyResponse {
+    pub fn new<S>(
+        format: i8,
+        columns: usize,
+        column_formats: Vec<i16>,
+        data_stream: S,
+    ) -> CopyResponse
+    where
+        S: Stream<Item = PgWireResult<CopyData>> + Send + 'static,
+    {
+        CopyResponse {
+            format,
+            columns,
+            column_formats,
+            data_stream: Box::pin(data_stream),
+        }
+    }
+
+    pub fn data_stream(&mut self) -> &mut SendableCopyDataStream {
+        &mut self.data_stream
+    }
+}
+
+/// Query response types:
+///
+/// * Query: the response contains data rows
+/// * Execution: response for ddl/dml execution
+/// * Error: error response
+/// * EmptyQuery: when client sends an empty query
+/// * TransactionStart: indicate previous statement just started a transaction
+/// * TransactionEnd: indicate previous statement just ended a transaction
+/// * CopyIn: response for a copy-in request
+/// * CopyOut: response for a copy-out request
+/// * CopuBoth: response for a copy-both request
+#[derive(Debug)]
+pub enum Response {
+    EmptyQuery,
+    Query(QueryResponse),
+    Execution(Tag),
+    TransactionStart(Tag),
+    TransactionEnd(Tag),
+    Error(Box<ErrorInfo>),
+    CopyIn(CopyResponse),
+    CopyOut(CopyResponse),
+    CopyBoth(CopyResponse),
+}
+
 #[cfg(test)]
-mod tests {
+mod test {
+
     use super::*;
+
+    #[test]
+    fn test_command_complete() {
+        let tag = Tag::new("INSERT").with_rows(100);
+        let cc = CommandComplete::from(tag);
+
+        assert_eq!(cc.tag, "INSERT 100");
+
+        let tag = Tag::new("INSERT").with_oid(0).with_rows(100);
+        let cc = CommandComplete::from(tag);
+
+        assert_eq!(cc.tag, "INSERT 0 100");
+    }
+
+    #[test]
+    #[cfg(feature = "pg-type-chrono")]
+    fn test_data_row_encoder() {
+        use std::time::SystemTime;
+
+        let schema = Arc::new(vec![
+            FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Text),
+            FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text),
+            FieldInfo::new("ts".into(), None, None, Type::TIMESTAMP, FieldFormat::Text),
+        ]);
+        let now = SystemTime::now();
+        let mut encoder = DataRowEncoder::new(schema);
+        encoder.encode_field(&2001).unwrap();
+        encoder.encode_field(&"udev").unwrap();
+        encoder.encode_field(&now).unwrap();
+
+        let row = encoder.take_row();
+
+        assert_eq!(row.field_count, 3);
+
+        let mut expected = BytesMut::new();
+        expected.put_i32(4);
+        expected.put_slice("2001".as_bytes());
+        expected.put_i32(4);
+        expected.put_slice("udev".as_bytes());
+        expected.put_i32(26);
+        let _ = now.to_sql_text(&Type::TIMESTAMP, &mut expected, &FormatOptions::default());
+        assert_eq!(row.data, expected);
+    }
 
     #[test]
     fn test_copy_text_options_default() {
@@ -854,161 +1041,5 @@ mod tests {
 
         // Expected: "1,\"Alice\"\n" - second column force quoted
         assert_eq!(copy_data.data.as_ref(), b"1,\"Alice\"\n");
-    }
-}
-
-/// Get response data for a `Describe` command
-pub trait DescribeResponse {
-    fn parameters(&self) -> Option<&[Type]>;
-
-    fn fields(&self) -> &[FieldInfo];
-
-    /// Create an no_data instance of `DescribeResponse`. This is typically used
-    /// when client tries to describe an empty query.
-    fn no_data() -> Self;
-
-    /// Return true if the `DescribeResponse` is empty/nodata
-    fn is_no_data(&self) -> bool;
-}
-
-/// Response for frontend describe statement requests.
-#[non_exhaustive]
-#[derive(Debug, new)]
-pub struct DescribeStatementResponse {
-    pub parameters: Vec<Type>,
-    pub fields: Vec<FieldInfo>,
-}
-
-impl DescribeResponse for DescribeStatementResponse {
-    fn parameters(&self) -> Option<&[Type]> {
-        Some(self.parameters.as_ref())
-    }
-
-    fn fields(&self) -> &[FieldInfo] {
-        &self.fields
-    }
-
-    /// Create an no_data instance of `DescribeStatementResponse`. This is typically used
-    /// when client tries to describe an empty query.
-    fn no_data() -> Self {
-        DescribeStatementResponse {
-            parameters: vec![],
-            fields: vec![],
-        }
-    }
-
-    /// Return true if the `DescribeStatementResponse` is empty/nodata
-    fn is_no_data(&self) -> bool {
-        self.parameters.is_empty() && self.fields.is_empty()
-    }
-}
-
-/// Response for frontend describe portal requests.
-#[non_exhaustive]
-#[derive(Debug, new)]
-pub struct DescribePortalResponse {
-    pub fields: Vec<FieldInfo>,
-}
-
-impl DescribeResponse for DescribePortalResponse {
-    fn parameters(&self) -> Option<&[Type]> {
-        None
-    }
-
-    fn fields(&self) -> &[FieldInfo] {
-        &self.fields
-    }
-
-    /// Create an no_data instance of `DescribePortalResponse`. This is typically used
-    /// when client tries to describe an empty query.
-    fn no_data() -> Self {
-        DescribePortalResponse { fields: vec![] }
-    }
-
-    /// Return true if the `DescribePortalResponse` is empty/nodata
-    fn is_no_data(&self) -> bool {
-        self.fields.is_empty()
-    }
-}
-
-/// Response for copy operations
-#[non_exhaustive]
-#[derive(Debug, new)]
-pub struct CopyResponse {
-    pub format: i8,
-    pub columns: usize,
-    pub column_formats: Vec<i16>,
-}
-
-/// Query response types:
-///
-/// * Query: the response contains data rows
-/// * Execution: response for ddl/dml execution
-/// * Error: error response
-/// * EmptyQuery: when client sends an empty query
-/// * TransactionStart: indicate previous statement just started a transaction
-/// * TransactionEnd: indicate previous statement just ended a transaction
-/// * CopyIn: response for a copy-in request
-/// * CopyOut: response for a copy-out request
-/// * CopuBoth: response for a copy-both request
-#[derive(Debug)]
-pub enum Response {
-    EmptyQuery,
-    Query(QueryResponse),
-    Execution(Tag),
-    TransactionStart(Tag),
-    TransactionEnd(Tag),
-    Error(Box<ErrorInfo>),
-    CopyIn(CopyResponse),
-    CopyOut(CopyResponse),
-    CopyBoth(CopyResponse),
-}
-
-#[cfg(test)]
-mod test {
-
-    use super::*;
-
-    #[test]
-    fn test_command_complete() {
-        let tag = Tag::new("INSERT").with_rows(100);
-        let cc = CommandComplete::from(tag);
-
-        assert_eq!(cc.tag, "INSERT 100");
-
-        let tag = Tag::new("INSERT").with_oid(0).with_rows(100);
-        let cc = CommandComplete::from(tag);
-
-        assert_eq!(cc.tag, "INSERT 0 100");
-    }
-
-    #[test]
-    #[cfg(feature = "pg-type-chrono")]
-    fn test_data_row_encoder() {
-        use std::time::SystemTime;
-
-        let schema = Arc::new(vec![
-            FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Text),
-            FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text),
-            FieldInfo::new("ts".into(), None, None, Type::TIMESTAMP, FieldFormat::Text),
-        ]);
-        let now = SystemTime::now();
-        let mut encoder = DataRowEncoder::new(schema);
-        encoder.encode_field(&2001).unwrap();
-        encoder.encode_field(&"udev").unwrap();
-        encoder.encode_field(&now).unwrap();
-
-        let row = encoder.take_row();
-
-        assert_eq!(row.field_count, 3);
-
-        let mut expected = BytesMut::new();
-        expected.put_i32(4);
-        expected.put_slice("2001".as_bytes());
-        expected.put_i32(4);
-        expected.put_slice("udev".as_bytes());
-        expected.put_i32(26);
-        let _ = now.to_sql_text(&Type::TIMESTAMP, &mut expected, &FormatOptions::default());
-        assert_eq!(row.data, expected);
     }
 }
