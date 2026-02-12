@@ -27,20 +27,13 @@ use crate::api::client::{ClientInfo, Config, ReadyState, ServerInformation};
 use crate::error::{PgWireClientError, PgWireClientResult, PgWireError};
 use crate::messages::{
     DecodeContext, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,
+    SslNegotiationMetaMessage,
 };
 
 #[non_exhaustive]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PgWireMessageClientCodec {
-    protocol_version: ProtocolVersion,
-}
-
-impl Default for PgWireMessageClientCodec {
-    fn default() -> Self {
-        Self {
-            protocol_version: ProtocolVersion::PROTOCOL3_0,
-        }
-    }
+    decode_context: DecodeContext,
 }
 
 impl Decoder for PgWireMessageClientCodec {
@@ -48,11 +41,7 @@ impl Decoder for PgWireMessageClientCodec {
     type Error = PgWireError;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        let decode_context = DecodeContext::default();
-
-        //TODO: update protocol according to negotiation result
-
-        PgWireBackendMessage::decode(src, &decode_context)
+        PgWireBackendMessage::decode(src, &self.decode_context)
     }
 }
 
@@ -64,6 +53,20 @@ impl Encoder<PgWireFrontendMessage> for PgWireMessageClientCodec {
         item: PgWireFrontendMessage,
         dst: &mut bytes::BytesMut,
     ) -> Result<(), Self::Error> {
+        match item {
+            // check special messages for decoding state
+            PgWireFrontendMessage::SslNegotiation(SslNegotiationMetaMessage::PostgresSsl(_)) => {
+                self.decode_context.awaiting_backend_ssl_response = true;
+            }
+            PgWireFrontendMessage::SslNegotiation(SslNegotiationMetaMessage::PostgresGss(_)) => {
+                self.decode_context.awaiting_backend_gss_response = true;
+            }
+            _ => {
+                self.decode_context.awaiting_backend_ssl_response = false;
+                self.decode_context.awaiting_backend_gss_response = false;
+            }
+        }
+
         item.encode(dst)
     }
 }
@@ -89,7 +92,7 @@ impl ClientInfo for PgWireClient {
     }
 
     fn protocol_version(&self) -> ProtocolVersion {
-        self.socket.codec().protocol_version
+        self.socket.codec().decode_context.protocol_version
     }
 }
 
@@ -299,7 +302,6 @@ pub(crate) async fn ssl_handshake(
 ) -> PgWireClientResult<ClientSocket> {
     use crate::api::client::config::{SslMode, SslNegotiation};
     use crate::messages::response::SslResponse;
-    use crate::messages::SslNegotiationMetaMessage;
 
     // ssl is disabled on client side
     if config.ssl_mode == SslMode::Disable {

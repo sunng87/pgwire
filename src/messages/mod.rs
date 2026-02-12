@@ -49,17 +49,23 @@ pub(crate) const LONG_BACKEND_PACKET_SIZE_LIMIT: usize = i32::MAX as usize;
 pub struct DecodeContext {
     pub protocol_version: ProtocolVersion,
     #[new(value = "true")]
-    pub awaiting_ssl: bool,
+    pub awaiting_frontend_ssl: bool,
     #[new(value = "true")]
-    pub awaiting_startup: bool,
+    pub awaiting_frontend_startup: bool,
+    #[new(value = "false")]
+    pub awaiting_backend_ssl_response: bool,
+    #[new(value = "false")]
+    pub awaiting_backend_gss_response: bool,
 }
 
 impl Default for DecodeContext {
     fn default() -> Self {
         DecodeContext {
             protocol_version: ProtocolVersion::default(),
-            awaiting_ssl: true,
-            awaiting_startup: true,
+            awaiting_frontend_ssl: true,
+            awaiting_frontend_startup: true,
+            awaiting_backend_ssl_response: false,
+            awaiting_backend_gss_response: false,
         }
     }
 }
@@ -225,8 +231,8 @@ impl PgWireFrontendMessage {
     }
 
     pub fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
-        if ctx.awaiting_ssl {
-            // Connection just estabilished, the incoming message can be:
+        if ctx.awaiting_frontend_ssl {
+            // Connection just established, the incoming message can be:
             // - SSLRequest
             // - GssRequest
             // - Startup
@@ -238,30 +244,24 @@ impl PgWireFrontendMessage {
                 if startup::SslRequest::is_ssl_request_packet(buf) {
                     startup::SslRequest::decode(buf, ctx).map(|opt| {
                         opt.map(|msg| {
-                            PgWireFrontendMessage::SslNegotiation(
-                                SslNegotiationMetaMessage::PostgresSsl(msg),
-                            )
+                            Self::SslNegotiation(SslNegotiationMetaMessage::PostgresSsl(msg))
                         })
                     })
                 } else if startup::GssEncRequest::is_gss_enc_request_packet(buf) {
                     startup::GssEncRequest::decode(buf, ctx).map(|opt| {
                         opt.map(|msg| {
-                            PgWireFrontendMessage::SslNegotiation(
-                                SslNegotiationMetaMessage::PostgresGss(msg),
-                            )
+                            Self::SslNegotiation(SslNegotiationMetaMessage::PostgresGss(msg))
                         })
                     })
                 } else {
                     // the message can be cancel or startup, we will update the
                     // state in `DecodeContext` and read them in next loop
-                    Ok(Some(PgWireFrontendMessage::SslNegotiation(
-                        SslNegotiationMetaMessage::None,
-                    )))
+                    Ok(Some(Self::SslNegotiation(SslNegotiationMetaMessage::None)))
                 }
             } else {
                 Ok(None)
             }
-        } else if ctx.awaiting_startup {
+        } else if ctx.awaiting_frontend_startup {
             // we will check for cancel request again in case it's sent in ssl connection
             if buf.remaining() >= 8 {
                 if cancel::CancelRequest::is_cancel_request_packet(buf) {
@@ -408,7 +408,13 @@ impl PgWireBackendMessage {
     }
 
     pub fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
-        if buf.remaining() > 1 {
+        if ctx.awaiting_backend_ssl_response {
+            // We are waiting for the SSL response
+            response::SslResponse::decode(buf, ctx).map(|opt| opt.map(Self::SslResponse))
+        } else if ctx.awaiting_backend_gss_response {
+            // We are waiting for the GssEnc response
+            response::GssEncResponse::decode(buf, ctx).map(|opt| opt.map(Self::GssEncResponse))
+        } else if buf.remaining() > 1 {
             let first_byte = buf[0];
             match first_byte {
                 startup::MESSAGE_TYPE_BYTE_AUTHENTICATION => {
@@ -438,7 +444,7 @@ impl PgWireBackendMessage {
                 }
                 extendedquery::MESSAGE_TYPE_BYTE_PORTAL_SUSPENDED => {
                     extendedquery::PortalSuspended::decode(buf, ctx)
-                        .map(|v| v.map(PgWireBackendMessage::PortalSuspended))
+                        .map(|v| v.map(Self::PortalSuspended))
                 }
 
                 response::MESSAGE_TYPE_BYTE_COMMAND_COMPLETE => {
@@ -542,7 +548,7 @@ mod test {
         s.parameters.insert("user".to_owned(), "tomcat".to_owned());
         roundtrip!(s, Startup, &ctx);
 
-        ctx.awaiting_ssl = false;
+        ctx.awaiting_frontend_ssl = false;
         roundtrip!(s, Startup, &ctx);
 
         let mut s_too_large = Startup::default();
@@ -568,8 +574,8 @@ mod test {
     #[test]
     fn test_authentication() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let ss = vec![
             Authentication::Ok,
@@ -589,8 +595,8 @@ mod test {
     #[test]
     fn test_password() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let s = Password::new("pgwire".to_owned());
         roundtrip!(s, Password, &ctx);
@@ -599,8 +605,8 @@ mod test {
     #[test]
     fn test_parameter_status() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let pps = ParameterStatus::new("cli".to_owned(), "psql".to_owned());
         roundtrip!(pps, ParameterStatus, &ctx);
@@ -609,8 +615,8 @@ mod test {
     #[test]
     fn test_query() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let query = Query::new("SELECT 1".to_owned());
         roundtrip!(query, Query, &ctx);
@@ -619,8 +625,8 @@ mod test {
     #[test]
     fn test_command_complete() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let cc = CommandComplete::new("DELETE 5".to_owned());
         roundtrip!(cc, CommandComplete, &ctx);
@@ -633,8 +639,8 @@ mod test {
     #[test]
     fn test_ready_for_query() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let r4q = ReadyForQuery::new(TransactionStatus::Idle);
         roundtrip!(r4q, ReadyForQuery, &ctx);
@@ -647,8 +653,8 @@ mod test {
     #[test]
     fn test_error_response() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let mut error = ErrorResponse::default();
         error.fields.push((b'R', "ERROR".to_owned()));
@@ -660,8 +666,8 @@ mod test {
     #[test]
     fn test_notice_response() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let mut error = NoticeResponse::default();
         error.fields.push((b'R', "NOTICE".to_owned()));
@@ -673,8 +679,8 @@ mod test {
     #[test]
     fn test_row_description() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let mut row_description = RowDescription::default();
 
@@ -706,8 +712,8 @@ mod test {
     #[test]
     fn test_data_row() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let mut row0 = DataRow::default();
         row0.data.put_i32(4);
@@ -722,8 +728,8 @@ mod test {
     #[test]
     fn test_terminate() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let terminate = Terminate::new();
         roundtrip!(terminate, Terminate, &ctx);
@@ -732,8 +738,8 @@ mod test {
     #[test]
     fn test_parse() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let parse = Parse::new(
             Some("find-user-by-id".to_owned()),
@@ -746,8 +752,8 @@ mod test {
     #[test]
     fn test_parse_65k() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let parse = Parse::new(
             Some("many-params".to_owned()),
@@ -760,8 +766,8 @@ mod test {
     #[test]
     fn test_parse_complete() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let parse_complete = ParseComplete::new();
         roundtrip!(parse_complete, ParseComplete, &ctx);
@@ -770,8 +776,8 @@ mod test {
     #[test]
     fn test_close() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let close = Close::new(
             TARGET_TYPE_BYTE_STATEMENT,
@@ -783,8 +789,8 @@ mod test {
     #[test]
     fn test_bind() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
         let bind = Bind::new(
             Some("find-user-by-id-0".to_owned()),
             Some("find-user-by-id".to_owned()),
@@ -798,8 +804,8 @@ mod test {
     #[test]
     fn test_bind_65k() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let bind = Bind::new(
             Some("lol".to_owned()),
@@ -814,8 +820,8 @@ mod test {
     #[test]
     fn test_execute() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let exec = Execute::new(Some("find-user-by-id-0".to_owned()), 100);
         roundtrip!(exec, Execute, &ctx);
@@ -860,8 +866,8 @@ mod test {
     #[test]
     fn test_saslresponse() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let saslinitialresp =
             SASLInitialResponse::new("SCRAM-SHA-256".to_owned(), Some(Bytes::from_static(b"abc")));
@@ -874,8 +880,8 @@ mod test {
     #[test]
     fn test_parameter_description() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let param_desc = ParameterDescription::new(vec![100, 200]);
         roundtrip!(param_desc, ParameterDescription, &ctx);
@@ -884,8 +890,8 @@ mod test {
     #[test]
     fn test_password_family() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let password = Password::new("tomcat".to_owned());
 
@@ -915,8 +921,8 @@ mod test {
     #[test]
     fn test_no_data() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let nodata = NoData::new();
         roundtrip!(nodata, NoData, &ctx);
@@ -925,8 +931,8 @@ mod test {
     #[test]
     fn test_copy_data() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let copydata = CopyData::new(Bytes::from_static("tomcat".as_bytes()));
         roundtrip!(copydata, CopyData, &ctx);
@@ -935,8 +941,8 @@ mod test {
     #[test]
     fn test_copy_done() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let copydone = CopyDone::new();
         roundtrip!(copydone, CopyDone, &ctx);
@@ -945,8 +951,8 @@ mod test {
     #[test]
     fn test_copy_fail() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let copyfail = CopyFail::new("copy failed".to_owned());
         roundtrip!(copyfail, CopyFail, &ctx);
@@ -955,8 +961,8 @@ mod test {
     #[test]
     fn test_copy_response() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let copyresponse = CopyInResponse::new(0, 3, vec![0, 0, 0]);
         roundtrip!(copyresponse, CopyInResponse, &ctx);
@@ -971,8 +977,8 @@ mod test {
     #[test]
     fn test_notification_response() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let notification_response =
             NotificationResponse::new(10087, "channel".to_owned(), "payload".to_owned());
@@ -982,8 +988,8 @@ mod test {
     #[test]
     fn test_negotiate_protocol_version() {
         let mut ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
-        ctx.awaiting_ssl = false;
-        ctx.awaiting_startup = false;
+        ctx.awaiting_frontend_ssl = false;
+        ctx.awaiting_frontend_startup = false;
 
         let negotiate_protocol_version =
             NegotiateProtocolVersion::new(2, vec!["database".to_owned(), "user".to_owned()]);
