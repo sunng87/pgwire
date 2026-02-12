@@ -27,24 +27,13 @@ use crate::api::client::{ClientInfo, Config, ReadyState, ServerInformation};
 use crate::error::{PgWireClientError, PgWireClientResult, PgWireError};
 use crate::messages::{
     DecodeContext, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,
+    SslNegotiationMetaMessage,
 };
 
 #[non_exhaustive]
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct PgWireMessageClientCodec {
     decode_context: DecodeContext,
-}
-
-impl Default for PgWireMessageClientCodec {
-    fn default() -> Self {
-        Self {
-            decode_context: DecodeContext {
-                protocol_version: ProtocolVersion::PROTOCOL3_0,
-                awaiting_ssl: false,
-                awaiting_startup: false,
-            },
-        }
-    }
 }
 
 impl Decoder for PgWireMessageClientCodec {
@@ -64,7 +53,20 @@ impl Encoder<PgWireFrontendMessage> for PgWireMessageClientCodec {
         item: PgWireFrontendMessage,
         dst: &mut bytes::BytesMut,
     ) -> Result<(), Self::Error> {
-        self.decode_context.awaiting_ssl = matches!(item, PgWireFrontendMessage::SslNegotiation(_));
+        match item {
+            // check special messages for decoding state
+            PgWireFrontendMessage::SslNegotiation(SslNegotiationMetaMessage::PostgresSsl(_)) => {
+                self.decode_context.awaiting_backend_ssl_response = true;
+            }
+            PgWireFrontendMessage::SslNegotiation(SslNegotiationMetaMessage::PostgresGss(_)) => {
+                self.decode_context.awaiting_backend_gss_response = true;
+            }
+            _ => {
+                self.decode_context.awaiting_backend_ssl_response = false;
+                self.decode_context.awaiting_backend_gss_response = false;
+            }
+        }
+
         item.encode(dst)
     }
 }
@@ -300,7 +302,6 @@ pub(crate) async fn ssl_handshake(
 ) -> PgWireClientResult<ClientSocket> {
     use crate::api::client::config::{SslMode, SslNegotiation};
     use crate::messages::response::SslResponse;
-    use crate::messages::SslNegotiationMetaMessage;
 
     // ssl is disabled on client side
     if config.ssl_mode == SslMode::Disable {
