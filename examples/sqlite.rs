@@ -110,7 +110,7 @@ fn row_desc_from_stmt(stmt: &Statement, format: &Format) -> PgWireResult<Vec<Fie
 fn encode_row_data(
     mut rows: Rows,
     schema: Arc<Vec<FieldInfo>>,
-) -> impl Stream<Item = PgWireResult<DataRow>> {
+) -> impl Stream<Item = PgWireResult<DataRow>> + use<> {
     let mut results = Vec::new();
     let ncols = schema.len();
     let mut encoder = DataRowEncoder::new(schema.clone());
