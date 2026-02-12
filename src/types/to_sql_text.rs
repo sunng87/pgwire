@@ -8,7 +8,7 @@ use bytes::{BufMut, BytesMut};
 use chrono::offset::Utc;
 #[cfg(feature = "pg-type-chrono")]
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone};
-use lazy_regex::{lazy_regex, Lazy, Regex};
+use lazy_regex::{Lazy, Regex, lazy_regex};
 use pg_interval::Interval;
 #[cfg(feature = "pg-type-serde-json")]
 use postgres_types::Json;
@@ -20,10 +20,10 @@ use serde::Serialize;
 #[cfg(feature = "pg-type-serde-json")]
 use serde_json::Value;
 
+use crate::types::format::FormatOptions;
 use crate::types::format::bytea_output::ByteaOutput;
 use crate::types::format::float_digits::ExtraFloatDigits;
 use crate::types::format::interval_style::IntervalStyle;
-use crate::types::format::FormatOptions;
 
 pub static QUOTE_CHECK: Lazy<Regex> = lazy_regex!(r#"^$|["{},\\\s]|^null$"#i);
 pub static QUOTE_ESCAPE: Lazy<Regex> = lazy_regex!(r#"(["\\])"#);
@@ -517,9 +517,10 @@ mod test {
 
         let date = NaiveDate::from_ymd_opt(2023, 3, 5).unwrap();
         let mut buf = BytesMut::new();
-        assert!(date
-            .to_sql_text(&Type::INT8, &mut buf, &FormatOptions::default())
-            .is_err());
+        assert!(
+            date.to_sql_text(&Type::INT8, &mut buf, &FormatOptions::default())
+                .is_err()
+        );
 
         let date = NaiveDateTime::new(
             NaiveDate::from_ymd_opt(2023, 3, 5).unwrap(),

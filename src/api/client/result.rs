@@ -4,8 +4,8 @@ use postgres_types::FromSqlOwned;
 use crate::api::results::{FieldFormat, FieldInfo};
 use crate::error::{PgWireClientError, PgWireClientResult};
 use crate::messages::data::DataRow;
-use crate::types::format::FormatOptions;
 use crate::types::FromSqlText;
+use crate::types::format::FormatOptions;
 
 #[derive(new, Debug)]
 pub struct DataRowsReader {

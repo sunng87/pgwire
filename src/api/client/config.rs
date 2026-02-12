@@ -827,11 +827,7 @@ impl<'a> Parser<'a> {
             _ => true,
         });
 
-        if s.is_empty() {
-            None
-        } else {
-            Some(s)
-        }
+        if s.is_empty() { None } else { Some(s) }
     }
 
     fn value(&mut self) -> Result<String, PgWireClientError> {
@@ -1054,7 +1050,7 @@ impl<'a> UrlParser<'a> {
                 None => {
                     return Err(PgWireClientError::InvalidConfig(
                         "unterminated parameter".into(),
-                    ))
+                    ));
                 }
             };
             self.eat_byte();

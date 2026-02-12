@@ -95,7 +95,7 @@ pub trait Message: Sized {
 
     /// Decode body part of the message.
     fn decode_body(buf: &mut BytesMut, full_len: usize, _ctx: &DecodeContext)
-        -> PgWireResult<Self>;
+    -> PgWireResult<Self>;
 
     /// Default implementation for encoding message.
     ///

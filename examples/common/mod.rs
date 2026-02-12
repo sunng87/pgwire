@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{stream, Sink, StreamExt};
+use futures::{Sink, StreamExt, stream};
 
 use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::query::SimpleQueryHandler;

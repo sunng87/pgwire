@@ -6,8 +6,8 @@ use bytes::Bytes;
 
 use crate::{
     api::{
-        auth::{sasl::SASLState, LoginInfo},
         ClientInfo,
+        auth::{LoginInfo, sasl::SASLState},
     },
     error::{PgWireError, PgWireResult},
     messages::startup::{Authentication, PasswordMessageFamily},
@@ -123,12 +123,12 @@ impl Oauth {
             'p' => {
                 return Err(PgWireError::InvalidOauthMessage(
                     "Channel binding not supported for oauth".to_string(),
-                ))
+                ));
             }
             _ => {
                 return Err(PgWireError::InvalidOauthMessage(format!(
                     "Invalid channel binding flag: {cbind_flag}"
-                )))
+                )));
             }
         }
 
@@ -399,9 +399,11 @@ mod tests {
         );
 
         assert!(oauth.validate_token_format("Bearer abc123").is_some());
-        assert!(oauth
-            .validate_token_format("Bearer abc.123_def-ghi+jkl/mno===")
-            .is_some());
+        assert!(
+            oauth
+                .validate_token_format("Bearer abc.123_def-ghi+jkl/mno===")
+                .is_some()
+        );
 
         assert!(oauth.validate_token_format("").is_none());
         assert!(oauth.validate_token_format("Bearer ").is_none());

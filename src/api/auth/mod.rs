@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 
 use super::{
-    ClientInfo, PgWireConnectionState, METADATA_APPLICATION_NAME, METADATA_CLIENT_ENCODING,
-    METADATA_DATABASE, METADATA_USER,
+    ClientInfo, METADATA_APPLICATION_NAME, METADATA_CLIENT_ENCODING, METADATA_DATABASE,
+    METADATA_USER, PgWireConnectionState,
 };
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::response::{ReadyForQuery, TransactionStatus};

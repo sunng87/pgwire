@@ -1,6 +1,6 @@
 use bytes::{Buf, BufMut, BytesMut};
 
-use super::{codec, DecodeContext, Message};
+use super::{DecodeContext, Message, codec};
 use crate::error::PgWireResult;
 
 pub const FORMAT_CODE_TEXT: i16 = 0;

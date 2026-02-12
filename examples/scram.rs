@@ -7,15 +7,15 @@ use async_trait::async_trait;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::net::TcpListener;
-use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
+use tokio_rustls::rustls::ServerConfig;
 
-use pgwire::api::auth::sasl::scram::{gen_salted_password, ScramAuth};
+use pgwire::api::PgWireServerHandlers;
 use pgwire::api::auth::sasl::SASLAuthStartupHandler;
+use pgwire::api::auth::sasl::scram::{ScramAuth, gen_salted_password};
 use pgwire::api::auth::{
     AuthSource, DefaultServerParameterProvider, LoginInfo, Password, StartupHandler,
 };
-use pgwire::api::PgWireServerHandlers;
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
 

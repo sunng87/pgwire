@@ -5,7 +5,7 @@ pub mod postgis;
 mod to_sql_text;
 
 pub use from_sql_text::FromSqlText;
-pub use to_sql_text::{ToSqlText, QUOTE_CHECK, QUOTE_ESCAPE};
+pub use to_sql_text::{QUOTE_CHECK, QUOTE_ESCAPE, ToSqlText};
 
 #[cfg(test)]
 mod roundtrip_tests {
@@ -369,7 +369,7 @@ mod roundtrip_tests {
     #[test]
     fn test_roundtrip_json() {
         use postgres_types::Json;
-        use serde_json::{json, Value};
+        use serde_json::{Value, json};
 
         // Test Value
         let json_value = json!({"key": "value", "number": 42, "array": [1, 2, 3]});

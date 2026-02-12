@@ -5,8 +5,8 @@ use futures::Sink;
 use postgres_types::Type;
 
 use crate::error::PgWireResult;
-use crate::messages::extendedquery::Parse;
 use crate::messages::PgWireBackendMessage;
+use crate::messages::extendedquery::Parse;
 
 use super::portal::Format;
 use super::results::FieldInfo;

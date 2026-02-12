@@ -47,10 +47,10 @@ impl FormatOptions {
             format_options.bytea_output = value.to_string();
         }
 
-        if let Some(value) = metadata_map.get("extra_float_digits") {
-            if let Ok(value) = value.parse::<i8>() {
-                format_options.extra_float_digits = value;
-            }
+        if let Some(value) = metadata_map.get("extra_float_digits")
+            && let Ok(value) = value.parse::<i8>()
+        {
+            format_options.extra_float_digits = value;
         }
 
         format_options

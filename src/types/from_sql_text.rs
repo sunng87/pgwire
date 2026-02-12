@@ -17,7 +17,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::types::format::{
-    interval_style::IntervalStyle, string::parse_string_postgres, FormatOptions,
+    FormatOptions, interval_style::IntervalStyle, string::parse_string_postgres,
 };
 
 pub trait FromSqlText<'a>: fmt::Debug {
@@ -264,10 +264,10 @@ impl<'a> FromSqlText<'a> for NaiveDate {
 
         // Handle pgjdbc format with timezone: "2024-06-20 +08"
         // Split on whitespace to separate date from timezone
-        if let Some((date_part, _tz_part)) = value_str.split_once(' ') {
-            if let Ok(date) = NaiveDate::parse_from_str(date_part, "%Y-%m-%d") {
-                return Ok(date);
-            }
+        if let Some((date_part, _tz_part)) = value_str.split_once(' ')
+            && let Ok(date) = NaiveDate::parse_from_str(date_part, "%Y-%m-%d")
+        {
+            return Ok(date);
         }
 
         // Handle formats with time components that might include timezone

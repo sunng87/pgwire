@@ -27,8 +27,8 @@ mod tests {
     use bytes::BytesMut;
     use postgres_types::Type;
 
-    use crate::types::format::FormatOptions;
     use crate::types::ToSqlText;
+    use crate::types::format::FormatOptions;
 
     #[test]
     fn test_bytea_output_format() {
