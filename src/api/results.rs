@@ -737,7 +737,6 @@ impl DescribeResponse for DescribePortalResponse {
 pub struct CopyResponse {
     pub format: i8,
     pub columns: usize,
-    pub column_formats: Vec<i16>,
     pub data_stream: SendableCopyDataStream,
 }
 
@@ -746,31 +745,28 @@ impl std::fmt::Debug for CopyResponse {
         f.debug_struct("CopyResponse")
             .field("format", &self.format)
             .field("columns", &self.columns)
-            .field("column_formats", &self.column_formats)
             .finish()
     }
 }
 
 impl CopyResponse {
-    pub fn new<S>(
-        format: i8,
-        columns: usize,
-        column_formats: Vec<i16>,
-        data_stream: S,
-    ) -> CopyResponse
+    pub fn new<S>(format: i8, columns: usize, data_stream: S) -> CopyResponse
     where
         S: Stream<Item = PgWireResult<CopyData>> + Send + 'static,
     {
         CopyResponse {
             format,
             columns,
-            column_formats,
             data_stream: Box::pin(data_stream),
         }
     }
 
     pub fn data_stream(&mut self) -> &mut SendableCopyDataStream {
         &mut self.data_stream
+    }
+
+    pub fn column_formats(&self) -> Vec<i16> {
+        (0..self.columns).map(|_| self.format as i16).collect()
     }
 }
 
@@ -876,7 +872,7 @@ mod test {
 
         // First take_copy should include header
         encoder.encode_field(&42).unwrap();
-        let copy_data = encoder.take_copy().unwrap();
+        let copy_data = encoder.take_copy();
 
         let data = copy_data.data.as_ref();
         assert_eq!(&data[0..11], b"PGCOPY\n\xFF\r\n\0");
@@ -908,7 +904,7 @@ mod test {
         )]);
         let mut encoder = CopyEncoder::new_binary(schema);
 
-        let copy_data = encoder.finish_copy().unwrap();
+        let copy_data = encoder.finish_copy();
         let data = copy_data.data.as_ref();
 
         // Trailer is -1 as i16 (0xFFFF in network byte order)
@@ -925,7 +921,7 @@ mod test {
 
         encoder.encode_field(&1).unwrap();
         encoder.encode_field(&"Alice").unwrap();
-        let copy_data = encoder.take_copy().unwrap();
+        let copy_data = encoder.take_copy();
 
         // Expected: "1\tAlice\n"
         assert_eq!(copy_data.data.as_ref(), b"1\tAlice\n");
@@ -947,7 +943,7 @@ mod test {
 
         encoder.encode_field(&1).unwrap();
         encoder.encode_field(&"Alice").unwrap();
-        let copy_data = encoder.take_copy().unwrap();
+        let copy_data = encoder.take_copy();
 
         // Expected: "1|Alice\n"
         assert_eq!(copy_data.data.as_ref(), b"1|Alice\n");
@@ -963,7 +959,7 @@ mod test {
 
         encoder.encode_field(&1).unwrap();
         encoder.encode_field(&None::<String>).unwrap();
-        let copy_data = encoder.take_copy().unwrap();
+        let copy_data = encoder.take_copy();
 
         // Expected: "1\t\\N\n"
         assert_eq!(copy_data.data.as_ref(), b"1\t\\N\n");
@@ -981,7 +977,7 @@ mod test {
         let mut encoder = CopyEncoder::new_text(schema, CopyTextOptions::default());
 
         encoder.encode_field(&"a\nb\tc\rd\\e").unwrap();
-        let copy_data = encoder.take_copy().unwrap();
+        let copy_data = encoder.take_copy();
 
         // Expected: "a\\nb\\tc\\rd\\\\e\n"
         assert_eq!(copy_data.data.as_ref(), b"a\\nb\\tc\\rd\\\\e\n");
@@ -997,7 +993,7 @@ mod test {
 
         encoder.encode_field(&1).unwrap();
         encoder.encode_field(&"Alice").unwrap();
-        let copy_data = encoder.take_copy().unwrap();
+        let copy_data = encoder.take_copy();
 
         // Expected: "1,Alice\n"
         assert_eq!(copy_data.data.as_ref(), b"1,Alice\n");
@@ -1015,7 +1011,7 @@ mod test {
         let mut encoder = CopyEncoder::new_csv(schema, CopyCsvOptions::default());
 
         encoder.encode_field(&"a,b\"c\nd").unwrap();
-        let copy_data = encoder.take_copy().unwrap();
+        let copy_data = encoder.take_copy();
 
         // Should be quoted because it contains comma and newline
         assert_eq!(copy_data.data.as_ref(), b"\"a,b\"\"c\nd\"\n");
@@ -1037,7 +1033,7 @@ mod test {
 
         encoder.encode_field(&1).unwrap();
         encoder.encode_field(&"Alice").unwrap();
-        let copy_data = encoder.take_copy().unwrap();
+        let copy_data = encoder.take_copy();
 
         // Expected: "1,\"Alice\"\n" - second column force quoted
         assert_eq!(copy_data.data.as_ref(), b"1,\"Alice\"\n");

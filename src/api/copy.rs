@@ -47,7 +47,8 @@ where
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
-    let resp = CopyInResponse::new(resp.format, resp.columns as i16, resp.column_formats);
+    let column_formats = resp.column_formats();
+    let resp = CopyInResponse::new(resp.format, resp.columns as i16, column_formats);
     client
         .send(PgWireBackendMessage::CopyInResponse(resp))
         .await?;
@@ -60,10 +61,10 @@ where
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
+    let column_formats = resp.column_formats();
     let CopyResponse {
         format,
         columns,
-        column_formats,
         mut data_stream,
     } = resp;
     let copy_resp = CopyOutResponse::new(format, columns as i16, column_formats);
@@ -108,10 +109,10 @@ where
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
+    let column_formats = resp.column_formats();
     let CopyResponse {
         format,
         columns,
-        column_formats,
         mut data_stream,
     } = resp;
     let copy_resp = CopyBothResponse::new(format, columns as i16, column_formats);

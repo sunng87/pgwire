@@ -40,7 +40,6 @@ impl SimpleQueryHandler for DummyProcessor {
             Ok(vec![Response::CopyIn(CopyResponse::new(
                 0,
                 1,
-                vec![0],
                 futures::stream::empty(),
             ))])
         } else if query.to_ascii_uppercase().starts_with("COPY TO STDOUT") {
@@ -72,7 +71,6 @@ impl SimpleQueryHandler for DummyProcessor {
             Ok(vec![Response::CopyOut(CopyResponse::new(
                 1, // binary
                 2, // 2 columns
-                vec![1, 1],
                 copy_stream,
             ))])
         } else {
