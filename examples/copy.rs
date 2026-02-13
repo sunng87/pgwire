@@ -2,13 +2,13 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{Sink, SinkExt, StreamExt};
+use futures::{Sink, SinkExt, StreamExt, stream};
 use tokio::net::TcpListener;
 
 use pgwire::api::copy::CopyHandler;
 use pgwire::api::query::SimpleQueryHandler;
-use pgwire::api::results::{CopyResponse, Response};
-use pgwire::api::{ClientInfo, PgWireConnectionState, PgWireServerHandlers};
+use pgwire::api::results::{CopyEncoder, CopyResponse, FieldFormat, FieldInfo, Response};
+use pgwire::api::{ClientInfo, PgWireConnectionState, PgWireServerHandlers, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::PgWireBackendMessage;
 use pgwire::messages::copy::{CopyData, CopyDone, CopyFail};
@@ -35,12 +35,53 @@ impl SimpleQueryHandler for DummyProcessor {
             )))
             .await?;
 
-        Ok(vec![Response::CopyIn(CopyResponse::new(
-            0,
-            1,
-            vec![0],
-            futures::stream::empty(),
-        ))])
+        if query.to_ascii_uppercase().starts_with("COPY FROM STDIN") {
+            // copy in
+            Ok(vec![Response::CopyIn(CopyResponse::new(
+                0,
+                1,
+                vec![0],
+                futures::stream::empty(),
+            ))])
+        } else if query.to_ascii_uppercase().starts_with("COPY TO STDOUT") {
+            let f1 = FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Text);
+            let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text);
+            let schema = Arc::new(vec![f1, f2]);
+
+            let data = vec![
+                (Some(0), Some("Tom")),
+                (Some(1), Some("Jerry")),
+                (Some(2), None),
+            ];
+
+            let mut encoder = CopyEncoder::new_binary(schema);
+            // we need to chain an empty finish packet
+            let data_iter = data.into_iter().map(Some).chain([None].into_iter());
+            let copy_stream = stream::iter(data_iter).map(move |r| {
+                if let Some(r) = r {
+                    encoder.encode_field(&r.0)?;
+                    encoder.encode_field(&r.1)?;
+
+                    Ok(encoder.take_copy())
+                } else {
+                    Ok(encoder.finish_copy())
+                }
+            });
+
+            // copy out
+            Ok(vec![Response::CopyOut(CopyResponse::new(
+                1, // binary
+                2, // 2 columns
+                vec![1, 1],
+                copy_stream,
+            ))])
+        } else {
+            Ok(vec![Response::Error(Box::new(ErrorInfo::new(
+                "FATAL".to_owned(),
+                "08P01".to_owned(),
+                "COPY FROM STDIN / COPY TO STDOUT expected.".to_string(),
+            )))])
+        }
     }
 }
 

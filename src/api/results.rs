@@ -607,7 +607,7 @@ impl CopyEncoder {
     ///
     /// For binary format: first call includes PGCOPY header.
     /// For text/CSV format: each call returns one row with a trailing newline.
-    pub fn take_copy(&mut self) -> PgWireResult<CopyData> {
+    pub fn take_copy(&mut self) -> CopyData {
         match &self.format {
             CopyFormat::Binary => {
                 if !self.header_written {
@@ -629,14 +629,14 @@ impl CopyEncoder {
         }
 
         self.col_index = 0;
-        Ok(CopyData::new(self.buffer.split().freeze()))
+        CopyData::new(self.buffer.split().freeze())
     }
 
     /// Finish the COPY operation.
     ///
     /// For binary format: returns trailer (-1).
     /// For text/CSV format: returns an empty CopyData (or can be used for final cleanup).
-    pub fn finish_copy(&mut self) -> PgWireResult<CopyData> {
+    pub fn finish_copy(&mut self) -> CopyData {
         match &self.format {
             CopyFormat::Binary => {
                 self.buffer.put_i16(-1);
@@ -647,7 +647,7 @@ impl CopyEncoder {
         let copy_data = CopyData::new(self.buffer.split().freeze());
         self.col_index = 0;
         self.header_written = false;
-        Ok(copy_data)
+        copy_data
     }
 
     /// Write PGCOPY binary header.
