@@ -55,17 +55,16 @@ impl SimpleQueryHandler for DummyProcessor {
 
             let mut encoder = CopyEncoder::new_binary(schema.clone());
             // we need to chain an empty finish packet
-            let data_iter = data.into_iter().map(Some).chain([None].into_iter());
-            let copy_stream = stream::iter(data_iter).map(move |r| {
-                if let Some(r) = r {
+            let copy_stream = stream::iter(data)
+                .map(move |r| {
                     encoder.encode_field(&r.0)?;
                     encoder.encode_field(&r.1)?;
 
                     Ok(encoder.take_copy())
-                } else {
-                    Ok(encoder.finish_copy())
-                }
-            });
+                })
+                .chain(stream::once(async move {
+                    Ok(CopyEncoder::finish_copy_binary())
+                }));
 
             // copy out
             Ok(vec![Response::CopyOut(CopyResponse::new(

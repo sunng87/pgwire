@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::pin::Pin;
 use std::sync::{Arc, LazyLock};
 
-use bytes::{BufMut, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use futures::Stream;
 use postgres_types::{IsNull, Oid, ToSql, Type};
 
@@ -634,22 +634,11 @@ impl CopyEncoder {
         CopyData::new(self.buffer.split().freeze())
     }
 
-    /// Finish the COPY operation.
+    /// Finish the COPY operation of binary format.
     ///
     /// For binary format: returns trailer (-1).
-    /// For text/CSV format: returns an empty CopyData (or can be used for final cleanup).
-    pub fn finish_copy(&mut self) -> CopyData {
-        match &self.format {
-            CopyFormat::Binary => {
-                self.buffer.put_i16(-1);
-            }
-            CopyFormat::Text { .. } | CopyFormat::Csv { .. } => {}
-        }
-
-        let copy_data = CopyData::new(self.buffer.split().freeze());
-        self.col_index = 0;
-        self.header_written = false;
-        copy_data
+    pub fn finish_copy_binary() -> CopyData {
+        CopyData::new(Bytes::from_static(&[0xFF, 0xFF]))
     }
 
     /// Write PGCOPY binary header.
@@ -897,16 +886,7 @@ mod test {
 
     #[test]
     fn test_copy_binary_trailer() {
-        let schema = Arc::new(vec![FieldInfo::new(
-            "id".into(),
-            None,
-            None,
-            Type::INT4,
-            FieldFormat::Binary,
-        )]);
-        let mut encoder = CopyEncoder::new_binary(schema);
-
-        let copy_data = encoder.finish_copy();
+        let copy_data = CopyEncoder::finish_copy_binary();
         let data = copy_data.data.as_ref();
 
         // Trailer is -1 as i16 (0xFFFF in network byte order)

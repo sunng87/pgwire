@@ -21,8 +21,8 @@ use pgwire::api::auth::{
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
-    DataRowEncoder, DescribePortalResponse, DescribeResponse, DescribeStatementResponse, FieldInfo,
-    QueryResponse, Response, Tag,
+    CopyEncoder, CopyResponse, DataRowEncoder, DescribePortalResponse, DescribeResponse,
+    DescribeStatementResponse, FieldInfo, QueryResponse, Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
@@ -121,6 +121,45 @@ impl SimpleQueryHandler for DummyDatabase {
             Ok(vec![Response::Query(QueryResponse::new(
                 schema,
                 Box::pin(data_row_stream),
+            ))])
+        } else if query.starts_with("COPY") {
+            let schema = Arc::new(self.schema(&Format::UnifiedText));
+            let data = vec![
+                (
+                    Some(0),
+                    Some("Tom"),
+                    Some("2023-02-01 22:27:25.042674"),
+                    Some(true),
+                    Some("tomcat".as_bytes()),
+                ),
+                (
+                    Some(1),
+                    Some("Jerry"),
+                    Some("2023-02-01 22:27:42.165585"),
+                    Some(false),
+                    Some("".as_bytes()),
+                ),
+                (Some(2), None, None, None, None),
+            ];
+            let mut encoder = CopyEncoder::new_binary(schema.clone());
+            let copy_stream = stream::iter(data)
+                .map(move |r| {
+                    encoder.encode_field(&r.0)?;
+                    encoder.encode_field(&r.1)?;
+                    encoder.encode_field(&r.2)?;
+                    encoder.encode_field(&r.3)?;
+                    encoder.encode_field(&r.4)?;
+
+                    Ok(encoder.take_copy())
+                })
+                .chain(stream::once(async move {
+                    Ok(CopyEncoder::finish_copy_binary())
+                }));
+
+            Ok(vec![Response::CopyOut(CopyResponse::new(
+                1,
+                schema.len(),
+                Box::pin(copy_stream),
             ))])
         } else {
             Ok(vec![Response::Execution(Tag::new("OK").with_rows(1))])
