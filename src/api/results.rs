@@ -639,7 +639,7 @@ impl CopyEncoder {
     pub fn finish_copy(&mut self) -> CopyData {
         match &self.format {
             CopyFormat::Binary => {
-                self.buffer.put_i16(-1);
+                self.buffer.put_i32(-1);
             }
             CopyFormat::Text { .. } | CopyFormat::Csv { .. } => {}
         }
@@ -908,7 +908,7 @@ mod test {
         let data = copy_data.data.as_ref();
 
         // Trailer is -1 as i16 (0xFFFF in network byte order)
-        assert_eq!(data, &[0xFF, 0xFF]);
+        assert_eq!(data, &[0xFF, 0xFF, 0xFF, 0xFF]);
     }
 
     #[test]
