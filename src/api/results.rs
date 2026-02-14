@@ -637,8 +637,12 @@ impl CopyEncoder {
     /// Finish the COPY operation of binary format.
     ///
     /// For binary format: returns trailer (-1).
-    pub fn finish_copy_binary() -> CopyData {
-        CopyData::new(Bytes::from_static(&[0xFF, 0xFF]))
+    pub fn finish_copy(format: i8) -> CopyData {
+        if format == 1 {
+            CopyData::new(Bytes::from_static(&[0xFF, 0xFF]))
+        } else {
+            CopyData::new(Bytes::new())
+        }
     }
 
     /// Write PGCOPY binary header.
@@ -886,7 +890,7 @@ mod test {
 
     #[test]
     fn test_copy_binary_trailer() {
-        let copy_data = CopyEncoder::finish_copy_binary();
+        let copy_data = CopyEncoder::finish_copy(1);
         let data = copy_data.data.as_ref();
 
         // Trailer is -1 as i16 (0xFFFF in network byte order)

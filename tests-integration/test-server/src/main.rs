@@ -152,9 +152,7 @@ impl SimpleQueryHandler for DummyDatabase {
 
                     Ok(encoder.take_copy())
                 })
-                .chain(stream::once(async move {
-                    Ok(CopyEncoder::finish_copy_binary())
-                }));
+                .chain(stream::once(async move { Ok(CopyEncoder::finish_copy(1)) }));
 
             Ok(vec![Response::CopyOut(CopyResponse::new(
                 1,
