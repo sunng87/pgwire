@@ -614,12 +614,14 @@ impl CopyEncoder {
                     // Prepend header to field data
                     let field_data = self.buffer.split();
                     self.write_pgcop_header();
-                    self.buffer.put_i16(self.col_index as i16);
+                    self.buffer.put_i16(self.schema.len() as i16);
                     self.buffer.extend_from_slice(&field_data);
                     self.header_written = true;
                 } else {
-                    // Write field count
-                    self.buffer.put_i16(self.col_index as i16);
+                    // Prepend field count before field data
+                    let field_data = self.buffer.split();
+                    self.buffer.put_i16(self.schema.len() as i16);
+                    self.buffer.extend_from_slice(&field_data);
                 }
             }
             CopyFormat::Text { .. } | CopyFormat::Csv { .. } => {
@@ -639,7 +641,7 @@ impl CopyEncoder {
     pub fn finish_copy(&mut self) -> CopyData {
         match &self.format {
             CopyFormat::Binary => {
-                self.buffer.put_i32(-1);
+                self.buffer.put_i16(-1);
             }
             CopyFormat::Text { .. } | CopyFormat::Csv { .. } => {}
         }
@@ -908,7 +910,7 @@ mod test {
         let data = copy_data.data.as_ref();
 
         // Trailer is -1 as i16 (0xFFFF in network byte order)
-        assert_eq!(data, &[0xFF, 0xFF, 0xFF, 0xFF]);
+        assert_eq!(data, &[0xFF, 0xFF]);
     }
 
     #[test]
@@ -1037,5 +1039,42 @@ mod test {
 
         // Expected: "1,\"Alice\"\n" - second column force quoted
         assert_eq!(copy_data.data.as_ref(), b"1,\"Alice\"\n");
+    }
+
+    #[test]
+    fn test_copy_binary_multiple_rows() {
+        let schema = Arc::new(vec![
+            FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Binary),
+            FieldInfo::new(
+                "name".into(),
+                None,
+                None,
+                Type::VARCHAR,
+                FieldFormat::Binary,
+            ),
+        ]);
+        let mut encoder = CopyEncoder::new_binary(schema);
+
+        // First row
+        encoder.encode_field(&1i32).unwrap();
+        encoder.encode_field(&"Alice".to_string()).unwrap();
+        let copy_data1 = encoder.take_copy();
+
+        // Second row
+        encoder.encode_field(&2i32).unwrap();
+        encoder.encode_field(&"Bob".to_string()).unwrap();
+        let copy_data2 = encoder.take_copy();
+
+        // Verify first row format
+        let data1 = copy_data1.data.as_ref();
+
+        // Header is 19 bytes, then field count (2 bytes)
+        assert_eq!(&data1[19..21], &[0x00, 0x02]); // 2 fields
+
+        // Verify second row format
+        let data2 = copy_data2.data.as_ref();
+
+        // Field count should be at the beginning (no header on second row)
+        assert_eq!(&data2[0..2], &[0x00, 0x02]); // 2 fields
     }
 }
