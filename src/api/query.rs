@@ -86,8 +86,8 @@ pub trait SimpleQueryHandler: Send + Sync {
                             .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
                             .await?;
                     }
-                    Response::Query(mut results) => {
-                        send_query_response(client, &mut results, true).await?;
+                    Response::Query(results) => {
+                        send_query_response(client, results, true).await?;
                     }
                     Response::Execution(tag) => {
                         send_execution_response(client, tag).await?;
@@ -112,7 +112,6 @@ pub trait SimpleQueryHandler: Send + Sync {
                     }
                     Response::CopyOut(result) => {
                         copy::send_copy_out_response(client, result).await?;
-                        client.set_state(PgWireConnectionState::CopyInProgress(false));
                     }
                     Response::CopyBoth(result) => {
                         copy::send_copy_both_response(client, result).await?;
@@ -259,7 +258,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                                     *portal_state = PortalExecutionState::Finished;
                                 }
                             } else {
-                                send_query_response(client, &mut results, false).await?;
+                                send_query_response(client, results, false).await?;
                             }
                         }
                         Response::Execution(tag) => {
@@ -284,7 +283,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
                             copy::send_copy_in_response(client, result).await?;
                         }
                         Response::CopyOut(result) => {
-                            client.set_state(PgWireConnectionState::CopyInProgress(true));
                             copy::send_copy_out_response(client, result).await?;
                         }
                         Response::CopyBoth(result) => {
@@ -506,7 +504,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
 /// decribed statement/portal before.
 pub async fn send_query_response<C>(
     client: &mut C,
-    results: &mut QueryResponse,
+    results: QueryResponse,
     send_describe: bool,
 ) -> PgWireResult<()>
 where
@@ -514,9 +512,11 @@ where
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
-    let command_tag = results.command_tag().to_owned();
-    let row_schema = results.row_schema();
-    let data_rows = results.data_rows();
+    let QueryResponse {
+        command_tag,
+        row_schema,
+        mut data_rows,
+    } = results;
 
     // Simple query has row_schema in query response. For extended query,
     // row_schema is returned as response of `Describe`.
@@ -552,7 +552,7 @@ where
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
-    let tag = results.command_tag().to_string();
+    let command_tag = results.command_tag().to_string();
     let data_rows = results.data_rows();
 
     let mut rows = 0;
@@ -573,7 +573,7 @@ where
             .send(PgWireBackendMessage::PortalSuspended(PortalSuspended))
             .await?;
     } else {
-        let tag = Tag::new(&tag).with_rows(rows);
+        let tag = Tag::new(&command_tag).with_rows(rows);
         client
             .send(PgWireBackendMessage::CommandComplete(tag.into()))
             .await?;

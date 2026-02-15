@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <arpa/inet.h>
 #include <libpq-fe.h>
 
 int main(int argc, char **argv) {
@@ -54,6 +55,65 @@ int main(int argc, char **argv) {
     }
 
     PQclear(res);
+
+    res = PQexec(conn, "COPY (SELECT * FROM testtable) TO STDOUT (FORMAT binary)");
+    if (PQresultStatus(res) != PGRES_COPY_OUT) {
+        fprintf(stderr, "COPY failed: %s", PQerrorMessage(conn));
+        PQclear(res);
+        PQfinish(conn);
+        exit(1);
+    }
+    PQclear(res);
+
+    char *copyData;
+    int copyLen;
+    int rowCount = 0;
+    int colCount = 0;
+
+    printf("\nBinary COPY data.\n");
+
+    while ((copyLen = PQgetCopyData(conn, &copyData, 0)) > 0) {
+        rowCount++;
+        if (rowCount == 1) {
+            int offset = 19;
+            colCount = ntohs(*(int16_t*)(copyData + offset));
+            if (colCount != 5) {
+                fprintf(stderr, "Expected 5 columns in binary COPY, got %d\n", colCount);
+                PQfreemem(copyData);
+                PQfinish(conn);
+                exit(1);
+            }
+        } else {
+            int16_t marker = ntohs(*(int16_t*)copyData);
+            if (marker == -1) {
+                int16_t trailer = ntohs(*(int16_t*)copyData);
+                if (trailer != -1) {
+                    fprintf(stderr, "Expected trailer (-1), got %d\n", trailer);
+                    PQfreemem(copyData);
+                    PQfinish(conn);
+                    exit(1);
+                }
+            }
+        }
+        PQfreemem(copyData);
+    }
+
+    if (copyLen == -1) {
+        res = PQgetResult(conn);
+        if (res != NULL) {
+            PQclear(res);
+        }
+    } else if (copyLen == -2) {
+        fprintf(stderr, "COPY read failed: %s", PQerrorMessage(conn));
+        PQfinish(conn);
+        exit(1);
+    }
+
+    if (rowCount != 4) {
+        fprintf(stderr, "Expected 4 messages in binary COPY stream (header+row1, row2, row3, trailer), got %d\n", rowCount);
+        PQfinish(conn);
+        exit(1);
+    }
 
     res = PQexec(conn, "INSERT INTO testtable VALUES (1);");
     if (PQresultStatus(res) != PGRES_COMMAND_OK) {

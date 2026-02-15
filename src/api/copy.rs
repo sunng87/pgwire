@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
+use futures::stream::StreamExt;
 use std::fmt::Debug;
 
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
@@ -9,7 +10,7 @@ use crate::messages::copy::{
 };
 
 use super::ClientInfo;
-use super::results::CopyResponse;
+use super::results::{CopyResponse, Tag};
 
 /// handler for copy messages
 #[async_trait]
@@ -46,7 +47,8 @@ where
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
-    let resp = CopyInResponse::new(resp.format, resp.columns as i16, resp.column_formats);
+    let column_formats = resp.column_formats();
+    let resp = CopyInResponse::new(resp.format, resp.columns as i16, column_formats);
     client
         .send(PgWireBackendMessage::CopyInResponse(resp))
         .await?;
@@ -59,10 +61,50 @@ where
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
-    let resp = CopyOutResponse::new(resp.format, resp.columns as i16, resp.column_formats);
+    let column_formats = resp.column_formats();
+    let CopyResponse {
+        format,
+        columns,
+        mut data_stream,
+    } = resp;
+    let copy_resp = CopyOutResponse::new(format, columns as i16, column_formats);
     client
-        .send(PgWireBackendMessage::CopyOutResponse(resp))
+        .send(PgWireBackendMessage::CopyOutResponse(copy_resp))
         .await?;
+
+    let mut rows = 0;
+
+    while let Some(copy_data) = data_stream.next().await {
+        match copy_data {
+            Ok(data) => {
+                if !data.data.is_empty() {
+                    // do not count trailer
+                    if data.data.as_ref() != [0xFF, 0xFF] {
+                        rows += 1;
+                    }
+                    client.feed(PgWireBackendMessage::CopyData(data)).await?;
+                }
+            }
+            Err(e) => {
+                let copy_fail = CopyFail::new(format!("{}", e));
+                client
+                    .send(PgWireBackendMessage::CopyFail(copy_fail))
+                    .await?;
+                return Err(e);
+            }
+        }
+    }
+
+    let copy_done = CopyDone::new();
+    client
+        .send(PgWireBackendMessage::CopyDone(copy_done))
+        .await?;
+
+    let tag = Tag::new("COPY").with_rows(rows);
+    client
+        .send(PgWireBackendMessage::CommandComplete(tag.into()))
+        .await?;
+
     Ok(())
 }
 
@@ -72,10 +114,50 @@ where
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
-    let resp = CopyBothResponse::new(resp.format, resp.columns as i16, resp.column_formats);
+    let column_formats = resp.column_formats();
+    let CopyResponse {
+        format,
+        columns,
+        mut data_stream,
+    } = resp;
+    let copy_resp = CopyBothResponse::new(format, columns as i16, column_formats);
     client
-        .send(PgWireBackendMessage::CopyBothResponse(resp))
+        .send(PgWireBackendMessage::CopyBothResponse(copy_resp))
         .await?;
+
+    let mut rows = 0;
+
+    while let Some(copy_data) = data_stream.next().await {
+        match copy_data {
+            Ok(data) => {
+                if !data.data.is_empty() {
+                    // do not count trailer
+                    if data.data.as_ref() != [0xFF, 0xFF] {
+                        rows += 1;
+                    }
+                    client.feed(PgWireBackendMessage::CopyData(data)).await?;
+                }
+            }
+            Err(e) => {
+                let copy_fail = CopyFail::new(format!("{}", e));
+                client
+                    .send(PgWireBackendMessage::CopyFail(copy_fail))
+                    .await?;
+                return Err(e);
+            }
+        }
+    }
+
+    let copy_done = CopyDone::new();
+    client
+        .send(PgWireBackendMessage::CopyDone(copy_done))
+        .await?;
+
+    let tag = Tag::new("COPY").with_rows(rows);
+    client
+        .send(PgWireBackendMessage::CommandComplete(tag.into()))
+        .await?;
+
     Ok(())
 }
 
