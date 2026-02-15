@@ -1,6 +1,6 @@
 [package]
 name = "pgwire"
-version = "0.37.3"
+version = "0.38.0"
 edition = "2024"
 authors = ["Ning Sun <sunng@pm.me>"]
 license = "MIT/Apache-2.0"
