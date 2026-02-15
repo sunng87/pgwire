@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Added
+
+- CopyEncoder, PGCOPY protocol and full Copy out API support [#403]
+
+### Fixed
+
+- TLS handshake in client API [#400]
+- ClientConfig compilation on Windows [#392]
+- Resetting DecodeContext fields [#394]
+
+### Changed
+
+- `FromSqlText` is no longer implemented for `Vec<T>`, use `Vec<Option<T>>`
+  instead [#395]
+- `standard_string_conforming` is always on now [#388]
+
 ## [0.37.3] - 2026-01-23
 
 ### Fixed
