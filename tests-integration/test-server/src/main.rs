@@ -142,17 +142,15 @@ impl SimpleQueryHandler for DummyDatabase {
                 (Some(2), None, None, None, None),
             ];
             let mut encoder = CopyEncoder::new_binary(schema.clone());
-            let copy_stream = stream::iter(data)
-                .map(move |r| {
-                    encoder.encode_field(&r.0)?;
-                    encoder.encode_field(&r.1)?;
-                    encoder.encode_field(&r.2)?;
-                    encoder.encode_field(&r.3)?;
-                    encoder.encode_field(&r.4)?;
+            let copy_stream = stream::iter(data).map(move |r| {
+                encoder.encode_field(&r.0)?;
+                encoder.encode_field(&r.1)?;
+                encoder.encode_field(&r.2)?;
+                encoder.encode_field(&r.3)?;
+                encoder.encode_field(&r.4)?;
 
-                    Ok(encoder.take_copy())
-                })
-                .chain(stream::once(async move { Ok(CopyEncoder::finish_copy(1)) }));
+                Ok(encoder.take_copy())
+            });
 
             Ok(vec![Response::CopyOut(CopyResponse::new(
                 1,

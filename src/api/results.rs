@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::sync::{Arc, LazyLock};
 
 use bytes::{BufMut, Bytes, BytesMut};
-use futures::Stream;
+use futures::{Stream, StreamExt, future, stream};
 use postgres_types::{IsNull, Oid, ToSql, Type};
 
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
@@ -637,12 +637,10 @@ impl CopyEncoder {
     /// Finish the COPY operation of binary format.
     ///
     /// For binary format: returns trailer (-1).
-    pub fn finish_copy(format: i8) -> CopyData {
-        if format == 1 {
-            CopyData::new(Bytes::from_static(&[0xFF, 0xFF]))
-        } else {
-            CopyData::new(Bytes::new())
-        }
+    /// Note that this trailer is automatically appended to stream if you use
+    /// `CopyResponse` API.
+    pub fn finish_copy_binary() -> CopyData {
+        CopyData::new(Bytes::from_static(&[0xFF, 0xFF]))
     }
 
     /// Write PGCOPY binary header.
@@ -749,10 +747,21 @@ impl CopyResponse {
     where
         S: Stream<Item = PgWireResult<CopyData>> + Send + 'static,
     {
-        CopyResponse {
-            format,
-            columns,
-            data_stream: Box::pin(data_stream),
+        if format == 1 {
+            let data_stream = data_stream.chain(stream::once(future::ready(Ok(
+                CopyEncoder::finish_copy_binary(),
+            ))));
+            CopyResponse {
+                format,
+                columns,
+                data_stream: Box::pin(data_stream),
+            }
+        } else {
+            CopyResponse {
+                format,
+                columns,
+                data_stream: Box::pin(data_stream),
+            }
         }
     }
 
@@ -890,7 +899,7 @@ mod test {
 
     #[test]
     fn test_copy_binary_trailer() {
-        let copy_data = CopyEncoder::finish_copy(1);
+        let copy_data = CopyEncoder::finish_copy_binary();
         let data = copy_data.data.as_ref();
 
         // Trailer is -1 as i16 (0xFFFF in network byte order)
