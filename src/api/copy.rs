@@ -77,8 +77,13 @@ where
     while let Some(copy_data) = data_stream.next().await {
         match copy_data {
             Ok(data) => {
-                rows += 1;
-                client.feed(PgWireBackendMessage::CopyData(data)).await?;
+                if !data.data.is_empty() {
+                    // do not count trailer
+                    if data.data.as_ref() != &[0xFF, 0xFF] {
+                        rows += 1;
+                    }
+                    client.feed(PgWireBackendMessage::CopyData(data)).await?;
+                }
             }
             Err(e) => {
                 let copy_fail = CopyFail::new(format!("{}", e));
@@ -125,8 +130,13 @@ where
     while let Some(copy_data) = data_stream.next().await {
         match copy_data {
             Ok(data) => {
-                rows += 1;
-                client.feed(PgWireBackendMessage::CopyData(data)).await?;
+                if !data.data.is_empty() {
+                    // do not count trailer
+                    if data.data.as_ref() != &[0xFF, 0xFF] {
+                        rows += 1;
+                    }
+                    client.feed(PgWireBackendMessage::CopyData(data)).await?;
+                }
             }
             Err(e) => {
                 let copy_fail = CopyFail::new(format!("{}", e));
