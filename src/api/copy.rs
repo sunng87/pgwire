@@ -79,7 +79,7 @@ where
             Ok(data) => {
                 if !data.data.is_empty() {
                     // do not count trailer
-                    if data.data.as_ref() != &[0xFF, 0xFF] {
+                    if data.data.as_ref() != [0xFF, 0xFF] {
                         rows += 1;
                     }
                     client.feed(PgWireBackendMessage::CopyData(data)).await?;
@@ -132,7 +132,7 @@ where
             Ok(data) => {
                 if !data.data.is_empty() {
                     // do not count trailer
-                    if data.data.as_ref() != &[0xFF, 0xFF] {
+                    if data.data.as_ref() != [0xFF, 0xFF] {
                         rows += 1;
                     }
                     client.feed(PgWireBackendMessage::CopyData(data)).await?;
