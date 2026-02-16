@@ -4,7 +4,8 @@ use bytes::{Buf, BufMut, BytesMut};
 
 use crate::error::{PgWireError, PgWireResult};
 
-/// Get null-terminated string, returns None when empty cstring read.
+/// Get null-terminated string, returns None when empty or
+/// non null-terminated cstring read.
 ///
 /// Note that this implementation will also advance cursor by 1 after reading
 /// empty cstring. This behaviour works for how postgres wire protocol handling
@@ -12,13 +13,13 @@ use crate::error::{PgWireError, PgWireResult};
 pub(crate) fn get_cstring(buf: &mut BytesMut) -> Option<String> {
     let mut i = 0;
 
-    if buf.remaining() == 0 {
-        return None;
-    }
-
     // with bound check to prevent invalid format
     while i < buf.remaining() && buf[i] != b'\0' {
         i += 1;
+    }
+
+    if i == buf.remaining() {
+        return None;
     }
 
     // i+1: include the '\0'
@@ -115,6 +116,13 @@ mod test {
     fn get_cstring_empty() {
         let mut buf = BytesMut::new();
 
+        assert_eq!(None, get_cstring(&mut buf));
+    }
+
+    #[test]
+    fn get_cstring_without_null() {
+        let mut buf = BytesMut::new();
+        buf.put(&b"a cstring"[..]);
         assert_eq!(None, get_cstring(&mut buf));
     }
 }
