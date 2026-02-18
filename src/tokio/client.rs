@@ -30,6 +30,9 @@ use crate::messages::{
     SslNegotiationMetaMessage,
 };
 
+#[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+pub mod tls;
+
 #[non_exhaustive]
 #[derive(Debug, Default)]
 pub struct PgWireMessageClientCodec {
