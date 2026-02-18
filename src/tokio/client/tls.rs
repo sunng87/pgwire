@@ -20,16 +20,16 @@ use tokio_rustls::rustls::{DigitallySignedStruct, SignatureScheme};
 /// # Example
 ///
 /// ```no_run
-/// use rustls::{RootCertStore, ClientConfig};
-/// use rustls::pki_types::CertificateDer;
-/// use postgres_rustls_verifiers::SkipHostnameVerifier;
+/// use tokio_rustls::rustls::{RootCertStore, ClientConfig, crypto};
+/// use tokio_rustls::rustls::pki_types::CertificateDer;
+/// use pgwire::tokio::client::tls::SkipHostnameVerifier;
 /// use std::sync::Arc;
 ///
 /// # fn build_roots() -> Arc<RootCertStore> { Arc::new(RootCertStore::empty()) }
 /// let roots = build_roots();
 ///
 /// // Create a crypto provider (requires rustls ring feature)
-/// let provider = rustls::crypto::CryptoProvider::get_default().unwrap().clone();
+/// let provider = crypto::CryptoProvider::get_default().unwrap().clone();
 ///
 /// let verifier = SkipHostnameVerifier::new_with_provider(roots, provider);
 ///
@@ -118,8 +118,8 @@ impl ServerCertVerifier for SkipHostnameVerifier {
 /// # Example
 ///
 /// ```no_run
-/// use rustls::ClientConfig;
-/// use postgres_rustls_verifiers::NoopVerifier;
+/// use tokio_rustls::rustls::ClientConfig;
+/// use pgwire::tokio::client::tls::NoopVerifier;
 /// use std::sync::Arc;
 ///
 /// let mut config = ClientConfig::builder()
