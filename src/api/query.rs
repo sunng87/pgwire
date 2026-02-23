@@ -136,6 +136,11 @@ pub trait SimpleQueryHandler: Send + Sync {
     }
 
     /// Provide your query implementation using the incoming query string.
+    ///
+    /// When implementing PREPARE/EXECUTE statements, handlers can downcast
+    /// `C::PortalStore` to access the specific statement type stored by
+    /// ExtendedQueryHandler. This enables sharing prepared statements between
+    /// simple and extended query protocols.
     async fn do_query<C>(&self, client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
