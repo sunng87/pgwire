@@ -67,10 +67,7 @@ impl SessionExtensions {
     }
 
     /// Get an extension by type, or insert a default value if not present.
-    pub fn get_or_insert_with<T: Send + Sync + 'static>(
-        &self,
-        f: impl FnOnce() -> T,
-    ) -> Arc<T> {
+    pub fn get_or_insert_with<T: Send + Sync + 'static>(&self, f: impl FnOnce() -> T) -> Arc<T> {
         let type_id = TypeId::of::<T>();
 
         // Fast path: read lock
@@ -83,9 +80,7 @@ impl SessionExtensions {
 
         // Slow path: write lock
         let mut map = self.map.write().unwrap();
-        let val = map
-            .entry(type_id)
-            .or_insert_with(|| Arc::new(f()));
+        let val = map.entry(type_id).or_insert_with(|| Arc::new(f()));
         val.clone().downcast::<T>().unwrap()
     }
 
@@ -342,13 +337,11 @@ mod tests {
     #[test]
     fn session_extensions_get_or_insert_with() {
         let ext = SessionExtensions::new();
-        let val: Arc<RwLock<Vec<i32>>> =
-            ext.get_or_insert_with(|| RwLock::new(vec![1, 2, 3]));
+        let val: Arc<RwLock<Vec<i32>>> = ext.get_or_insert_with(|| RwLock::new(vec![1, 2, 3]));
         assert_eq!(*val.read().unwrap(), vec![1, 2, 3]);
 
         // Second call returns same instance, ignores closure
-        let val2: Arc<RwLock<Vec<i32>>> =
-            ext.get_or_insert_with(|| RwLock::new(vec![99]));
+        let val2: Arc<RwLock<Vec<i32>>> = ext.get_or_insert_with(|| RwLock::new(vec![99]));
         assert_eq!(*val2.read().unwrap(), vec![1, 2, 3]);
         assert!(Arc::ptr_eq(&val, &val2));
     }
