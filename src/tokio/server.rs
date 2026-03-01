@@ -125,6 +125,10 @@ impl<T: 'static, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
         self.codec_mut().client_info.metadata_mut()
     }
 
+    fn session_extensions(&self) -> &crate::api::SessionExtensions {
+        self.codec().client_info.session_extensions()
+    }
+
     fn transaction_status(&self) -> TransactionStatus {
         self.codec().client_info.transaction_status()
     }

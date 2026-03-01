@@ -1,8 +1,9 @@
 //! APIs for building postgresql compatible servers.
 
+use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 pub use postgres_types::Type;
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
@@ -39,6 +40,67 @@ pub enum PgWireConnectionState {
     AwaitingSync,
 }
 
+/// Per-connection typed extension store, keyed by `TypeId`.
+///
+/// Allows hooks and handlers to store arbitrary per-session state that is
+/// automatically cleaned up when the connection closes. Uses interior
+/// mutability so it can be accessed from `&dyn ClientInfo`.
+#[derive(Default)]
+pub struct SessionExtensions {
+    map: RwLock<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>,
+}
+
+impl std::fmt::Debug for SessionExtensions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let count = self.map.read().unwrap().len();
+        f.debug_struct("SessionExtensions")
+            .field("entries", &count)
+            .finish()
+    }
+}
+
+impl SessionExtensions {
+    pub fn new() -> Self {
+        Self {
+            map: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Get an extension by type, or insert a default value if not present.
+    pub fn get_or_insert_with<T: Send + Sync + 'static>(&self, f: impl FnOnce() -> T) -> Arc<T> {
+        let type_id = TypeId::of::<T>();
+
+        // Fast path: read lock
+        {
+            let map = self.map.read().unwrap();
+            if let Some(val) = map.get(&type_id) {
+                return val.clone().downcast::<T>().unwrap();
+            }
+        }
+
+        // Slow path: write lock
+        let mut map = self.map.write().unwrap();
+        let val = map.entry(type_id).or_insert_with(|| Arc::new(f()));
+        val.clone().downcast::<T>().unwrap()
+    }
+
+    /// Get an extension by type, returning `None` if not present.
+    pub fn get<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
+        let type_id = TypeId::of::<T>();
+        let map = self.map.read().unwrap();
+        map.get(&type_id)
+            .map(|val| val.clone().downcast::<T>().unwrap())
+    }
+
+    /// Insert an extension by type, replacing any existing value.
+    pub fn insert<T: Send + Sync + 'static>(&self, val: T) -> Option<Arc<T>> {
+        let type_id = TypeId::of::<T>();
+        let mut map = self.map.write().unwrap();
+        map.insert(type_id, Arc::new(val))
+            .map(|old| old.downcast::<T>().unwrap())
+    }
+}
+
 // TODO: add oauth scope and issuer
 /// Describe a client information holder
 pub trait ClientInfo {
@@ -65,6 +127,8 @@ pub trait ClientInfo {
     fn metadata(&self) -> &HashMap<String, String>;
 
     fn metadata_mut(&mut self) -> &mut HashMap<String, String>;
+
+    fn session_extensions(&self) -> &SessionExtensions;
 
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     fn sni_server_name(&self) -> Option<&str>;
@@ -98,6 +162,7 @@ pub struct DefaultClient<S> {
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     pub sni_server_name: Option<String>,
     pub portal_store: store::MemPortalStore<S>,
+    pub session_extensions: SessionExtensions,
 }
 
 impl<S> ClientInfo for DefaultClient<S> {
@@ -141,6 +206,10 @@ impl<S> ClientInfo for DefaultClient<S> {
         &mut self.metadata
     }
 
+    fn session_extensions(&self) -> &SessionExtensions {
+        &self.session_extensions
+    }
+
     fn transaction_status(&self) -> TransactionStatus {
         self.transaction_status
     }
@@ -173,6 +242,7 @@ impl<S> DefaultClient<S> {
             #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             sni_server_name: None,
             portal_store: store::MemPortalStore::new(),
+            session_extensions: SessionExtensions::new(),
         }
     }
 }
@@ -256,5 +326,48 @@ where
 
     fn cancel_handler(&self) -> Arc<impl cancel::CancelHandler> {
         (**self).cancel_handler()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::RwLock;
+
+    #[test]
+    fn session_extensions_get_or_insert_with() {
+        let ext = SessionExtensions::new();
+        let val: Arc<RwLock<Vec<i32>>> = ext.get_or_insert_with(|| RwLock::new(vec![1, 2, 3]));
+        assert_eq!(*val.read().unwrap(), vec![1, 2, 3]);
+
+        // Second call returns same instance, ignores closure
+        let val2: Arc<RwLock<Vec<i32>>> = ext.get_or_insert_with(|| RwLock::new(vec![99]));
+        assert_eq!(*val2.read().unwrap(), vec![1, 2, 3]);
+        assert!(Arc::ptr_eq(&val, &val2));
+    }
+
+    #[test]
+    fn session_extensions_different_types_are_independent() {
+        let ext = SessionExtensions::new();
+        ext.insert(42u32);
+        ext.insert("hello".to_string());
+
+        assert_eq!(*ext.get::<u32>().unwrap(), 42);
+        assert_eq!(*ext.get::<String>().unwrap(), "hello");
+    }
+
+    #[test]
+    fn session_extensions_get_returns_none_when_missing() {
+        let ext = SessionExtensions::new();
+        assert!(ext.get::<u64>().is_none());
+    }
+
+    #[test]
+    fn session_extensions_insert_replaces_previous() {
+        let ext = SessionExtensions::new();
+        ext.insert(1u32);
+        let old = ext.insert(2u32);
+        assert_eq!(*old.unwrap(), 1);
+        assert_eq!(*ext.get::<u32>().unwrap(), 2);
     }
 }
