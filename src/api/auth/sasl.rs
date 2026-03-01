@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use futures::{Sink, SinkExt};
 use tokio::sync::Mutex;
 
-use crate::api::auth::Password;
+use crate::api::auth::sasl::scram::ScramServerAuthWaitingForClientFinal;
 use crate::api::{ClientInfo, PgWireConnectionState};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::{Authentication, PasswordMessageFamily};
@@ -22,7 +22,7 @@ pub enum SASLState {
     // scram authentication method selected
     ScramClientFirstReceived,
     // cached password, channel_binding and partial auth-message
-    ScramServerFirstSent(Password, String, String),
+    ScramServerFirstSent(Box<ScramServerAuthWaitingForClientFinal>),
     // oauth authentication method selected
     OauthStateInit,
     // failure during authentication
@@ -35,7 +35,7 @@ impl SASLState {
     fn is_scram(&self) -> bool {
         matches!(
             self,
-            SASLState::ScramClientFirstReceived | SASLState::ScramServerFirstSent(_, _, _)
+            SASLState::ScramClientFirstReceived | SASLState::ScramServerFirstSent(_)
         )
     }
 
