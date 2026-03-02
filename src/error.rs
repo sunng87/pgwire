@@ -383,6 +383,9 @@ pub enum PgWireClientError {
 
     #[error("Index out of bounds")]
     DataRowIndexOutOfBounds,
+
+    #[error("Error from SCRAM authentication server: {0}")]
+    ScramError(String),
 }
 
 #[cfg(feature = "client-api")]
