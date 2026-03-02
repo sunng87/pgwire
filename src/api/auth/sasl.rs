@@ -169,7 +169,7 @@ impl<P> SASLAuthStartupHandler<P> {
         if let Some(scram) = &self.scram {
             mechanisms.push(Self::SCRAM_SHA_256.to_owned());
 
-            if scram.server_cert_sig.is_some() {
+            if scram.supports_channel_binding() {
                 mechanisms.push(Self::SCRAM_SHA_256_PLUS.to_owned());
             }
         }

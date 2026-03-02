@@ -27,19 +27,15 @@ pub const SCRAM_ITERATIONS: usize = 4096;
 
 #[derive(Debug)]
 pub struct ScramAuth {
-    pub(crate) auth_db: Arc<dyn AuthSource>,
-    /// base64 encoded certificate signature for tls-server-end-point channel binding
-    pub(crate) server_cert_sig: Option<String>,
-    /// iterations
-    pub(crate) iterations: usize,
+    auth_db: Arc<dyn AuthSource>,
+    authenticator: ScramServerAuth,
 }
 
 impl ScramAuth {
     pub fn new(auth_db: Arc<dyn AuthSource>) -> ScramAuth {
         ScramAuth {
             auth_db,
-            server_cert_sig: None,
-            iterations: SCRAM_ITERATIONS,
+            authenticator: ScramServerAuth::new(),
         }
     }
 
@@ -49,9 +45,7 @@ impl ScramAuth {
     /// Original pem data is required here. We will decode pem and use the first
     /// certificate as server certificate.
     pub fn configure_certificate(&mut self, certs_pem: &[u8]) -> PgWireResult<()> {
-        let sig = compute_cert_signature(certs_pem)?;
-        self.server_cert_sig = Some(STANDARD.encode(sig));
-        Ok(())
+        self.authenticator.configure_certificate(certs_pem)
     }
 
     /// Set password hash iteration count, according to SCRAM RFC, a minimal of
@@ -63,7 +57,11 @@ impl ScramAuth {
     /// cleartext password, or before storing hashed password. And this number
     /// should be identical to your `AuthSource` implementation.
     pub fn set_iterations(&mut self, iterations: usize) {
-        self.iterations = iterations;
+        self.authenticator.set_iterations(iterations);
+    }
+
+    pub fn supports_channel_binding(&self) -> bool {
+        self.authenticator.server_cert_sig.is_some()
     }
 }
 
@@ -101,12 +99,6 @@ impl ScramAuth {
     {
         match state {
             SASLState::ScramClientFirstReceived => {
-                let mut authenticator = ScramServerAuth::new().with_iterations(self.iterations);
-                if let Some(cert_sig) = &self.server_cert_sig {
-                    authenticator =
-                        authenticator.with_server_certificate_signature(cert_sig.clone());
-                }
-
                 // initial response, client_first
                 let msg = msg.into_sasl_initial_response()?;
                 let resp = msg.data.as_ref().ok_or_else(|| {
@@ -116,8 +108,9 @@ impl ScramAuth {
                 let login_info = LoginInfo::from_client_info(client);
                 let expected_password = self.auth_db.get_password(&login_info).await?;
 
-                let (server_first, authenticator) =
-                    authenticator.on_client_first_message(resp, expected_password)?;
+                let (server_first, authenticator) = self
+                    .authenticator
+                    .on_client_first_message(resp, expected_password)?;
 
                 Ok((
                     Authentication::SASLContinue(server_first.into()),
@@ -166,14 +159,11 @@ impl ScramServerAuth {
     ///
     /// Original pem data is required here. We will decode pem and use the first
     /// certificate as server certificate.
-    pub fn with_server_certificate(self, certs_pem: &[u8]) -> PgWireResult<Self> {
-        Ok(self
-            .with_server_certificate_signature(STANDARD.encode(compute_cert_signature(certs_pem)?)))
-    }
-
-    fn with_server_certificate_signature(mut self, cert_sig: String) -> Self {
-        self.server_cert_sig = Some(Arc::new(cert_sig));
-        self
+    pub fn configure_certificate(&mut self, certs_pem: &[u8]) -> PgWireResult<()> {
+        self.server_cert_sig = Some(Arc::new(
+            STANDARD.encode(compute_cert_signature(certs_pem)?),
+        ));
+        Ok(())
     }
 
     /// Set password hash iteration count, according to SCRAM RFC, a minimal of
@@ -184,9 +174,8 @@ impl ScramServerAuth {
     /// hashing in your `AuthSource` implementation, either after fetching
     /// cleartext password, or before storing hashed password. And this number
     /// should be identical to your `AuthSource` implementation.
-    pub fn with_iterations(mut self, iterations: usize) -> Self {
+    pub fn set_iterations(&mut self, iterations: usize) {
         self.iterations = iterations;
-        self
     }
 
     /// Client first message with expected username (optional) and expected password
@@ -659,7 +648,7 @@ fn xor(lhs: &[u8], rhs: &[u8]) -> Vec<u8> {
 /// 2. use the certificate's algorithm if it's neither md5 or sha-1
 /// 3. if the certificate has 0 or more than 1 signature algorithm, the
 ///    behaviour is undefined at the time.
-pub(super) fn compute_cert_signature(cert: &[u8]) -> PgWireResult<Vec<u8>> {
+fn compute_cert_signature(cert: &[u8]) -> PgWireResult<Vec<u8>> {
     let certs = CapturedX509Certificate::from_pem_multiple(cert)
         .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
     let x509 = &certs[0];
