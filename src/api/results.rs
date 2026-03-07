@@ -508,7 +508,7 @@ impl CopyEncoder {
                         b'\\' => {
                             self.buffer.put_slice(b"\\\\");
                         }
-                        b if byte == delimiter.as_bytes()[0] => {
+                        _b if byte == delimiter.as_bytes()[0] => {
                             self.buffer.put_u8(b'\\');
                             self.buffer.put_u8(byte);
                         }
