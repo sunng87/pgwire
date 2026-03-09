@@ -16,6 +16,10 @@ use super::{ServerParameterProvider, StartupHandler};
 pub mod oauth;
 pub mod scram;
 
+pub const SCRAM_SHA_256_METHOD: &str = "SCRAM-SHA-256";
+pub const SCRAM_SHA_256_PLUS_METHOD: &str = "SCRAM-SHA-256-PLUS";
+pub const OAUTHBEARER_METHOD: &str = "OAUTHBEARER";
+
 #[derive(Debug)]
 pub enum SASLState {
     Initial,
@@ -86,11 +90,11 @@ impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
                     let sasl_initial_response = msg.into_sasl_initial_response()?;
                     let selected_mechanism = sasl_initial_response.auth_method.as_str();
 
-                    *state = if [Self::SCRAM_SHA_256, Self::SCRAM_SHA_256_PLUS]
+                    *state = if [SCRAM_SHA_256_METHOD, SCRAM_SHA_256_PLUS_METHOD]
                         .contains(&selected_mechanism)
                     {
                         SASLState::ScramClientFirstReceived
-                    } else if Self::OAUTHBEARER == selected_mechanism {
+                    } else if OAUTHBEARER_METHOD == selected_mechanism {
                         SASLState::OauthStateInit
                     } else {
                         return Err(PgWireError::UnsupportedSASLAuthMethod(
@@ -159,23 +163,19 @@ impl<P> SASLAuthStartupHandler<P> {
         self
     }
 
-    const SCRAM_SHA_256: &str = "SCRAM-SHA-256";
-    const SCRAM_SHA_256_PLUS: &str = "SCRAM-SHA-256-PLUS";
-    const OAUTHBEARER: &str = "OAUTHBEARER";
-
     fn supported_mechanisms(&self) -> Vec<String> {
         let mut mechanisms = vec![];
 
         if let Some(scram) = &self.scram {
-            mechanisms.push(Self::SCRAM_SHA_256.to_owned());
+            mechanisms.push(SCRAM_SHA_256_METHOD.to_owned());
 
             if scram.supports_channel_binding() {
-                mechanisms.push(Self::SCRAM_SHA_256_PLUS.to_owned());
+                mechanisms.push(SCRAM_SHA_256_PLUS_METHOD.to_owned());
             }
         }
 
         if self.oauth.is_some() {
-            mechanisms.push(Self::OAUTHBEARER.to_owned());
+            mechanisms.push(OAUTHBEARER_METHOD.to_owned());
         }
 
         mechanisms

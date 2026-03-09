@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use futures::{Sink, SinkExt, Stream, StreamExt};
 
 use crate::api::auth::md5pass::hash_md5_password;
+use crate::api::auth::sasl::SCRAM_SHA_256_METHOD;
 use crate::api::auth::sasl::scram::ScramClientAuth;
 use crate::error::{ErrorInfo, PgWireClientError, PgWireClientResult, PgWireResult};
 use crate::messages::response::ReadyForQuery;
@@ -187,15 +188,15 @@ impl StartupHandler for DefaultStartupHandler {
             }
             Authentication::SASL(auth_mechanisms) => {
                 for auth_mechanism in &auth_mechanisms {
-                    if auth_mechanism == SCRAM_SHA_256 {
+                    if auth_mechanism == SCRAM_SHA_256_METHOD {
                         do_scram_sha256_auth(client).await?;
                         return Ok(());
                     }
                 }
                 // No supported auth mechanism
-                return Err(PgWireClientError::UnexpectedMessage(Box::new(
-                    PgWireBackendMessage::Authentication(Authentication::SASL(auth_mechanisms)),
-                )));
+                return Err(PgWireClientError::UnsupportedSASLAuthMethods(
+                    auth_mechanisms,
+                ));
             }
             _ => {
                 return Err(PgWireClientError::UnexpectedMessage(Box::new(
@@ -246,8 +247,6 @@ impl StartupHandler for DefaultStartupHandler {
     }
 }
 
-const SCRAM_SHA_256: &str = "SCRAM-SHA-256";
-
 async fn do_scram_sha256_auth<C>(client: &mut C) -> PgWireClientResult<()>
 where
     C: ClientInfo
@@ -269,7 +268,7 @@ where
     client
         .send(PgWireFrontendMessage::PasswordMessageFamily(
             PasswordMessageFamily::SASLInitialResponse(SASLInitialResponse::new(
-                SCRAM_SHA_256.into(),
+                SCRAM_SHA_256_METHOD.into(),
                 Some(message.into()),
             )),
         ))

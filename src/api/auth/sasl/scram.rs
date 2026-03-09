@@ -12,9 +12,9 @@ use x509_certificate::SignatureAlgorithm;
 use x509_certificate::certificate::CapturedX509Certificate;
 
 use crate::api::ClientInfo;
-use crate::api::auth::{AuthSource, LoginInfo, Password};
 #[cfg(feature = "client-api")]
-use crate::error::{PgWireClientError, PgWireClientResult};
+pub use crate::api::auth::sasl::scram::client::*;
+use crate::api::auth::{AuthSource, LoginInfo, Password};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::{Authentication, PasswordMessageFamily};
 
@@ -263,129 +263,129 @@ impl ScramServerAuthWaitingForClientFinal {
 }
 
 #[cfg(feature = "client-api")]
-pub struct ScramClientAuth {
-    username: String,
-    password: String,
-}
+mod client {
+    use super::*;
+    use crate::error::{PgWireClientError, PgWireClientResult};
 
-#[cfg(feature = "client-api")]
-impl ScramClientAuth {
-    pub fn new(username: String, password: String) -> Self {
-        Self { username, password }
+    pub struct ScramClientAuth {
+        username: String,
+        password: String,
     }
 
-    /// Starts authentication and build the client first message
-    pub fn build_client_first(
-        &self,
-    ) -> PgWireClientResult<(String, ScramClientAuthWaitingForServerFirst)> {
-        let username = stringprep::saslprep(&self.username)
-            .map_err(|e| PgWireClientError::InvalidConfig(format!("Invalid username: {e}")))?
-            .into_owned();
-        let nonce = random_nonce();
-        let client_first_message_bare = ClientFirstBare { username, nonce };
-        let c_bind_flag = CBindFlag::N; // TODO: support channel bindings
-        let channel_binding = Gs2Header {
-            c_bind_flag: c_bind_flag.clone(),
-            authzid: None,
-        };
-        let client_first_message = ClientFirst {
-            gs2header: channel_binding.clone(),
-            bare: client_first_message_bare.clone(),
-        };
-        Ok((
-            client_first_message.to_string(),
-            ScramClientAuthWaitingForServerFirst {
-                client_first_message_bare,
-                channel_binding,
-                password: self.password.clone(),
-            },
-        ))
+    impl ScramClientAuth {
+        pub fn new(username: String, password: String) -> Self {
+            Self { username, password }
+        }
+
+        /// Starts authentication and build the client first message
+        pub fn build_client_first(
+            &self,
+        ) -> PgWireClientResult<(String, ScramClientAuthWaitingForServerFirst)> {
+            let username = stringprep::saslprep(&self.username)
+                .map_err(|e| PgWireClientError::InvalidConfig(format!("Invalid username: {e}")))?
+                .into_owned();
+            let nonce = random_nonce();
+            let client_first_message_bare = ClientFirstBare { username, nonce };
+            let c_bind_flag = CBindFlag::N; // TODO: support channel bindings
+            let channel_binding = Gs2Header {
+                c_bind_flag: c_bind_flag.clone(),
+                authzid: None,
+            };
+            let client_first_message = ClientFirst {
+                gs2header: channel_binding.clone(),
+                bare: client_first_message_bare.clone(),
+            };
+            Ok((
+                client_first_message.to_string(),
+                ScramClientAuthWaitingForServerFirst {
+                    client_first_message_bare,
+                    channel_binding,
+                    password: self.password.clone(),
+                },
+            ))
+        }
     }
-}
 
-/// Follow-up of [`ScramClientAuth`] waiting for the server first message
-#[cfg(feature = "client-api")]
-pub struct ScramClientAuthWaitingForServerFirst {
-    client_first_message_bare: ClientFirstBare,
-    channel_binding: Gs2Header,
-    password: String,
-}
-
-#[cfg(feature = "client-api")]
-impl ScramClientAuthWaitingForServerFirst {
-    /// Reacts on server first message reply and build the client final message
-    pub fn build_client_final(
-        &self,
-        server_first_message: &[u8],
-    ) -> PgWireClientResult<(String, ScramClientAuthWaitingForServerFinal)> {
-        let server_first_message = ServerFirst::from_str(decode_str(server_first_message)?)?;
-
-        let channel_binding = compute_channel_binding(None, &self.channel_binding);
-        let client_final_without_proof = ClientFinalWithoutProof {
-            channel_binding: channel_binding.clone(),
-            nonce: server_first_message.nonce.clone(),
-        };
-
-        let salted_password = gen_salted_password(
-            &self.password,
-            &STANDARD.decode(&server_first_message.salt).map_err(|e| {
-                PgWireClientError::ScramError(format!("Invalid salt base64 encoding: {e}"))
-            })?,
-            server_first_message.iteration_count,
-        );
-        let client_proof = compute_client_proof(
-            &salted_password,
-            &self.client_first_message_bare,
-            &server_first_message,
-            &client_final_without_proof,
-        );
-
-        let client_final_message = ClientFinal {
-            without_proof: client_final_without_proof.clone(),
-            proof: client_proof,
-        };
-        Ok((
-            client_final_message.to_string(),
-            ScramClientAuthWaitingForServerFinal {
-                salted_password,
-                client_first_message_bare: self.client_first_message_bare.clone(),
-                server_first_message,
-                client_final_without_proof,
-            },
-        ))
+    /// Follow-up of [`ScramClientAuth`] waiting for the server first message
+    pub struct ScramClientAuthWaitingForServerFirst {
+        client_first_message_bare: ClientFirstBare,
+        channel_binding: Gs2Header,
+        password: String,
     }
-}
 
-/// Follow-up of [`ScramClientAuth`] waiting for the server final message
-#[cfg(feature = "client-api")]
-pub struct ScramClientAuthWaitingForServerFinal {
-    salted_password: Vec<u8>,
-    client_first_message_bare: ClientFirstBare,
-    server_first_message: ServerFirst,
-    client_final_without_proof: ClientFinalWithoutProof,
-}
+    impl ScramClientAuthWaitingForServerFirst {
+        /// Reacts on server first message reply and build the client final message
+        pub fn build_client_final(
+            &self,
+            server_first_message: &[u8],
+        ) -> PgWireClientResult<(String, ScramClientAuthWaitingForServerFinal)> {
+            let server_first_message = ServerFirst::from_str(decode_str(server_first_message)?)?;
 
-#[cfg(feature = "client-api")]
-impl ScramClientAuthWaitingForServerFinal {
-    /// Verifies that the server final message is a success
-    pub fn verify_server_final(&self, server_final_message: &[u8]) -> PgWireClientResult<()> {
-        match ServerFinal::from_str(decode_str(server_final_message)?)? {
-            ServerFinal::Success { verifier } => {
-                let expected_verifier = compute_server_signature(
-                    &self.salted_password,
-                    &self.client_first_message_bare,
-                    &self.server_first_message,
-                    &self.client_final_without_proof,
-                );
-                if expected_verifier == verifier {
-                    Ok(())
-                } else {
-                    Err(PgWireClientError::ScramError(
-                        "Invalid verifier returned by the server".into(),
-                    ))
+            let channel_binding = compute_channel_binding(None, &self.channel_binding);
+            let client_final_without_proof = ClientFinalWithoutProof {
+                channel_binding: channel_binding.clone(),
+                nonce: server_first_message.nonce.clone(),
+            };
+
+            let salted_password = gen_salted_password(
+                &self.password,
+                &STANDARD.decode(&server_first_message.salt).map_err(|e| {
+                    PgWireClientError::ScramError(format!("Invalid salt base64 encoding: {e}"))
+                })?,
+                server_first_message.iteration_count,
+            );
+            let client_proof = compute_client_proof(
+                &salted_password,
+                &self.client_first_message_bare,
+                &server_first_message,
+                &client_final_without_proof,
+            );
+
+            let client_final_message = ClientFinal {
+                without_proof: client_final_without_proof.clone(),
+                proof: client_proof,
+            };
+            Ok((
+                client_final_message.to_string(),
+                ScramClientAuthWaitingForServerFinal {
+                    salted_password,
+                    client_first_message_bare: self.client_first_message_bare.clone(),
+                    server_first_message,
+                    client_final_without_proof,
+                },
+            ))
+        }
+    }
+
+    /// Follow-up of [`ScramClientAuth`] waiting for the server final message
+    pub struct ScramClientAuthWaitingForServerFinal {
+        salted_password: Vec<u8>,
+        client_first_message_bare: ClientFirstBare,
+        server_first_message: ServerFirst,
+        client_final_without_proof: ClientFinalWithoutProof,
+    }
+
+    impl ScramClientAuthWaitingForServerFinal {
+        /// Verifies that the server final message is a success
+        pub fn verify_server_final(&self, server_final_message: &[u8]) -> PgWireClientResult<()> {
+            match ServerFinal::from_str(decode_str(server_final_message)?)? {
+                ServerFinal::Success { verifier } => {
+                    let expected_verifier = compute_server_signature(
+                        &self.salted_password,
+                        &self.client_first_message_bare,
+                        &self.server_first_message,
+                        &self.client_final_without_proof,
+                    );
+                    if expected_verifier == verifier {
+                        Ok(())
+                    } else {
+                        Err(PgWireClientError::ScramError(
+                            "Invalid verifier returned by the server".into(),
+                        ))
+                    }
                 }
+                ServerFinal::Error { value } => Err(PgWireClientError::ScramError(value)),
             }
-            ServerFinal::Error { value } => Err(PgWireClientError::ScramError(value)),
         }
     }
 }
@@ -828,7 +828,11 @@ fn compute_cert_signature(cert: &[u8]) -> PgWireResult<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "client-api")]
+    use super::client::*;
     use super::*;
+    #[cfg(feature = "client-api")]
+    use crate::error::PgWireClientResult;
 
     #[test]
     fn test_client_first_roundtrip() {
