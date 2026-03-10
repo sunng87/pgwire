@@ -383,6 +383,12 @@ pub enum PgWireClientError {
 
     #[error("Index out of bounds")]
     DataRowIndexOutOfBounds,
+
+    #[error("Error from SCRAM authentication server: {0}")]
+    ScramError(String),
+
+    #[error("None of the server SASL auth methods is not supported by the client: {0:?}")]
+    UnsupportedSASLAuthMethods(Vec<String>),
 }
 
 #[cfg(feature = "client-api")]
