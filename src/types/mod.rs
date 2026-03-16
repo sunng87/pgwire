@@ -3,6 +3,7 @@ mod from_sql_text;
 #[cfg(feature = "pg-type-postgis")]
 pub mod postgis;
 mod to_sql_text;
+pub mod unquote;
 
 pub use from_sql_text::FromSqlText;
 pub use to_sql_text::{QUOTE_CHECK, QUOTE_ESCAPE, ToSqlText};
