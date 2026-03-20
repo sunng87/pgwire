@@ -166,7 +166,7 @@ application development, you can use
 * [risinglight](https://github.com/risinglightdb/risinglight): OLAP database
   system for educational purpose
 * [PeerDB](https://github.com/PeerDB-io/peerdb) Postgres first ETL/ELT, enabling
-  10x faster data movement in and out of Postgres
+  10x faster data movement in and out of Postgres, acquired by Clickhouse
 * [CeresDB](https://github.com/CeresDB/ceresdb) CeresDB is a high-performance,
   distributed, cloud native time-series database from AntGroup.
 * [dozer](https://github.com/getdozer/dozer) a real-time data platform for
@@ -175,6 +175,10 @@ application development, you can use
   compatibility layer for custom databases.
 * [SpacetimeDB](https://github.com/clockworklabs/SpacetimeDB) The database for
   multiplayer games. It's using pgwire for postgres protocol interface.
+* [corrosion](https://github.com/superfly/corrosion) from fly.io: Gossip-based
+  service discovery (and more) for large distributed systems.
+* [db9.ai](https://db9.ai/): Postgres but for agents.
+
 
 Submit a pull request if your project isn't listed here.
 
