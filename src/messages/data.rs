@@ -109,7 +109,7 @@ impl Message for ParameterDescription {
 
     #[inline]
     fn max_message_length() -> usize {
-        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
+        super::LONG_BACKEND_PACKET_SIZE_LIMIT
     }
 
     fn message_length(&self) -> usize {
