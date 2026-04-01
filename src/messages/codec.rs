@@ -2,9 +2,10 @@ use std::str;
 
 use bytes::{Buf, BufMut, BytesMut};
 
-use crate::error::PgWireResult;
+use crate::error::{PgWireError, PgWireResult};
 
-/// Get null-terminated string, returns None when empty cstring read.
+/// Get null-terminated string, returns None when empty or
+/// non null-terminated cstring read.
 ///
 /// Note that this implementation will also advance cursor by 1 after reading
 /// empty cstring. This behaviour works for how postgres wire protocol handling
@@ -15,6 +16,10 @@ pub(crate) fn get_cstring(buf: &mut BytesMut) -> Option<String> {
     // with bound check to prevent invalid format
     while i < buf.remaining() && buf[i] != b'\0' {
         i += 1;
+    }
+
+    if i == buf.remaining() {
+        return None;
     }
 
     // i+1: include the '\0'
@@ -58,12 +63,17 @@ pub(crate) fn get_length(buf: &BytesMut, offset: usize) -> Option<usize> {
 pub(crate) fn decode_packet<T, F>(
     buf: &mut BytesMut,
     offset: usize,
+    max_size: usize,
     decode_fn: F,
 ) -> PgWireResult<Option<T>>
 where
     F: Fn(&mut BytesMut, usize) -> PgWireResult<T>,
 {
     if let Some(msg_len) = get_length(buf, offset) {
+        if msg_len > max_size {
+            return Err(PgWireError::MessageTooLarge(max_size, msg_len));
+        }
+
         if buf.remaining() >= msg_len + offset {
             buf.advance(offset + 4);
             return decode_fn(buf, msg_len).map(|r| Some(r));
@@ -85,4 +95,34 @@ where
 
 pub(crate) fn option_string_len(s: &Option<String>) -> usize {
     1 + s.as_ref().map(|s| s.len()).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod test {
+    use super::get_cstring;
+    use bytes::{BufMut, BytesMut};
+
+    #[test]
+    fn get_cstring_valid() {
+        let mut buf = BytesMut::new();
+        buf.put(&b"a cstring\0"[..]);
+        buf.put(&b"\0"[..]);
+
+        assert_eq!(Some("a cstring".into()), get_cstring(&mut buf));
+        assert_eq!(None, get_cstring(&mut buf));
+    }
+
+    #[test]
+    fn get_cstring_empty() {
+        let mut buf = BytesMut::new();
+
+        assert_eq!(None, get_cstring(&mut buf));
+    }
+
+    #[test]
+    fn get_cstring_without_null() {
+        let mut buf = BytesMut::new();
+        buf.put(&b"a cstring"[..]);
+        assert_eq!(None, get_cstring(&mut buf));
+    }
 }

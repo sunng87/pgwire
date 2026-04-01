@@ -76,5 +76,5 @@ pub mod messages;
 #[cfg(any(feature = "server-api", feature = "client-api"))]
 pub mod tokio;
 /// types and encoding related helper
-#[cfg(feature = "server-api")]
+#[cfg(any(feature = "server-api", feature = "client-api"))]
 pub mod types;

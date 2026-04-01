@@ -23,6 +23,7 @@ popd
 ### jdbc
 pushd jdbc
 bb test.bb
+jbang test.java
 popd
 
 ### node
@@ -34,4 +35,10 @@ popd
 ### golang
 pushd go
 go run client.go
+popd
+
+### c, libpq
+pushd libpq-client/
+make
+./client
 popd

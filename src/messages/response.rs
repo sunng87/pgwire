@@ -1,7 +1,6 @@
 use bytes::{Buf, BufMut, BytesMut};
 
-use super::codec;
-use super::Message;
+use super::{DecodeContext, Message, codec};
 use crate::error::{PgWireError, PgWireResult};
 
 #[non_exhaustive]
@@ -18,6 +17,11 @@ impl Message for CommandComplete {
         Some(MESSAGE_TYPE_BYTE_COMMAND_COMPLETE)
     }
 
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
+    }
+
     fn message_length(&self) -> usize {
         5 + self.tag.len()
     }
@@ -28,7 +32,7 @@ impl Message for CommandComplete {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let tag = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
         Ok(CommandComplete::new(tag))
@@ -46,6 +50,11 @@ impl Message for EmptyQueryResponse {
         Some(MESSAGE_TYPE_BYTE_EMPTY_QUERY_RESPONSE)
     }
 
+    #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
+    }
+
     fn message_length(&self) -> usize {
         4
     }
@@ -54,7 +63,11 @@ impl Message for EmptyQueryResponse {
         Ok(())
     }
 
-    fn decode_body(_buf: &mut BytesMut, _full_len: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        _buf: &mut BytesMut,
+        _full_len: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         Ok(EmptyQueryResponse)
     }
 }
@@ -86,6 +99,11 @@ impl Message for ReadyForQuery {
     }
 
     #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
+    }
+
+    #[inline]
     fn message_length(&self) -> usize {
         5
     }
@@ -96,7 +114,7 @@ impl Message for ReadyForQuery {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let status = TransactionStatus::try_from(buf.get_u8())?;
         Ok(ReadyForQuery::new(status))
     }
@@ -129,6 +147,11 @@ impl Message for ErrorResponse {
         Some(MESSAGE_TYPE_BYTE_ERROR_RESPONSE)
     }
 
+    #[inline]
+    fn max_message_length() -> usize {
+        super::LONG_BACKEND_PACKET_SIZE_LIMIT
+    }
+
     fn message_length(&self) -> usize {
         4 + self.fields.iter().map(|f| 1 + f.1.len() + 1).sum::<usize>() + 1
     }
@@ -144,7 +167,7 @@ impl Message for ErrorResponse {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let mut fields = Vec::new();
         loop {
             let code = buf.get_u8();
@@ -174,6 +197,11 @@ impl Message for NoticeResponse {
         Some(MESSAGE_TYPE_BYTE_NOTICE_RESPONSE)
     }
 
+    #[inline]
+    fn max_message_length() -> usize {
+        super::LONG_BACKEND_PACKET_SIZE_LIMIT
+    }
+
     fn message_length(&self) -> usize {
         4 + self.fields.iter().map(|f| 1 + f.1.len() + 1).sum::<usize>() + 1
     }
@@ -189,7 +217,7 @@ impl Message for NoticeResponse {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let mut fields = Vec::new();
         loop {
             let code = buf.get_u8();
@@ -241,11 +269,11 @@ impl Message for SslResponse {
         self.encode_body(buf)
     }
 
-    fn decode_body(_: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(_: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         unreachable!()
     }
 
-    fn decode(buf: &mut BytesMut) -> PgWireResult<Option<Self>> {
+    fn decode(buf: &mut BytesMut, _ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
         if buf.remaining() >= Self::MESSAGE_LENGTH {
             match buf[0] {
                 Self::BYTE_ACCEPT => {
@@ -255,6 +283,61 @@ impl Message for SslResponse {
                 Self::BYTE_REFUSE => {
                     buf.advance(Self::MESSAGE_LENGTH);
                     Ok(Some(SslResponse::Refuse))
+                }
+                _ => Ok(None),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+/// Response to GssEncRequest.
+#[non_exhaustive]
+#[derive(Debug, PartialEq)]
+pub enum GssEncResponse {
+    Accept,
+    Refuse,
+}
+
+impl GssEncResponse {
+    pub const BYTE_ACCEPT: u8 = b'G';
+    pub const BYTE_REFUSE: u8 = b'N';
+    // The whole message takes only one byte and has no size field.
+    pub const MESSAGE_LENGTH: usize = 1;
+}
+
+impl Message for GssEncResponse {
+    fn message_length(&self) -> usize {
+        Self::MESSAGE_LENGTH
+    }
+
+    fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        match self {
+            Self::Accept => buf.put_u8(Self::BYTE_ACCEPT),
+            Self::Refuse => buf.put_u8(Self::BYTE_REFUSE),
+        }
+        Ok(())
+    }
+
+    fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
+        self.encode_body(buf)
+    }
+
+    fn decode_body(_: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
+        unreachable!()
+    }
+
+    fn decode(buf: &mut BytesMut, _ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
+        if buf.remaining() >= Self::MESSAGE_LENGTH {
+            match buf[0] {
+                Self::BYTE_ACCEPT => {
+                    buf.advance(Self::MESSAGE_LENGTH);
+                    Ok(Some(Self::Accept))
+                }
+                Self::BYTE_REFUSE => {
+                    buf.advance(Self::MESSAGE_LENGTH);
+                    Ok(Some(Self::Refuse))
                 }
                 _ => Ok(None),
             }
@@ -281,6 +364,11 @@ impl Message for NotificationResponse {
         Some(MESSAGE_TYPE_BYTE_NOTIFICATION_RESPONSE)
     }
 
+    #[inline]
+    fn max_message_length() -> usize {
+        super::LONG_BACKEND_PACKET_SIZE_LIMIT
+    }
+
     fn message_length(&self) -> usize {
         8 + self.channel.len() + 1 + self.payload.len() + 1
     }
@@ -293,7 +381,7 @@ impl Message for NotificationResponse {
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let pid = buf.get_i32();
         let channel = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
         let payload = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());

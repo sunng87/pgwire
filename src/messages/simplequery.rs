@@ -1,7 +1,6 @@
 use bytes::BytesMut;
 
-use super::codec;
-use super::Message;
+use super::{DecodeContext, Message, codec};
 use crate::error::PgWireResult;
 
 /// A sql query sent from frontend to backend.
@@ -23,13 +22,18 @@ impl Message for Query {
         5 + self.query.len()
     }
 
+    #[inline]
+    fn max_message_length() -> usize {
+        super::LARGE_PACKET_SIZE_LIMIT
+    }
+
     fn encode_body(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         codec::put_cstring(buf, &self.query);
 
         Ok(())
     }
 
-    fn decode_body(buf: &mut BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let query = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
 
         Ok(Query::new(query))

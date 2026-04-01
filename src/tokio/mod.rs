@@ -2,10 +2,13 @@
 pub mod client;
 
 #[cfg(feature = "server-api")]
-mod server;
+pub mod server;
 
 #[cfg(feature = "server-api")]
 pub use server::process_socket;
+
+#[cfg(all(feature = "server-api", unix))]
+pub use server::process_socket_unix;
 
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 pub use tokio_rustls;

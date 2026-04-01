@@ -1,13 +1,16 @@
 use std::collections::BTreeMap;
 
 use async_trait::async_trait;
-use futures::{Sink, SinkExt};
+use futures::{Sink, SinkExt, Stream, StreamExt};
 
 use crate::api::auth::md5pass::hash_md5_password;
-use crate::error::{ErrorInfo, PgWireClientError, PgWireClientResult};
+use crate::api::auth::sasl::SCRAM_SHA_256_METHOD;
+use crate::api::auth::sasl::scram::ScramClientAuth;
+use crate::error::{ErrorInfo, PgWireClientError, PgWireClientResult, PgWireResult};
 use crate::messages::response::ReadyForQuery;
 use crate::messages::startup::{
-    Authentication, BackendKeyData, ParameterStatus, Password, PasswordMessageFamily, Startup,
+    Authentication, BackendKeyData, ParameterStatus, Password, PasswordMessageFamily,
+    SASLInitialResponse, SASLResponse, Startup,
 };
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
@@ -26,7 +29,11 @@ pub trait StartupHandler: Send {
         message: PgWireBackendMessage,
     ) -> PgWireClientResult<ReadyState<ServerInformation>>
     where
-        C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
+        C: ClientInfo
+            + Stream<Item = PgWireResult<PgWireBackendMessage>>
+            + Sink<PgWireFrontendMessage>
+            + Unpin
+            + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
         match message {
@@ -60,7 +67,11 @@ pub trait StartupHandler: Send {
         message: Authentication,
     ) -> PgWireClientResult<()>
     where
-        C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
+        C: ClientInfo
+            + Stream<Item = PgWireResult<PgWireBackendMessage>>
+            + Sink<PgWireFrontendMessage>
+            + Unpin
+            + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
     async fn on_parameter_status<C>(
@@ -106,6 +117,7 @@ impl StartupHandler for DefaultStartupHandler {
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
+        // TODO: customize protocol version
         let mut startup = Startup::new();
 
         let config = client.config();
@@ -134,7 +146,11 @@ impl StartupHandler for DefaultStartupHandler {
         message: Authentication,
     ) -> PgWireClientResult<()>
     where
-        C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
+        C: ClientInfo
+            + Stream<Item = PgWireResult<PgWireBackendMessage>>
+            + Sink<PgWireFrontendMessage>
+            + Unpin
+            + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
         match message {
@@ -170,8 +186,23 @@ impl StartupHandler for DefaultStartupHandler {
                     ))
                     .await?;
             }
-            // TODO: scram
-            _ => {}
+            Authentication::SASL(auth_mechanisms) => {
+                for auth_mechanism in &auth_mechanisms {
+                    if auth_mechanism == SCRAM_SHA_256_METHOD {
+                        do_scram_sha256_auth(client).await?;
+                        return Ok(());
+                    }
+                }
+                // No supported auth mechanism
+                return Err(PgWireClientError::UnsupportedSASLAuthMethods(
+                    auth_mechanisms,
+                ));
+            }
+            _ => {
+                return Err(PgWireClientError::UnexpectedMessage(Box::new(
+                    PgWireBackendMessage::Authentication(message),
+                )));
+            }
         }
 
         Ok(())
@@ -214,4 +245,67 @@ impl StartupHandler for DefaultStartupHandler {
             process_id: self.process_id.unwrap_or(-1),
         })
     }
+}
+
+async fn do_scram_sha256_auth<C>(client: &mut C) -> PgWireClientResult<()>
+where
+    C: ClientInfo
+        + Stream<Item = PgWireResult<PgWireBackendMessage>>
+        + Sink<PgWireFrontendMessage>
+        + Unpin
+        + Send,
+    PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
+{
+    let username = client.config().user.clone().unwrap_or_default();
+    let password = String::from_utf8(client.config().password.clone().unwrap_or_default())
+        .map_err(|_| {
+            PgWireClientError::ScramError("Only UTF-8 passwords are supported by SCRAM".into())
+        })?;
+    let auth_client = ScramClientAuth::new(username, password);
+
+    // Client first message
+    let (message, auth_client) = auth_client.build_client_first()?;
+    client
+        .send(PgWireFrontendMessage::PasswordMessageFamily(
+            PasswordMessageFamily::SASLInitialResponse(SASLInitialResponse::new(
+                SCRAM_SHA_256_METHOD.into(),
+                Some(message.into()),
+            )),
+        ))
+        .await?;
+
+    // Server first message
+    let Some(message) = client.next().await else {
+        return Err(PgWireClientError::UnexpectedEOF);
+    };
+    let message = match message? {
+        PgWireBackendMessage::Authentication(Authentication::SASLContinue(message)) => message,
+        PgWireBackendMessage::ErrorResponse(error) => {
+            let error_info = ErrorInfo::from(error);
+            return Err(error_info.into());
+        }
+        message => return Err(PgWireClientError::UnexpectedMessage(Box::new(message))),
+    };
+
+    // Client final message
+    let (message, auth_client) = auth_client.build_client_final(&message)?;
+    client
+        .send(PgWireFrontendMessage::PasswordMessageFamily(
+            PasswordMessageFamily::SASLResponse(SASLResponse::new(message.into())),
+        ))
+        .await?;
+
+    // Server final message
+    let Some(message) = client.next().await else {
+        return Err(PgWireClientError::UnexpectedEOF);
+    };
+    let message = match message? {
+        PgWireBackendMessage::Authentication(Authentication::SASLFinal(message)) => message,
+        PgWireBackendMessage::ErrorResponse(error) => {
+            let error_info = ErrorInfo::from(error);
+            return Err(error_info.into());
+        }
+        message => return Err(PgWireClientError::UnexpectedMessage(Box::new(message))),
+    };
+    auth_client.verify_server_final(&message)
 }

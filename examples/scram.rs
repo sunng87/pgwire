@@ -7,34 +7,17 @@ use async_trait::async_trait;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::net::TcpListener;
-use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
+use tokio_rustls::rustls::ServerConfig;
 
-use pgwire::api::auth::scram::{gen_salted_password, SASLScramAuthStartupHandler};
-use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
-use pgwire::api::copy::NoopCopyHandler;
-use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
-use pgwire::api::results::{Response, Tag};
-
-use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireServerHandlers};
+use pgwire::api::PgWireServerHandlers;
+use pgwire::api::auth::sasl::SASLAuthStartupHandler;
+use pgwire::api::auth::sasl::scram::{ScramAuth, gen_salted_password};
+use pgwire::api::auth::{
+    AuthSource, DefaultServerParameterProvider, LoginInfo, Password, StartupHandler,
+};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
-
-pub struct DummyProcessor;
-
-#[async_trait]
-impl SimpleQueryHandler for DummyProcessor {
-    async fn do_query<'a, C>(
-        &self,
-        _client: &mut C,
-        _query: &'a str,
-    ) -> PgWireResult<Vec<Response<'a>>>
-    where
-        C: ClientInfo + Unpin + Send + Sync,
-    {
-        Ok(vec![Response::Execution(Tag::new("OK").with_rows(1))])
-    }
-}
 
 pub fn random_salt() -> Vec<u8> {
     Vec::from(rand::random::<[u8; 10]>())
@@ -42,6 +25,7 @@ pub fn random_salt() -> Vec<u8> {
 
 const ITERATIONS: usize = 4096;
 
+#[derive(Debug)]
 struct DummyAuthDB;
 
 #[async_trait]
@@ -74,54 +58,27 @@ fn setup_tls() -> Result<TlsAcceptor, IOError> {
 }
 
 struct DummyProcessorFactory {
-    handler: Arc<DummyProcessor>,
     cert: Vec<u8>,
 }
 
 impl PgWireServerHandlers for DummyProcessorFactory {
-    type StartupHandler = SASLScramAuthStartupHandler<DummyAuthDB, DefaultServerParameterProvider>;
-    type SimpleQueryHandler = DummyProcessor;
-    type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
-    type CopyHandler = NoopCopyHandler;
-    type ErrorHandler = NoopErrorHandler;
+    fn startup_handler(&self) -> Arc<impl StartupHandler> {
+        let mut scram = ScramAuth::new(Arc::new(DummyAuthDB));
+        scram.set_iterations(ITERATIONS);
+        scram.configure_certificate(self.cert.as_ref()).unwrap();
 
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
-        self.handler.clone()
-    }
-
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
-        Arc::new(PlaceholderExtendedQueryHandler)
-    }
-
-    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
-        let mut authenticator = SASLScramAuthStartupHandler::new(
-            Arc::new(DummyAuthDB),
-            Arc::new(DefaultServerParameterProvider::default()),
-        );
-        authenticator.set_iterations(ITERATIONS);
-        authenticator
-            .configure_certificate(self.cert.as_ref())
-            .unwrap();
+        let authenticator =
+            SASLAuthStartupHandler::new(Arc::new(DefaultServerParameterProvider::default()))
+                .with_scram(scram);
 
         Arc::new(authenticator)
-    }
-
-    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
-        Arc::new(NoopCopyHandler)
-    }
-
-    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
-        Arc::new(NoopErrorHandler)
     }
 }
 
 #[tokio::main]
 pub async fn main() {
     let cert = fs::read("examples/ssl/server.crt").unwrap();
-    let factory = Arc::new(DummyProcessorFactory {
-        handler: Arc::new(DummyProcessor),
-        cert,
-    });
+    let factory = Arc::new(DummyProcessorFactory { cert });
 
     let server_addr = "127.0.0.1:5432";
     let tls_acceptor = setup_tls().unwrap();

@@ -1,17 +1,35 @@
 use std::error::Error;
 use std::fmt;
+#[cfg(feature = "pg-type-chrono")]
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+#[cfg(feature = "pg-type-chrono")]
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime, NaiveTime, Offset, Utc};
-use postgres_types::{Type, WrongType};
+use pg_interval::Interval;
+#[cfg(feature = "pg-type-serde-json")]
+use postgres_types::Json;
+use postgres_types::Type;
+#[cfg(feature = "pg-type-rust-decimal")]
 use rust_decimal::Decimal;
+#[cfg(feature = "pg-type-serde-json")]
+use serde::Deserialize;
+#[cfg(feature = "pg-type-serde-json")]
+use serde_json::Value;
 
-pub trait FromSqlText: fmt::Debug {
+use crate::types::format::{
+    FormatOptions, interval_style::IntervalStyle, string::parse_string_postgres,
+};
+
+pub trait FromSqlText<'a>: fmt::Debug {
     /// Converts value from postgres text format to rust.
     ///
     /// This trait is modelled after `FromSql` from postgres-types, which is
     /// for binary encoding.
-    fn from_sql_text(ty: &Type, input: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
+    fn from_sql_text(
+        ty: &Type,
+        input: &'a [u8],
+        format_options: &FormatOptions,
+    ) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized;
 }
@@ -20,34 +38,97 @@ fn to_str(f: &[u8]) -> Result<&str, Box<dyn Error + Sync + Send>> {
     std::str::from_utf8(f).map_err(Into::into)
 }
 
-impl FromSqlText for bool {
-    fn from_sql_text(_ty: &Type, input: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
+impl<'a> FromSqlText<'a> for bool {
+    fn from_sql_text(
+        _ty: &Type,
+        input: &[u8],
+        _format_options: &FormatOptions,
+    ) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
     {
-        match input {
-            b"t" => Ok(true),
-            b"f" => Ok(false),
-            _ => Err("Invalid text value for bool".into()),
+        let len = input.len();
+
+        if len == 0 {
+            return Ok(false);
         }
+
+        match input[0].to_ascii_lowercase() {
+            // --- Cases 't' and 'f' ---
+            b't' => {
+                if input.eq_ignore_ascii_case(b"true") || input.eq_ignore_ascii_case(b"t") {
+                    return Ok(true);
+                }
+            }
+            b'f' => {
+                if input.eq_ignore_ascii_case(b"false") || input.eq_ignore_ascii_case(b"f") {
+                    return Ok(false);
+                }
+            }
+
+            // --- Cases 'y' and 'n' ---
+            b'y' => {
+                if input.eq_ignore_ascii_case(b"yes") || input.eq_ignore_ascii_case(b"y") {
+                    return Ok(true);
+                }
+            }
+            b'n' => {
+                if input.eq_ignore_ascii_case(b"no") || input.eq_ignore_ascii_case(b"n") {
+                    return Ok(false);
+                }
+            }
+
+            // --- Case 'o' ---
+            b'o' => {
+                // Check 'on' (length must be exactly 2)
+                if len == 2 && input.eq_ignore_ascii_case(b"on") {
+                    return Ok(true);
+                }
+                // Check 'off' (length must be exactly 3)
+                if len == 3 && input.eq_ignore_ascii_case(b"off") {
+                    return Ok(false);
+                }
+            }
+
+            // --- Cases '1' and '0' ---
+            b'1' => {
+                if len == 1 {
+                    return Ok(true);
+                }
+            }
+            b'0' => {
+                if len == 1 {
+                    return Ok(false);
+                }
+            }
+
+            _ => {}
+        }
+
+        Err("Invalid text value for bool".into())
     }
 }
 
-impl FromSqlText for String {
-    fn from_sql_text(_ty: &Type, input: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
+impl<'a> FromSqlText<'a> for String {
+    fn from_sql_text(
+        _ty: &Type,
+        input: &[u8],
+        _format_options: &FormatOptions,
+    ) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
     {
-        to_str(input).map(|s| s.to_owned())
+        to_str(input).map(parse_string_postgres)
     }
 }
 
 macro_rules! impl_from_sql_text {
     ($t:ty) => {
-        impl FromSqlText for $t {
+        impl<'a> FromSqlText<'a> for $t {
             fn from_sql_text(
                 _ty: &Type,
                 input: &[u8],
+                _format_options: &FormatOptions,
             ) -> Result<Self, Box<dyn Error + Sync + Send>> {
                 to_str(input).and_then(|s| s.parse::<$t>().map_err(Into::into))
             }
@@ -64,8 +145,13 @@ impl_from_sql_text!(f32);
 impl_from_sql_text!(f64);
 impl_from_sql_text!(char);
 
-impl FromSqlText for Decimal {
-    fn from_sql_text(_ty: &Type, input: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
+#[cfg(feature = "pg-type-rust-decimal")]
+impl<'a> FromSqlText<'a> for Decimal {
+    fn from_sql_text(
+        _ty: &Type,
+        input: &[u8],
+        _format_options: &FormatOptions,
+    ) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
     {
@@ -73,8 +159,12 @@ impl FromSqlText for Decimal {
     }
 }
 
-impl FromSqlText for Vec<u8> {
-    fn from_sql_text(_ty: &Type, input: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
+impl<'a> FromSqlText<'a> for Vec<u8> {
+    fn from_sql_text(
+        _ty: &Type,
+        input: &[u8],
+        _format_options: &FormatOptions,
+    ) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
     {
@@ -86,12 +176,17 @@ impl FromSqlText for Vec<u8> {
     }
 }
 
-impl FromSqlText for SystemTime {
-    fn from_sql_text(_ty: &Type, value: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
+#[cfg(feature = "pg-type-chrono")]
+impl<'a> FromSqlText<'a> for SystemTime {
+    fn from_sql_text(
+        ty: &Type,
+        value: &[u8],
+        format_options: &FormatOptions,
+    ) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
     {
-        let datetime = NaiveDateTime::parse_from_str(to_str(value)?, "%Y-%m-%d %H:%M:%S.6f")?;
+        let datetime = NaiveDateTime::from_sql_text(ty, value, format_options)?;
         let system_time =
             UNIX_EPOCH + Duration::from_millis(datetime.and_utc().timestamp_millis() as u64);
 
@@ -99,179 +194,1047 @@ impl FromSqlText for SystemTime {
     }
 }
 
-impl FromSqlText for DateTime<FixedOffset> {
-    fn from_sql_text(ty: &Type, value: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
+#[cfg(feature = "pg-type-chrono")]
+impl<'a> FromSqlText<'a> for DateTime<FixedOffset> {
+    fn from_sql_text(
+        _ty: &Type,
+        value: &[u8],
+        _format_options: &FormatOptions,
+    ) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
     {
-        match *ty {
-            Type::TIMESTAMP | Type::TIMESTAMP_ARRAY => {
-                let fmt = "%Y-%m-%d %H:%M:%S%.6f";
-                let datetime = NaiveDateTime::parse_from_str(to_str(value)?, fmt)?;
+        let value_str = to_str(value)?;
 
-                Ok(DateTime::from_naive_utc_and_offset(datetime, Utc.fix()))
+        // Handle ISO 8601 Z suffix (UTC) by replacing Z with +00:00
+        let normalized_str = if value_str.ends_with('Z') {
+            value_str.replace('Z', "+00:00")
+        } else {
+            value_str.to_string()
+        };
+
+        // For TIMESTAMPTZ, parse with timezone and preserve it
+        let timezone_formats = [
+            // ISO 8601 formats with T separator
+            "%Y-%m-%dT%H:%M:%S%.f%:::z", // "2024-11-24T11:00:00.123456+08:00:00"
+            "%Y-%m-%dT%H:%M:%S%.f%:z",   // "2024-11-24T11:00:00.123456+08:00"
+            "%Y-%m-%dT%H:%M:%S%.f%#z",   // "2024-11-24T11:00:00.123456+08"
+            "%Y-%m-%dT%H:%M:%S%.f%z",    // "2024-11-24T11:00:00.123456+0800"
+            "%Y-%m-%dT%H:%M:%S%:z",      // "2024-11-24T11:00:00+08:00"
+            "%Y-%m-%dT%H:%M:%S%#z",      // "2024-11-24T11:00:00+08"
+            "%Y-%m-%dT%H:%M:%S%z",       // "2024-11-24T11:00:00+0800"
+            // PostgreSQL standard format with space separator
+            "%Y-%m-%d %H:%M:%S%.f%:::z", // "2024-11-24 11:00:00.123456+08:00:00"
+            "%Y-%m-%d %H:%M:%S%.f%:z",   // "2024-11-24 11:00:00.123456+08:00"
+            "%Y-%m-%d %H:%M:%S%.f%#z",   // "2024-11-24 11:00:00.123456+08"
+            "%Y-%m-%d %H:%M:%S%.f%z",    // "2024-11-24 11:00:00.123456+0800"
+            "%Y-%m-%d %H:%M:%S%:z",      // "2024-11-24 11:00:00+08:00"
+            "%Y-%m-%d %H:%M:%S%#z",      // "2024-11-24 11:00:00+08"
+            "%Y-%m-%d %H:%M:%S%z",       // "2024-11-24 11:00:00+0800"
+        ];
+
+        for format in &timezone_formats {
+            if let Ok(datetime) = DateTime::parse_from_str(&normalized_str, format) {
+                return Ok(datetime);
             }
-            Type::TIMESTAMPTZ | Type::TIMESTAMPTZ_ARRAY => {
-                let fmt = "%Y-%m-%d %H:%M:%S%.6f%:::z";
-                let datetime = DateTime::parse_from_str(to_str(value)?, fmt)?;
-                Ok(datetime)
-            }
-            Type::DATE | Type::DATE_ARRAY => {
-                let fmt = "%Y-%m-%d";
-                let datetime = NaiveDateTime::parse_from_str(to_str(value)?, fmt)?;
-                Ok(DateTime::from_naive_utc_and_offset(datetime, Utc.fix()))
-            }
-            _ => Err(Box::new(WrongType::new::<DateTime<Utc>>(ty.clone()))),
         }
+
+        // Fallback: try without timezone and assume UTC
+        let naive_formats = [
+            // ISO 8601 formats with T separator
+            "%Y-%m-%dT%H:%M:%S%.f", // "2024-11-24T11:00:00.123456"
+            "%Y-%m-%dT%H:%M:%S",    // "2024-11-24T11:00:00"
+            // PostgreSQL standard format with space separator
+            "%Y-%m-%d %H:%M:%S%.f", // "2024-11-24 11:00:00.123456"
+            "%Y-%m-%d %H:%M:%S",    // "2024-11-24 11:00:00"
+        ];
+
+        for format in &naive_formats {
+            if let Ok(datetime) = NaiveDateTime::parse_from_str(&normalized_str, format) {
+                return Ok(DateTime::from_naive_utc_and_offset(datetime, Utc.fix()));
+            }
+        }
+
+        // Handle DATE types
+        if let Ok(date) = NaiveDate::parse_from_str(value_str, "%Y-%m-%d") {
+            let datetime = date.and_hms_opt(0, 0, 0).unwrap();
+            return Ok(DateTime::from_naive_utc_and_offset(datetime, Utc.fix()));
+        }
+
+        Err(format!("Unable to parse datetime: {}", value_str).into())
     }
 }
 
-impl FromSqlText for NaiveDate {
-    fn from_sql_text(_ty: &Type, value: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
+#[cfg(feature = "pg-type-chrono")]
+impl<'a> FromSqlText<'a> for NaiveDate {
+    fn from_sql_text(
+        _ty: &Type,
+        value: &[u8],
+        _format_options: &FormatOptions,
+    ) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
     {
-        let date = NaiveDate::parse_from_str(to_str(value)?, "%Y-%m-%d")?;
-        Ok(date)
+        let value_str = to_str(value)?;
+
+        // Handle ISO 8601 Z suffix (UTC) by replacing Z with +00:00
+        let normalized_str = if value_str.ends_with('Z') {
+            value_str.replace('Z', "+00:00")
+        } else {
+            value_str.to_string()
+        };
+
+        // Try parsing date without timezone first (same format for both ISO 8601 and PostgreSQL)
+        if let Ok(date) = NaiveDate::parse_from_str(&normalized_str, "%Y-%m-%d") {
+            return Ok(date);
+        }
+
+        // Handle pgjdbc format with timezone: "2024-06-20 +08"
+        // Split on whitespace to separate date from timezone
+        if let Some((date_part, _tz_part)) = normalized_str.split_once(' ')
+            && let Ok(date) = NaiveDate::parse_from_str(date_part, "%Y-%m-%d")
+        {
+            return Ok(date);
+        }
+
+        // Handle formats with time components that might include timezone
+        let datetime_formats = [
+            // ISO 8601 formats with T separator
+            "%Y-%m-%dT%H:%M:%S%.f%:z", // "2024-06-20T11:00:00.123456+08:00"
+            "%Y-%m-%dT%H:%M:%S%.f%#z", // "2024-06-20T11:00:00.123456+08"
+            "%Y-%m-%dT%H:%M:%S%.f%z",  // "2024-06-20T11:00:00.123456+0800"
+            "%Y-%m-%dT%H:%M:%S%:z",    // "2024-06-20T11:00:00+08:00"
+            "%Y-%m-%dT%H:%M:%S%#z",    // "2024-06-20T11:00:00+08"
+            "%Y-%m-%dT%H:%M:%S%z",     // "2024-06-20T11:00:00+0800"
+            "%Y-%m-%dT%H:%M:%S%.f",    // "2024-06-20T11:00:00.123456"
+            "%Y-%m-%dT%H:%M:%S",       // "2024-06-20T11:00:00"
+            // PostgreSQL standard format with space separator
+            "%Y-%m-%d %H:%M:%S%.f%:z", // "2024-06-20 11:00:00.123456+08:00"
+            "%Y-%m-%d %H:%M:%S%.f%#z", // "2024-06-20 11:00:00.123456+08"
+            "%Y-%m-%d %H:%M:%S%.f%z",  // "2024-06-20 11:00:00.123456+0800"
+            "%Y-%m-%d %H:%M:%S%:z",    // "2024-06-20 11:00:00+08:00"
+            "%Y-%m-%d %H:%M:%S%#z",    // "2024-06-20 11:00:00+08"
+            "%Y-%m-%d %H:%M:%S%z",     // "2024-06-20 11:00:00+0800"
+            "%Y-%m-%d %H:%M:%S%.f",    // "2024-06-20 11:00:00.123456"
+            "%Y-%m-%d %H:%M:%S",       // "2024-06-20 11:00:00"
+        ];
+
+        for format in &datetime_formats {
+            if let Ok(datetime) = NaiveDateTime::parse_from_str(&normalized_str, format) {
+                return Ok(datetime.date());
+            }
+        }
+
+        Err(format!("Unable to parse date: {}", value_str).into())
     }
 }
 
-impl FromSqlText for NaiveTime {
-    fn from_sql_text(_ty: &Type, value: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
+#[cfg(feature = "pg-type-chrono")]
+impl<'a> FromSqlText<'a> for NaiveTime {
+    fn from_sql_text(
+        _ty: &Type,
+        value: &[u8],
+        _format_options: &FormatOptions,
+    ) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
     {
-        let time = NaiveTime::parse_from_str(to_str(value)?, "%H:%M:%S")?;
+        let time = NaiveTime::parse_from_str(to_str(value)?, "%H:%M:%S%.6f")?;
         Ok(time)
     }
 }
 
-impl FromSqlText for NaiveDateTime {
-    fn from_sql_text(_ty: &Type, value: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
+#[cfg(feature = "pg-type-chrono")]
+impl<'a> FromSqlText<'a> for NaiveDateTime {
+    fn from_sql_text(
+        _ty: &Type,
+        value: &[u8],
+        _format_options: &FormatOptions,
+    ) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
     {
-        let datetime = NaiveDateTime::parse_from_str(to_str(value)?, "%Y-%m-%d %H:%M:%S")?;
-        Ok(datetime)
+        let value_str = to_str(value)?;
+
+        // Handle ISO 8601 Z suffix (UTC) by replacing Z with +00:00
+        let normalized_str = if value_str.ends_with('Z') {
+            value_str.replace('Z', "+00:00")
+        } else {
+            value_str.to_string()
+        };
+
+        // For TIMESTAMP, ignore timezone and parse as naive datetime
+        let naive_formats = [
+            // ISO 8601 formats with T separator
+            "%Y-%m-%dT%H:%M:%S%.f", // "2024-11-24T11:00:00.123456"
+            "%Y-%m-%dT%H:%M:%S",    // "2024-11-24T11:00:00"
+            // PostgreSQL standard format with space separator
+            "%Y-%m-%d %H:%M:%S%.f", // "2024-11-24 11:00:00.123456"
+            "%Y-%m-%d %H:%M:%S",    // "2024-11-24 11:00:00"
+        ];
+
+        for format in &naive_formats {
+            if let Ok(parsed) = NaiveDateTime::parse_from_str(&normalized_str, format) {
+                return Ok(parsed);
+            }
+        }
+
+        // Fallback: try to parse with timezone and extract naive part
+        let timezone_formats = [
+            // ISO 8601 formats with T separator
+            "%Y-%m-%dT%H:%M:%S%.f%:z", // "2024-11-24T11:00:00.123456+08:00"
+            "%Y-%m-%dT%H:%M:%S%.f%#z", // "2024-11-24T11:00:00.123456+08"
+            "%Y-%m-%dT%H:%M:%S%.f%z",  // "2024-11-24T11:00:00.123456+0800"
+            "%Y-%m-%dT%H:%M:%S%:z",    // "2024-11-24T11:00:00+08:00"
+            "%Y-%m-%dT%H:%M:%S%#z",    // "2024-11-24T11:00:00+08"
+            "%Y-%m-%dT%H:%M:%S%z",     // "2024-11-24T11:00:00+0800"
+            // PostgreSQL standard format with space separator
+            "%Y-%m-%d %H:%M:%S%.f%:z", // "2024-11-24 11:00:00.123456+08:00"
+            "%Y-%m-%d %H:%M:%S%.f%#z", // "2024-11-24 11:00:00.123456+08"
+            "%Y-%m-%d %H:%M:%S%.f%z",  // "2024-11-24 11:00:00.123456+0800"
+            "%Y-%m-%d %H:%M:%S%:z",    // "2024-11-24 11:00:00+08:00"
+            "%Y-%m-%d %H:%M:%S%#z",    // "2024-11-24 11:00:00+08"
+            "%Y-%m-%d %H:%M:%S%z",     // "2024-11-24 11:00:00+0800"
+        ];
+
+        for format in &timezone_formats {
+            if let Ok(parsed) = DateTime::<FixedOffset>::parse_from_str(&normalized_str, format) {
+                return Ok(parsed.naive_local());
+            }
+        }
+
+        Err(format!("Unable to parse datetime: {}", value_str).into())
     }
 }
 
-impl<T> FromSqlText for Option<T>
+#[cfg(feature = "pg-type-serde-json")]
+impl<'a, T: Deserialize<'a> + fmt::Debug> FromSqlText<'a> for Json<T> {
+    fn from_sql_text(
+        _ty: &Type,
+        input: &'a [u8],
+        _format_options: &FormatOptions,
+    ) -> Result<Self, Box<dyn Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
+        serde_json::de::from_slice::<T>(input)
+            .map(Json)
+            .map_err(Into::into)
+    }
+}
+
+#[cfg(feature = "pg-type-serde-json")]
+impl<'a> FromSqlText<'a> for Value {
+    fn from_sql_text(
+        _ty: &Type,
+        input: &[u8],
+        _format_options: &FormatOptions,
+    ) -> Result<Self, Box<dyn Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
+        serde_json::de::from_slice::<Value>(input).map_err(Into::into)
+    }
+}
+
+impl<'a> FromSqlText<'a> for Interval {
+    fn from_sql_text(
+        _ty: &Type,
+        input: &'a [u8],
+        format_options: &FormatOptions,
+    ) -> Result<Self, Box<dyn Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
+        let interval_style =
+            IntervalStyle::try_from(format_options.interval_style.as_str()).map_err(Box::new)?;
+        let input = to_str(input)?;
+
+        match interval_style {
+            IntervalStyle::Postgres => {
+                let result = Interval::from_postgres(input).map_err(Box::new)?;
+                Ok(result)
+            }
+
+            IntervalStyle::PostgresVerbose => {
+                let result = Interval::from_postgres_verbose(input).map_err(Box::new)?;
+                Ok(result)
+            }
+            IntervalStyle::ISO8601 => {
+                let result = Interval::from_iso(input).map_err(Box::new)?;
+                Ok(result)
+            }
+            IntervalStyle::SQLStandard => {
+                let result = Interval::from_sql(input).map_err(Box::new)?;
+                Ok(result)
+            }
+        }
+    }
+}
+
+impl<'a, T> FromSqlText<'a> for Option<T>
 where
-    T: FromSqlText,
+    T: FromSqlText<'a>,
 {
-    fn from_sql_text(ty: &Type, input: &[u8]) -> Result<Self, Box<dyn Error + Sync + Send>>
+    fn from_sql_text(
+        ty: &Type,
+        input: &'a [u8],
+        format_options: &FormatOptions,
+    ) -> Result<Self, Box<dyn Error + Sync + Send>>
     where
         Self: Sized,
     {
         if input.is_empty() {
             Ok(None)
         } else {
-            T::from_sql_text(ty, input).map(Some)
+            T::from_sql_text(ty, input, format_options).map(Some)
         }
     }
 }
 
-//TODO: array types
+// Helper function to extract array elements including NULL values for Option types
+fn extract_array_elements_with_nulls(
+    input: &str,
+) -> Result<Vec<String>, Box<dyn Error + Sync + Send>> {
+    if input.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut elements = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut escape_next = false;
+    let mut depth = 0; // For nested arrays
+    let mut seen_content = false;
+
+    for ch in input.chars() {
+        match ch {
+            '\\' if !escape_next => {
+                escape_next = true;
+            }
+            '"' if !escape_next => {
+                in_quotes = !in_quotes;
+                // helps to track we have seen some element but it is an empty string
+                if !in_quotes {
+                    seen_content = true
+                }
+                // Don't include the quotes in the output
+            }
+            '{' if !in_quotes && !escape_next => {
+                depth += 1;
+                current.push(ch);
+            }
+            '}' if !in_quotes && !escape_next => {
+                depth -= 1;
+                current.push(ch);
+            }
+            ',' if !in_quotes && depth == 0 && !escape_next => {
+                // End of current element - include NULL values for Option types
+                elements.push(std::mem::take(&mut current));
+                seen_content = false;
+            }
+            _ => {
+                current.push(ch);
+                escape_next = false;
+            }
+        }
+    }
+
+    // Process the last element
+    if seen_content || !current.is_empty() {
+        elements.push(current);
+    }
+
+    Ok(elements)
+}
+
+impl<'a, T> FromSqlText<'a> for Vec<Option<T>>
+where
+    for<'b> T: FromSqlText<'b>,
+{
+    fn from_sql_text(
+        ty: &Type,
+        input: &'a [u8],
+        format_options: &FormatOptions,
+    ) -> Result<Self, Box<dyn Error + Sync + Send>> {
+        let input_str = to_str(input)?;
+
+        if input_str.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        if !input_str.starts_with('{') || !input_str.ends_with('}') {
+            return Err("Invalid array format: must start with '{' and end with '}'".into());
+        }
+
+        let inner = &input_str[1..input_str.len() - 1];
+
+        if inner.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let elements = extract_array_elements_with_nulls(inner)?;
+        let mut result = Vec::new();
+
+        for element_str in elements {
+            if element_str.trim().eq_ignore_ascii_case("NULL") || element_str.is_empty() {
+                result.push(None);
+            } else {
+                let element: Option<T> =
+                    Option::from_sql_text(ty, element_str.as_bytes(), format_options)?;
+                result.push(element);
+            }
+        }
+
+        Ok(result)
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[cfg(feature = "pg-type-chrono")]
+    use chrono::TimeZone;
+
+    macro_rules! test_parse_naive_date {
+        ($sql_text:expr, $expected:expr) => {
+            let result =
+                NaiveDate::from_sql_text(&Type::DATE, $sql_text, &FormatOptions::default())
+                    .unwrap();
+            assert_eq!(result, $expected);
+        };
+    }
+
+    macro_rules! test_parse_naive_datetime {
+        ($sql_text:expr, $expected:expr) => {
+            let result = NaiveDateTime::from_sql_text(
+                &Type::TIMESTAMP,
+                $sql_text,
+                &FormatOptions::default(),
+            )
+            .unwrap();
+            assert_eq!(result, $expected);
+        };
+    }
+
+    macro_rules! test_parse_datetime_fixed_offset {
+        ($sql_text:expr, $expected:expr) => {
+            let result = DateTime::<FixedOffset>::from_sql_text(
+                &Type::TIMESTAMPTZ,
+                $sql_text,
+                &FormatOptions::default(),
+            )
+            .unwrap();
+            assert_eq!(result, $expected);
+        };
+    }
+
     #[test]
     fn test_from_sql_text_for_string() {
         let sql_text = "Hello, World!".as_bytes();
-        let result = String::from_sql_text(&Type::VARCHAR, sql_text).unwrap();
+        let result =
+            String::from_sql_text(&Type::VARCHAR, sql_text, &FormatOptions::default()).unwrap();
         assert_eq!(result, "Hello, World!");
     }
 
     #[test]
     fn test_from_sql_text_for_i32() {
         let sql_text = "42".as_bytes();
-        let result = i32::from_sql_text(&Type::VARCHAR, sql_text).unwrap();
+        let result =
+            i32::from_sql_text(&Type::VARCHAR, sql_text, &FormatOptions::default()).unwrap();
         assert_eq!(result, 42);
     }
 
     #[test]
     fn test_from_sql_text_for_i32_invalid() {
         let sql_text = "not_a_number".as_bytes();
-        let result = i32::from_sql_text(&Type::INT4, sql_text);
+        let result = i32::from_sql_text(&Type::INT4, sql_text, &FormatOptions::default());
         assert!(result.is_err());
     }
 
     #[test]
     fn test_from_sql_text_for_f64() {
-        let sql_text = "3.14".as_bytes();
-        let result = f64::from_sql_text(&Type::FLOAT8, sql_text).unwrap();
-        assert_eq!(result, 3.14);
+        let sql_text = "1.23".as_bytes();
+        let result =
+            f64::from_sql_text(&Type::FLOAT8, sql_text, &FormatOptions::default()).unwrap();
+        assert_eq!(result, 1.23);
     }
 
     #[test]
     fn test_from_sql_text_for_f64_invalid() {
         let sql_text = "not_a_number".as_bytes();
-        let result = f64::from_sql_text(&Type::FLOAT8, sql_text);
+        let result = f64::from_sql_text(&Type::FLOAT8, sql_text, &FormatOptions::default());
         assert!(result.is_err());
     }
 
     #[test]
     fn test_from_sql_text_for_bool() {
         let sql_text = "t".as_bytes();
-        let result = bool::from_sql_text(&Type::BOOL, sql_text).unwrap();
-        assert_eq!(result, true);
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(result);
 
         let sql_text = "f".as_bytes();
-        let result = bool::from_sql_text(&Type::BOOL, sql_text).unwrap();
-        assert_eq!(result, false);
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(!result);
+
+        let sql_text = "TRUE".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(result);
+
+        let sql_text = "FALSE".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(!result);
+
+        let sql_text = "on".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(result);
+
+        let sql_text = "off".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(!result);
+
+        let sql_text = "1".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(result);
+
+        let sql_text = "0".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(!result);
+
+        let sql_text = "y".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(result);
+
+        let sql_text = "n".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(!result);
+
+        let sql_text = "yes".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(result);
+
+        let sql_text = "no".as_bytes();
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default()).unwrap();
+        assert!(!result);
     }
 
     #[test]
     fn test_from_sql_text_for_bool_invalid() {
         let sql_text = "not_a_boolean".as_bytes();
-        let result = bool::from_sql_text(&Type::BOOL, sql_text);
+        let result = bool::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default());
         assert!(result.is_err());
     }
 
     #[test]
     fn test_from_sql_text_for_option_string() {
         let sql_text = "Some text".as_bytes();
-        let result = Option::<String>::from_sql_text(&Type::VARCHAR, sql_text).unwrap();
+        let result =
+            Option::<String>::from_sql_text(&Type::VARCHAR, sql_text, &FormatOptions::default())
+                .unwrap();
         assert_eq!(result, Some("Some text".to_string()));
 
         let sql_text = "".as_bytes();
-        let result = Option::<String>::from_sql_text(&Type::VARCHAR, sql_text).unwrap();
+        let result =
+            Option::<String>::from_sql_text(&Type::VARCHAR, sql_text, &FormatOptions::default())
+                .unwrap();
         assert_eq!(result, None);
     }
 
     #[test]
     fn test_from_sql_text_for_option_i32() {
         let sql_text = "42".as_bytes();
-        let result = Option::<i32>::from_sql_text(&Type::INT4, sql_text).unwrap();
+        let result =
+            Option::<i32>::from_sql_text(&Type::INT4, sql_text, &FormatOptions::default()).unwrap();
         assert_eq!(result, Some(42));
 
         let sql_text = "".as_bytes();
-        let result = Option::<i32>::from_sql_text(&Type::INT4, sql_text).unwrap();
+        let result =
+            Option::<i32>::from_sql_text(&Type::INT4, sql_text, &FormatOptions::default()).unwrap();
         assert_eq!(result, None);
     }
 
     #[test]
     fn test_from_sql_text_for_option_f64() {
-        let sql_text = "3.14".as_bytes();
-        let result = Option::<f64>::from_sql_text(&Type::FLOAT8, sql_text).unwrap();
-        assert_eq!(result, Some(3.14));
+        let sql_text = "1.23".as_bytes();
+        let result =
+            Option::<f64>::from_sql_text(&Type::FLOAT8, sql_text, &FormatOptions::default())
+                .unwrap();
+        assert_eq!(result, Some(1.23));
 
         let sql_text = "".as_bytes();
-        let result = Option::<f64>::from_sql_text(&Type::FLOAT8, sql_text).unwrap();
+        let result =
+            Option::<f64>::from_sql_text(&Type::FLOAT8, sql_text, &FormatOptions::default())
+                .unwrap();
         assert_eq!(result, None);
     }
 
     #[test]
     fn test_from_sql_text_for_option_bool() {
         let sql_text = "t".as_bytes();
-        let result = Option::<bool>::from_sql_text(&Type::BOOL, sql_text).unwrap();
+        let result =
+            Option::<bool>::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default())
+                .unwrap();
         assert_eq!(result, Some(true));
 
         let sql_text = "".as_bytes();
-        let result = Option::<bool>::from_sql_text(&Type::BOOL, sql_text).unwrap();
+        let result =
+            Option::<bool>::from_sql_text(&Type::BOOL, sql_text, &FormatOptions::default())
+                .unwrap();
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_option_i32() {
+        let sql_text = "{1,2,3}".as_bytes();
+        let result = Vec::<Option<i32>>::from_sql_text(
+            &Type::INT4_ARRAY,
+            sql_text,
+            &FormatOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(result, vec![Some(1), Some(2), Some(3)]);
+
+        let sql_text = "{}".as_bytes();
+        let result = Vec::<Option<i32>>::from_sql_text(
+            &Type::INT4_ARRAY,
+            sql_text,
+            &FormatOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(result, Vec::<Option<i32>>::new());
+
+        let sql_text = "".as_bytes();
+        let result = Vec::<Option<i32>>::from_sql_text(
+            &Type::INT4_ARRAY,
+            sql_text,
+            &FormatOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(result, Vec::<Option<i32>>::new());
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_option_string() {
+        let sql_text = "{hello,world}".as_bytes();
+        let result = Vec::<Option<String>>::from_sql_text(
+            &Type::VARCHAR_ARRAY,
+            sql_text,
+            &FormatOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            vec![Some("hello".to_string()), Some("world".to_string())]
+        );
+
+        // Test with quoted strings containing commas
+        let sql_text = r#"{"hello,world",test}"#.as_bytes();
+        let result = Vec::<Option<String>>::from_sql_text(
+            &Type::VARCHAR_ARRAY,
+            sql_text,
+            &FormatOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            vec![Some("hello,world".to_string()), Some("test".to_string())]
+        );
+
+        // Test with empty array
+        let sql_text = "{}".as_bytes();
+        let result = Vec::<Option<String>>::from_sql_text(
+            &Type::VARCHAR_ARRAY,
+            sql_text,
+            &FormatOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(result, Vec::<Option<String>>::new());
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_option_bool() {
+        let sql_text = "{t,f,true,false}".as_bytes();
+        let result = Vec::<Option<bool>>::from_sql_text(
+            &Type::BOOL_ARRAY,
+            sql_text,
+            &FormatOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            vec![Some(true), Some(false), Some(true), Some(false)]
+        );
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_option_f64() {
+        let sql_text = "{1.23,4.56,7.89}".as_bytes();
+        let result = Vec::<Option<f64>>::from_sql_text(
+            &Type::FLOAT8_ARRAY,
+            sql_text,
+            &FormatOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(result, vec![Some(1.23), Some(4.56), Some(7.89)]);
+    }
+
+    #[test]
+    fn test_from_sql_text_for_vec_option_with_nulls() {
+        // Test that NULL values are converted to None
+        let sql_text = "{1,NULL,3,NULL,5}".as_bytes();
+        let result = Vec::<Option<i32>>::from_sql_text(
+            &Type::INT4_ARRAY,
+            sql_text,
+            &FormatOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(result, vec![Some(1), None, Some(3), None, Some(5)]);
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_from_sql_text_for_naive_datetime_with_timezone() {
+        test_parse_naive_datetime!(
+            "2024-11-24 11:00:00+08".as_bytes(),
+            NaiveDate::from_ymd_opt(2024, 11, 24)
+                .unwrap()
+                .and_hms_opt(11, 0, 0)
+                .unwrap()
+        );
+        test_parse_naive_datetime!(
+            "2024-11-24 11:00:00.123456+08:00".as_bytes(),
+            NaiveDate::from_ymd_opt(2024, 11, 24)
+                .unwrap()
+                .and_hms_micro_opt(11, 0, 0, 123456)
+                .unwrap()
+        );
+        test_parse_naive_datetime!(
+            "2024-11-24 11:00:00".as_bytes(),
+            NaiveDate::from_ymd_opt(2024, 11, 24)
+                .unwrap()
+                .and_hms_opt(11, 0, 0)
+                .unwrap()
+        );
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_from_sql_text_for_datetime_fixed_offset_with_timezone() {
+        let offset_plus_8 = FixedOffset::east_opt(8 * 3600).unwrap();
+        let offset_minus_5 = FixedOffset::west_opt(5 * 3600).unwrap();
+
+        test_parse_datetime_fixed_offset!(
+            "2024-11-24 11:00:00+08".as_bytes(),
+            offset_plus_8.from_utc_datetime(
+                &NaiveDate::from_ymd_opt(2024, 11, 24)
+                    .unwrap()
+                    .and_hms_opt(3, 0, 0)
+                    .unwrap()
+            )
+        );
+        test_parse_datetime_fixed_offset!(
+            "2024-11-24 11:00:00+08:00".as_bytes(),
+            offset_plus_8.from_utc_datetime(
+                &NaiveDate::from_ymd_opt(2024, 11, 24)
+                    .unwrap()
+                    .and_hms_opt(3, 0, 0)
+                    .unwrap()
+            )
+        );
+        test_parse_datetime_fixed_offset!(
+            "2024-11-24 11:00:00.123456+08:00".as_bytes(),
+            offset_plus_8.from_utc_datetime(
+                &NaiveDate::from_ymd_opt(2024, 11, 24)
+                    .unwrap()
+                    .and_hms_micro_opt(3, 0, 0, 123456)
+                    .unwrap()
+            )
+        );
+        test_parse_datetime_fixed_offset!(
+            "2024-11-24 11:00:00".as_bytes(),
+            Utc.fix().from_utc_datetime(
+                &NaiveDate::from_ymd_opt(2024, 11, 24)
+                    .unwrap()
+                    .and_hms_opt(11, 0, 0)
+                    .unwrap()
+            )
+        );
+        test_parse_datetime_fixed_offset!(
+            "2024-11-24 11:00:00-05:00".as_bytes(),
+            offset_minus_5.from_utc_datetime(
+                &NaiveDate::from_ymd_opt(2024, 11, 24)
+                    .unwrap()
+                    .and_hms_opt(16, 0, 0)
+                    .unwrap()
+            )
+        );
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_from_sql_text_for_datetime_various_formats() {
+        // Test various timezone formats that pgjdbc might send
+        let test_cases = vec![
+            ("2024-11-24 11:00:00+08", "UTC+8"),
+            ("2024-11-24 11:00:00+0800", "UTC+8"),
+            ("2024-11-24 11:00:00+08:00", "UTC+8"),
+            ("2024-11-24 11:00:00-05", "UTC-5"),
+            ("2024-11-24 11:00:00-0500", "UTC-5"),
+            ("2024-11-24 11:00:00-05:00", "UTC-5"),
+            (
+                "2024-11-24 11:00:00.123456+08:00",
+                "UTC+8 with microseconds",
+            ),
+            ("2024-11-24 11:00:00", "no timezone (UTC)"),
+        ];
+
+        for (input, description) in test_cases {
+            let result = DateTime::<FixedOffset>::from_sql_text(
+                &Type::TIMESTAMP,
+                input.as_bytes(),
+                &FormatOptions::default(),
+            );
+            assert!(
+                result.is_ok(),
+                "Failed to parse {}: {}",
+                description,
+                result.unwrap_err()
+            );
+        }
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_datetime_type_specific_behavior() {
+        use chrono::Timelike;
+
+        // Test that DateTime<FixedOffset> preserves timezone
+        let sql_text = "2024-11-24 11:00:00+08";
+
+        let result = DateTime::<FixedOffset>::from_sql_text(
+            &Type::TIMESTAMPTZ,
+            sql_text.as_bytes(),
+            &FormatOptions::default(),
+        )
+        .unwrap();
+        let offset = FixedOffset::east_opt(8 * 3600).unwrap();
+        assert_eq!(result.offset(), &offset);
+        assert_eq!(result.hour(), 11); // Should preserve local time
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_from_sql_text_for_naive_date_with_timezone() {
+        test_parse_naive_date!(
+            "2024-06-20 +08".as_bytes(),
+            NaiveDate::from_ymd_opt(2024, 6, 20).unwrap()
+        );
+        test_parse_naive_date!(
+            "2024-06-20 -05".as_bytes(),
+            NaiveDate::from_ymd_opt(2024, 6, 20).unwrap()
+        );
+        test_parse_naive_date!(
+            "2024-06-20 11:00:00+08:00".as_bytes(),
+            NaiveDate::from_ymd_opt(2024, 6, 20).unwrap()
+        );
+        test_parse_naive_date!(
+            "2024-06-20".as_bytes(),
+            NaiveDate::from_ymd_opt(2024, 6, 20).unwrap()
+        );
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_from_sql_text_for_naive_date_iso8601() {
+        let expected = NaiveDate::from_ymd_opt(2026, 3, 16).unwrap();
+        test_parse_naive_date!("2026-03-16".as_bytes(), expected);
+        test_parse_naive_date!("2026-03-16T10:00:00".as_bytes(), expected);
+        test_parse_naive_date!("2026-03-16T10:00:00.123".as_bytes(), expected);
+        test_parse_naive_date!("2026-03-16T10:00:00.123456".as_bytes(), expected);
+        test_parse_naive_date!("2026-03-16T10:00:00+08:00".as_bytes(), expected);
+        test_parse_naive_date!("2026-03-16T10:00:00Z".as_bytes(), expected);
+        test_parse_naive_date!("2026-03-16T10:00:00.000Z".as_bytes(), expected);
+        test_parse_naive_date!("2026-03-16T10:00:00-05:00".as_bytes(), expected);
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_from_sql_text_for_naive_datetime_iso8601() {
+        test_parse_naive_datetime!(
+            "2026-03-16T10:00:00".as_bytes(),
+            NaiveDate::from_ymd_opt(2026, 3, 16)
+                .unwrap()
+                .and_hms_opt(10, 0, 0)
+                .unwrap()
+        );
+        test_parse_naive_datetime!(
+            "2026-03-16T10:00:00.123".as_bytes(),
+            NaiveDate::from_ymd_opt(2026, 3, 16)
+                .unwrap()
+                .and_hms_milli_opt(10, 0, 0, 123)
+                .unwrap()
+        );
+        test_parse_naive_datetime!(
+            "2026-03-16T10:00:00.123456".as_bytes(),
+            NaiveDate::from_ymd_opt(2026, 3, 16)
+                .unwrap()
+                .and_hms_micro_opt(10, 0, 0, 123456)
+                .unwrap()
+        );
+        test_parse_naive_datetime!(
+            "2026-03-16T10:00:00+08:00".as_bytes(),
+            NaiveDate::from_ymd_opt(2026, 3, 16)
+                .unwrap()
+                .and_hms_opt(10, 0, 0)
+                .unwrap()
+        );
+        test_parse_naive_datetime!(
+            "2026-03-16T10:00:00Z".as_bytes(),
+            NaiveDate::from_ymd_opt(2026, 3, 16)
+                .unwrap()
+                .and_hms_opt(10, 0, 0)
+                .unwrap()
+        );
+        test_parse_naive_datetime!(
+            "2026-03-16T10:00:00.000Z".as_bytes(),
+            NaiveDate::from_ymd_opt(2026, 3, 16)
+                .unwrap()
+                .and_hms_micro_opt(10, 0, 0, 0)
+                .unwrap()
+        );
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_from_sql_text_for_datetime_fixed_offset_iso8601() {
+        let offset_plus_8 = FixedOffset::east_opt(8 * 3600).unwrap();
+        let offset_minus_5 = FixedOffset::west_opt(5 * 3600).unwrap();
+
+        test_parse_datetime_fixed_offset!(
+            "2026-03-16T10:00:00Z".as_bytes(),
+            Utc.fix().from_utc_datetime(
+                &NaiveDate::from_ymd_opt(2026, 3, 16)
+                    .unwrap()
+                    .and_hms_opt(10, 0, 0)
+                    .unwrap()
+            )
+        );
+        test_parse_datetime_fixed_offset!(
+            "2026-03-16T10:00:00.000Z".as_bytes(),
+            Utc.fix().from_utc_datetime(
+                &NaiveDate::from_ymd_opt(2026, 3, 16)
+                    .unwrap()
+                    .and_hms_micro_opt(10, 0, 0, 0)
+                    .unwrap()
+            )
+        );
+        test_parse_datetime_fixed_offset!(
+            "2026-03-16T10:00:00.123456Z".as_bytes(),
+            Utc.fix().from_utc_datetime(
+                &NaiveDate::from_ymd_opt(2026, 3, 16)
+                    .unwrap()
+                    .and_hms_micro_opt(10, 0, 0, 123456)
+                    .unwrap()
+            )
+        );
+        test_parse_datetime_fixed_offset!(
+            "2026-03-16T10:00:00+08:00".as_bytes(),
+            offset_plus_8.from_utc_datetime(
+                &NaiveDate::from_ymd_opt(2026, 3, 16)
+                    .unwrap()
+                    .and_hms_opt(2, 0, 0)
+                    .unwrap()
+            )
+        );
+        test_parse_datetime_fixed_offset!(
+            "2026-03-16T10:00:00.123456+08:00".as_bytes(),
+            offset_plus_8.from_utc_datetime(
+                &NaiveDate::from_ymd_opt(2026, 3, 16)
+                    .unwrap()
+                    .and_hms_micro_opt(2, 0, 0, 123456)
+                    .unwrap()
+            )
+        );
+        test_parse_datetime_fixed_offset!(
+            "2026-03-16T10:00:00-05:00".as_bytes(),
+            offset_minus_5.from_utc_datetime(
+                &NaiveDate::from_ymd_opt(2026, 3, 16)
+                    .unwrap()
+                    .and_hms_opt(15, 0, 0)
+                    .unwrap()
+            )
+        );
+        test_parse_datetime_fixed_offset!(
+            "2026-03-16T10:00:00".as_bytes(),
+            Utc.fix().from_utc_datetime(
+                &NaiveDate::from_ymd_opt(2026, 3, 16)
+                    .unwrap()
+                    .and_hms_opt(10, 0, 0)
+                    .unwrap()
+            )
+        );
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_from_sql_text_for_vec_option_naive_datetime() {
+        let sql_text =
+            "{2024-01-01 12:30:45,NULL,2024-12-31 23:59:59.123456,2024-12-31 23:59:59.0}"
+                .as_bytes();
+        let result = Vec::<Option<NaiveDateTime>>::from_sql_text(
+            &Type::TIMESTAMP_ARRAY,
+            sql_text,
+            &FormatOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            result,
+            vec![
+                Some(
+                    NaiveDate::from_ymd_opt(2024, 1, 1)
+                        .unwrap()
+                        .and_hms_opt(12, 30, 45)
+                        .unwrap()
+                ),
+                None,
+                Some(
+                    NaiveDate::from_ymd_opt(2024, 12, 31)
+                        .unwrap()
+                        .and_hms_micro_opt(23, 59, 59, 123456)
+                        .unwrap()
+                ),
+                Some(
+                    NaiveDate::from_ymd_opt(2024, 12, 31)
+                        .unwrap()
+                        .and_hms_micro_opt(23, 59, 59, 0)
+                        .unwrap()
+                )
+            ]
+        );
+    }
+
+    #[cfg(feature = "pg-type-chrono")]
+    #[test]
+    fn test_from_sql_text_for_vec_option_datetime_fixed_offset() {
+        let sql_text =
+            "{2024-01-01 12:30:45+08:00,NULL,2024-12-31 23:59:59.123456-05:00}".as_bytes();
+        let result = Vec::<Option<DateTime<FixedOffset>>>::from_sql_text(
+            &Type::TIMESTAMPTZ_ARRAY,
+            sql_text,
+            &FormatOptions::default(),
+        )
+        .unwrap();
+
+        let offset_plus_8 = FixedOffset::east_opt(8 * 3600).unwrap();
+        let offset_minus_5 = FixedOffset::west_opt(5 * 3600).unwrap();
+
+        assert_eq!(result.len(), 3);
+        assert!(result[0].is_some());
+        assert!(result[1].is_none());
+        assert!(result[2].is_some());
+
+        assert_eq!(result[0].as_ref().unwrap().offset(), &offset_plus_8);
+        assert_eq!(result[2].as_ref().unwrap().offset(), &offset_minus_5);
     }
 }

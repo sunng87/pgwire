@@ -4,29 +4,33 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use async_trait::async_trait;
-use futures::stream;
-use futures::StreamExt;
+use chrono::{DateTime, FixedOffset, NaiveDate, NaiveDateTime};
+use futures::{stream, StreamExt};
+use rust_decimal::Decimal;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
+use tokio::net::TcpListener;
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 
-use pgwire::api::auth::scram::{gen_salted_password, SASLScramAuthStartupHandler};
-use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
-use pgwire::api::copy::NoopCopyHandler;
+use pgwire::api::auth::sasl::scram::{gen_salted_password, ScramAuth};
+use pgwire::api::auth::sasl::SASLAuthStartupHandler;
+use pgwire::api::auth::{
+    AuthSource, DefaultServerParameterProvider, LoginInfo, Password, StartupHandler,
+};
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
-    DataRowEncoder, DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse,
-    Response, Tag,
+    CopyEncoder, CopyResponse, DataRowEncoder, DescribePortalResponse, DescribeResponse,
+    DescribeStatementResponse, FieldInfo, QueryResponse, Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
-use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type};
+use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
-use tokio::net::TcpListener;
 
 const ITERATIONS: usize = 4096;
+#[derive(Debug)]
 struct DummyAuthSource;
 
 #[async_trait]
@@ -78,11 +82,7 @@ impl DummyDatabase {
 
 #[async_trait]
 impl SimpleQueryHandler for DummyDatabase {
-    async fn do_query<'a, C>(
-        &self,
-        _client: &mut C,
-        query: &'a str,
-    ) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -107,21 +107,55 @@ impl SimpleQueryHandler for DummyDatabase {
                 ),
                 (Some(2), None, None, None, None),
             ];
-            let data_row_stream = stream::iter(data.into_iter()).map(move |r| {
-                let mut encoder = DataRowEncoder::new(schema_ref.clone());
-
+            let mut encoder = DataRowEncoder::new(schema_ref.clone());
+            let data_row_stream = stream::iter(data).map(move |r| {
                 encoder.encode_field(&r.0)?;
                 encoder.encode_field(&r.1)?;
                 encoder.encode_field(&r.2)?;
                 encoder.encode_field(&r.3)?;
                 encoder.encode_field(&r.4)?;
 
-                encoder.finish()
+                Ok(encoder.take_row())
             });
 
             Ok(vec![Response::Query(QueryResponse::new(
                 schema,
-                data_row_stream,
+                Box::pin(data_row_stream),
+            ))])
+        } else if query.starts_with("COPY") {
+            let schema = Arc::new(self.schema(&Format::UnifiedText));
+            let data = vec![
+                (
+                    Some(0),
+                    Some("Tom"),
+                    Some("2023-02-01 22:27:25.042674"),
+                    Some(true),
+                    Some("tomcat".as_bytes()),
+                ),
+                (
+                    Some(1),
+                    Some("Jerry"),
+                    Some("2023-02-01 22:27:42.165585"),
+                    Some(false),
+                    Some("".as_bytes()),
+                ),
+                (Some(2), None, None, None, None),
+            ];
+            let mut encoder = CopyEncoder::new_binary(schema.clone());
+            let copy_stream = stream::iter(data).map(move |r| {
+                encoder.encode_field(&r.0)?;
+                encoder.encode_field(&r.1)?;
+                encoder.encode_field(&r.2)?;
+                encoder.encode_field(&r.3)?;
+                encoder.encode_field(&r.4)?;
+
+                Ok(encoder.take_copy())
+            });
+
+            Ok(vec![Response::CopyOut(CopyResponse::new(
+                1,
+                schema.len(),
+                Box::pin(copy_stream),
             ))])
         } else {
             Ok(vec![Response::Execution(Tag::new("OK").with_rows(1))])
@@ -138,18 +172,78 @@ impl ExtendedQueryHandler for DummyDatabase {
         self.query_parser.clone()
     }
 
-    async fn do_query<'a, C>(
+    async fn do_query<C>(
         &self,
         _client: &mut C,
-        portal: &'a Portal<Self::Statement>,
+        portal: &Portal<Self::Statement>,
         _max_rows: usize,
-    ) -> PgWireResult<Response<'a>>
+    ) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
         let query = &portal.statement.statement;
         println!("extended query: {:?}", query);
         if query.starts_with("SELECT") {
+            // try to parse all parameters
+            for idx in 0..portal.parameter_len() {
+                let param_type = portal
+                    .statement
+                    .parameter_types
+                    .get(idx)
+                    .and_then(|f| f.clone());
+
+                match &param_type {
+                    Some(Type::INT8) => {
+                        let _ = portal.parameter::<i64>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::INT4) => {
+                        let _ = portal.parameter::<i32>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::INT2) => {
+                        let _ = portal.parameter::<i16>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::FLOAT4) => {
+                        let _ = portal.parameter::<f32>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::FLOAT8) => {
+                        let _ = portal.parameter::<f64>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::TEXT) | Some(Type::VARCHAR) => {
+                        let _ = portal.parameter::<String>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::TIMESTAMP) => {
+                        let _ =
+                            portal.parameter::<NaiveDateTime>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::TIMESTAMPTZ) => {
+                        let _ = portal.parameter::<DateTime<FixedOffset>>(
+                            idx,
+                            param_type.as_ref().unwrap(),
+                        )?;
+                    }
+                    Some(Type::DATE) => {
+                        let _ = portal.parameter::<NaiveDate>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::NUMERIC) => {
+                        let _ = portal.parameter::<Decimal>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::BYTEA) => {
+                        let _ = portal.parameter::<Vec<u8>>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    Some(Type::BOOL) => {
+                        let _ = portal.parameter::<bool>(idx, param_type.as_ref().unwrap())?;
+                    }
+                    _ => {
+                        // JDBC doesn't provide type information for some cases,
+                        // we try to parse them as TIMESTAMP or DATE accordingly
+
+                        if let Err(_) = portal.parameter::<NaiveDateTime>(idx, &Type::TIMESTAMP) {
+                            let _ = portal.parameter::<NaiveDate>(idx, &Type::DATE);
+                        }
+                    }
+                }
+            }
+
             let data = vec![
                 (
                     Some(0),
@@ -169,19 +263,21 @@ impl ExtendedQueryHandler for DummyDatabase {
             ];
             let schema = Arc::new(self.schema(&portal.result_column_format));
             let schema_ref = schema.clone();
-            let data_row_stream = stream::iter(data.into_iter()).map(move |r| {
-                let mut encoder = DataRowEncoder::new(schema_ref.clone());
-
+            let mut encoder = DataRowEncoder::new(schema_ref.clone());
+            let data_row_stream = stream::iter(data).map(move |r| {
                 encoder.encode_field(&r.0)?;
                 encoder.encode_field(&r.1)?;
                 encoder.encode_field(&r.2)?;
                 encoder.encode_field(&r.3)?;
                 encoder.encode_field(&r.4)?;
 
-                encoder.finish()
+                Ok(encoder.take_row())
             });
 
-            Ok(Response::Query(QueryResponse::new(schema, data_row_stream)))
+            Ok(Response::Query(QueryResponse::new(
+                schema,
+                Box::pin(data_row_stream),
+            )))
         } else {
             Ok(Response::Execution(Tag::new("OK").with_rows(1)))
         }
@@ -210,45 +306,35 @@ impl ExtendedQueryHandler for DummyDatabase {
         C: ClientInfo + Unpin + Send + Sync,
     {
         println!("describe: {:?}", portal);
-        let schema = self.schema(&portal.result_column_format);
-        Ok(DescribePortalResponse::new(schema))
+        if portal.statement.statement.starts_with("SELECT") {
+            let schema = self.schema(&portal.result_column_format);
+            Ok(DescribePortalResponse::new(schema))
+        } else {
+            Ok(DescribePortalResponse::no_data())
+        }
     }
 }
 
 struct DummyDatabaseFactory(Arc<DummyDatabase>);
 
 impl PgWireServerHandlers for DummyDatabaseFactory {
-    type StartupHandler =
-        SASLScramAuthStartupHandler<DummyAuthSource, DefaultServerParameterProvider>;
-    type SimpleQueryHandler = DummyDatabase;
-    type ExtendedQueryHandler = DummyDatabase;
-    type CopyHandler = NoopCopyHandler;
-    type ErrorHandler = NoopErrorHandler;
-
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+    fn simple_query_handler(&self) -> Arc<impl SimpleQueryHandler> {
         self.0.clone()
     }
 
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+    fn extended_query_handler(&self) -> Arc<impl ExtendedQueryHandler> {
         self.0.clone()
     }
 
-    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
-        let mut authenticator = SASLScramAuthStartupHandler::new(
-            Arc::new(DummyAuthSource),
-            Arc::new(DefaultServerParameterProvider::default()),
-        );
-        authenticator.set_iterations(ITERATIONS);
+    fn startup_handler(&self) -> Arc<impl StartupHandler> {
+        let mut scram = ScramAuth::new(Arc::new(DummyAuthSource));
+        scram.set_iterations(ITERATIONS);
+
+        let authenticator =
+            SASLAuthStartupHandler::new(Arc::new(DefaultServerParameterProvider::default()))
+                .with_scram(scram);
 
         Arc::new(authenticator)
-    }
-
-    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
-        Arc::new(NoopCopyHandler)
-    }
-
-    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
-        Arc::new(NoopErrorHandler)
     }
 }
 

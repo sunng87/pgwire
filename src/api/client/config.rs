@@ -12,10 +12,9 @@ use std::ops::Deref;
 use std::os::unix::ffi::OsStrExt;
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
-use std::str;
 use std::str::FromStr;
 use std::time::Duration;
-use std::{fmt, iter, mem};
+use std::{fmt, iter, mem, str};
 
 use crate::error::PgWireClientError;
 
@@ -91,6 +90,7 @@ impl Host {
     pub(crate) fn get_hostname(&self) -> Option<String> {
         match self {
             Host::Tcp(host) => Some(host.clone()),
+            #[cfg(unix)]
             Host::Unix(_) => None,
         }
     }
@@ -802,10 +802,8 @@ impl<'a> Parser<'a> {
         match self.it.next() {
             Some((_, c)) if c == target => Ok(()),
             Some((i, c)) => {
-                let m = format!(
-                    "unexpected character at byte {}: expected `{}` but got `{}`",
-                    i, target, c
-                );
+                let m =
+                    format!("unexpected character at byte {i}: expected `{target}` but got `{c}`",);
                 Err(PgWireClientError::InvalidConfig(m))
             }
             None => Err(PgWireClientError::InvalidConfig("unexpected EOF".into())),
@@ -829,11 +827,7 @@ impl<'a> Parser<'a> {
             _ => true,
         });
 
-        if s.is_empty() {
-            None
-        } else {
-            Some(s)
-        }
+        if s.is_empty() { None } else { Some(s) }
     }
 
     fn value(&mut self) -> Result<String, PgWireClientError> {
@@ -1056,7 +1050,7 @@ impl<'a> UrlParser<'a> {
                 None => {
                     return Err(PgWireClientError::InvalidConfig(
                         "unterminated parameter".into(),
-                    ))
+                    ));
                 }
             };
             self.eat_byte();
@@ -1095,7 +1089,7 @@ impl<'a> UrlParser<'a> {
     }
 
     #[cfg(not(unix))]
-    fn host_param(&mut self, s: &str) -> Result<(), Error> {
+    fn host_param(&mut self, s: &str) -> Result<(), PgWireClientError> {
         let s = self.decode(s)?;
         self.config.param("host", &s)
     }

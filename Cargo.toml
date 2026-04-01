@@ -1,7 +1,7 @@
 [package]
 name = "pgwire"
-version = "0.28.0"
-edition = "2021"
+version = "0.38.2"
+edition = "2024"
 authors = ["Ning Sun <sunng@pm.me>"]
 license = "MIT/Apache-2.0"
 description = "Postgresql wire protocol implemented as a library"
@@ -11,60 +11,96 @@ homepage = "https://github.com/sunng87/pgwire"
 repository = "https://github.com/sunng87/pgwire"
 documentation = "https://docs.rs/crate/pgwire/"
 readme = "README.md"
-rust-version = "1.75"
+rust-version = "1.89"
 
 [dependencies]
 derive-new = "0.7"
 bytes = "1.1.0"
 thiserror = "2"
+smol_str = "0.3.2"
 ## api
 tokio = { version = "1.19", features = [
-    "net",
-    "rt",
-    "io-util",
-    "macros"
+  "net",
+  "rt",
+  "io-util",
+  "macros",
+  "time",
 ], optional = true }
 tokio-util = { version = "0.7.3", features = ["codec", "io"], optional = true }
-tokio-rustls = { version = "0.26.2", optional = true, default-features = false, features = ["logging", "tls12"]}
+tokio-rustls = { version = "0.26.2", optional = true, default-features = false, features = [
+  "logging",
+  "tls12",
+] }
 rustls-pki-types = { version = "1.10", optional = true }
 futures = { version = "0.3", optional = true }
 async-trait = { version = "0.1", optional = true }
 pin-project = { version = "1.1", optional = true }
-rand = { version = "0.9", optional = true }
-md5 = { version = "0.7", optional = true }
+rand = { version = "0.10", optional = true }
+md5 = { version = "0.8", optional = true }
 hex = { version = "0.4", optional = true }
 ## scram libraries
 base64 = { version = "0.22", optional = true }
 ring = { version = "0.17", optional = true }
 aws-lc-rs = { version = "1.7", optional = true }
 stringprep = { version = "0.1.2", optional = true }
-x509-certificate = { version = "0.24", optional = true }
+x509-certificate = { version = "0.25", optional = true }
+
+## oauth
+jsonwebtoken = { version = "10", features = ["aws_lc_rs"], optional = true }
+rsa = { version = "0.9", optional = true }
+reqwest = { version = "0.13", features = ["json", "rustls-no-provider"], optional = true }
+
 ## types
-postgres-types = { version = "0.2", features = [
-    "with-chrono-0_4",
-    "array-impls",
-], optional = true }
-chrono = { version = "0.4, <0.4.40", features = ["std"], optional = true }
+postgres-types = { version = "0.2", features = ["array-impls"], optional = true }
+chrono = { version = "0.4", features = ["std"], optional = true }
 rust_decimal = { version = "1.35", features = ["db-postgres"], optional = true }
-lazy-regex = {version = "3.3", default-features = false, features = ["lite"]}
+serde = { version = "1", optional = true }
+serde_json = { version = "1", optional = true }
+pg_interval = { version = "0.5.1", package = "pg_interval_2", optional = true }
+lazy-regex = { version = "3.3", default-features = false, features = ["lite"] }
+ryu = "1"
+postgis = { version = "0.9", optional = true }
+
 ## config
 percent-encoding = { version = "2.0", optional = true }
 
 [features]
-default = ["server-api-aws-lc-rs"]
-_ring = ["dep:ring", "tokio-rustls/ring"]
-_aws-lc-rs = ["dep:aws-lc-rs", "tokio-rustls/aws-lc-rs"]
+default = ["server-api-aws-lc-rs", "pg-ext-types"]
+pg-ext-types = ["pg-type-chrono", "pg-type-rust-decimal", "pg-type-serde-json"]
+_ring = [
+  "dep:ring",
+  "tokio-rustls/ring",
+  "dep:rustls-pki-types",
+  "dep:base64",
+  "dep:stringprep",
+  "dep:x509-certificate",
+]
+_aws-lc-rs = [
+  "dep:aws-lc-rs",
+  "tokio-rustls/aws-lc-rs",
+  "dep:rustls-pki-types",
+  "dep:base64",
+  "dep:stringprep",
+  "dep:x509-certificate",
+]
 server-api = [
-    "dep:tokio",
-    "dep:tokio-util",
-    "dep:futures",
-    "dep:async-trait",
-    "dep:rand",
-    "dep:md5",
-    "dep:hex",
-    "dep:postgres-types",
-    "dep:chrono",
-    "dep:rust_decimal",
+  "dep:tokio",
+  "dep:tokio-util",
+  "dep:futures",
+  "dep:async-trait",
+  "dep:rand",
+  "dep:md5",
+  "dep:hex",
+  "dep:postgres-types",
+  "dep:serde_json",
+  "dep:pg_interval",
+]
+simple-oidc-validator = [
+  "dep:jsonwebtoken",
+  "dep:rsa",
+  "dep:reqwest",
+  "dep:base64",
+  "dep:serde",
 ]
 server-api-ring = ["server-api", "_ring"]
 server-api-aws-lc-rs = ["server-api", "_aws-lc-rs"]
@@ -79,29 +115,45 @@ client-api = [
 ]
 client-api-ring = ["client-api", "_ring", "dep:rustls-pki-types"]
 client-api-aws-lc-rs = ["client-api", "_aws-lc-rs", "dep:rustls-pki-types"]
-scram = ["dep:base64", "dep:stringprep", "dep:x509-certificate"]
-_duckdb = []
+pg-type-chrono = ["dep:chrono", "postgres-types/with-chrono-0_4"]
+pg-type-rust-decimal = ["dep:rust_decimal"]
+pg-type-serde-json = ["dep:serde", "dep:serde_json", "postgres-types/with-serde_json-1"]
+pg-type-postgis = ["dep:postgis"]
 _sqlite = []
-_bundled = ["duckdb/bundled", "rusqlite/bundled"]
+_bundled = ["rusqlite/bundled"]
 
 [dev-dependencies]
-tokio = { version = "1.19", features = ["rt-multi-thread", "net", "macros"]}
+chrono-tz = "0.10"
+tokio = { version = "1.19", features = [
+  "rt-multi-thread",
+  "net",
+  "macros",
+  "time",
+] }
 rustls-pki-types = { version = "1.10" }
-rusqlite = { version = "0.33.0", features = ["column_decltype"] }
-## for duckdb example
-duckdb = { version = "1.0.0" }
+rusqlite = { version = "0.39.0", features = ["column_decltype"] }
 
 ## for loading custom cert files
 rustls-pemfile = "2.0"
 ## webpki-roots has mozilla's set of roots
 ## rustls-native-certs loads roots from current system
-gluesql = { version = "0.16", default-features = false, features = ["gluesql_memory_storage"] }
+gluesql = { version = "0.19", default-features = false, features = [
+  "gluesql_memory_storage",
+] }
+
+## oauth
+jsonwebtoken = { version = "10", features = ["aws_lc_rs"] }
+rsa = { version = "0.9" }
+reqwest = { version = "0.13", features = ["json"] }
+
+[patch.crates-io]
+pgwire = { path = "." }
 
 [workspace]
 members = [
-    ".",
-    "tests-integration/rust-client",
-    "tests-integration/test-server"
+  ".",
+  "tests-integration/rust-client",
+  "tests-integration/test-server",
 ]
 
 [[example]]
@@ -125,21 +177,25 @@ name = "sqlite"
 required-features = ["server-api-aws-lc-rs", "_sqlite"]
 
 [[example]]
-name = "duckdb"
-required-features = ["server-api-aws-lc-rs", "_duckdb"]
-
-[[example]]
 name = "copy"
 required-features = ["server-api-aws-lc-rs"]
 
 [[example]]
 name = "scram"
-required-features = ["server-api-aws-lc-rs", "scram"]
+required-features = ["server-api-aws-lc-rs"]
+
+[[example]]
+name = "oauth"
+required-features = ["server-api-aws-lc-rs", "simple-oidc-validator"]
+
+[[example]]
+name = "keycloak_oauth"
+required-features = ["server-api-aws-lc-rs"]
 
 [[example]]
 name = "transaction"
 required-features = ["server-api-aws-lc-rs"]
 
 [[example]]
-  name = "client"
+name = "client"
 required-features = ["client-api"]

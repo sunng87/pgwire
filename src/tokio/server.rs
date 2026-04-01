@@ -1,32 +1,45 @@
 use std::io;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
-use bytes::Buf;
 use futures::{SinkExt, StreamExt};
+#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+use rustls_pki_types::CertificateDer;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
+#[cfg(unix)]
+use tokio::net::UnixStream;
+use tokio::time::{Duration, sleep};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use tokio_rustls::server::TlsStream;
-use tokio_util::codec::{Decoder, Encoder, Framed};
+use tokio_util::codec::{Decoder, Encoder, Framed, FramedParts};
 
 use crate::api::auth::StartupHandler;
+use crate::api::cancel::CancelHandler;
 use crate::api::copy::CopyHandler;
-use crate::api::query::SimpleQueryHandler;
-use crate::api::query::{send_ready_for_query, ExtendedQueryHandler};
+use crate::api::query::{ExtendedQueryHandler, SimpleQueryHandler, send_ready_for_query};
 use crate::api::{
     ClientInfo, ClientPortalStore, DefaultClient, ErrorHandler, PgWireConnectionState,
     PgWireServerHandlers,
 };
 use crate::error::{ErrorInfo, PgWireError, PgWireResult};
-use crate::messages::response::ReadyForQuery;
-use crate::messages::response::{SslResponse, TransactionStatus};
-use crate::messages::startup::{SslRequest, Startup};
-use crate::messages::{Message, PgWireBackendMessage, PgWireFrontendMessage};
+use crate::messages::response::{GssEncResponse, ReadyForQuery, SslResponse, TransactionStatus};
+use crate::messages::startup::SecretKey;
+use crate::messages::{
+    DecodeContext, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,
+    SslNegotiationMetaMessage,
+};
+
+/// startup timeout
+const STARTUP_TIMEOUT_MILLIS: u64 = 60_000;
 
 #[non_exhaustive]
 #[derive(Debug, new)]
 pub struct PgWireMessageServerCodec<S> {
     pub client_info: DefaultClient<S>,
+    #[new(default)]
+    decode_context: DecodeContext,
 }
 
 impl<S> Decoder for PgWireMessageServerCodec<S> {
@@ -34,34 +47,26 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
     type Error = PgWireError;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        self.decode_context.protocol_version = self.client_info.protocol_version;
+
         match self.client_info.state() {
             PgWireConnectionState::AwaitingSslRequest => {
-                if src.remaining() >= SslRequest::BODY_SIZE {
-                    self.client_info
-                        .set_state(PgWireConnectionState::AwaitingStartup);
-
-                    if let Some(request) = SslRequest::decode(src)? {
-                        return Ok(Some(PgWireFrontendMessage::SslRequest(Some(request))));
-                    } else {
-                        // this is not a real message, but to indicate that
-                        //  client will not init ssl handshake
-                        return Ok(Some(PgWireFrontendMessage::SslRequest(None)));
-                    }
-                }
-
-                Ok(None)
+                self.decode_context.awaiting_frontend_ssl = true;
+                self.decode_context.awaiting_frontend_startup = true;
             }
 
             PgWireConnectionState::AwaitingStartup => {
-                if let Some(startup) = Startup::decode(src)? {
-                    Ok(Some(PgWireFrontendMessage::Startup(startup)))
-                } else {
-                    Ok(None)
-                }
+                self.decode_context.awaiting_frontend_ssl = false;
+                self.decode_context.awaiting_frontend_startup = true;
             }
 
-            _ => PgWireFrontendMessage::decode(src),
+            _ => {
+                self.decode_context.awaiting_frontend_startup = false;
+                self.decode_context.awaiting_frontend_ssl = false;
+            }
         }
+
+        PgWireFrontendMessage::decode(src, &self.decode_context)
     }
 }
 
@@ -77,13 +82,31 @@ impl<S> Encoder<PgWireBackendMessage> for PgWireMessageServerCodec<S> {
     }
 }
 
-impl<T, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
+impl<T: 'static, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
     fn socket_addr(&self) -> std::net::SocketAddr {
         self.codec().client_info.socket_addr
     }
 
     fn is_secure(&self) -> bool {
         self.codec().client_info.is_secure
+    }
+
+    fn pid_and_secret_key(&self) -> (i32, SecretKey) {
+        self.codec().client_info.pid_and_secret_key()
+    }
+
+    fn set_pid_and_secret_key(&mut self, pid: i32, secret_key: SecretKey) {
+        self.codec_mut()
+            .client_info
+            .set_pid_and_secret_key(pid, secret_key);
+    }
+
+    fn protocol_version(&self) -> ProtocolVersion {
+        self.codec().client_info.protocol_version()
+    }
+
+    fn set_protocol_version(&mut self, version: ProtocolVersion) {
+        self.codec_mut().client_info.set_protocol_version(version);
     }
 
     fn state(&self) -> PgWireConnectionState {
@@ -111,6 +134,23 @@ impl<T, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
             .client_info
             .set_transaction_status(new_status);
     }
+
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    fn sni_server_name(&self) -> Option<&str> {
+        self.codec().client_info.sni_server_name()
+    }
+
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    fn client_certificates<'a>(&self) -> Option<&[CertificateDer<'a>]> {
+        if !self.is_secure() {
+            None
+        } else {
+            let socket =
+                <dyn std::any::Any>::downcast_ref::<TlsStream<TcpStream>>(self.get_ref()).unwrap();
+            let (_, tls_session) = socket.get_ref();
+            tls_session.peer_certificates()
+        }
+    }
 }
 
 impl<T, S> ClientPortalStore for Framed<T, PgWireMessageServerCodec<S>> {
@@ -121,21 +161,30 @@ impl<T, S> ClientPortalStore for Framed<T, PgWireMessageServerCodec<S>> {
     }
 }
 
-async fn process_message<S, A, Q, EQ, C>(
+pub async fn process_message<S, A, Q, EQ, C, CR>(
     message: PgWireFrontendMessage,
     socket: &mut Framed<S, PgWireMessageServerCodec<EQ::Statement>>,
     authenticator: Arc<A>,
     query_handler: Arc<Q>,
     extended_query_handler: Arc<EQ>,
     copy_handler: Arc<C>,
+    cancel_handler: Arc<CR>,
 ) -> PgWireResult<()>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
+    S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
     A: StartupHandler,
     Q: SimpleQueryHandler,
     EQ: ExtendedQueryHandler,
     C: CopyHandler,
+    CR: CancelHandler,
 {
+    // CancelRequest is from a dedicated connection, process it and close it.
+    if let PgWireFrontendMessage::CancelRequest(cancel) = message {
+        cancel_handler.on_cancel_request(cancel).await;
+        socket.close().await?;
+        return Ok(());
+    }
+
     match socket.state() {
         PgWireConnectionState::AwaitingStartup
         | PgWireConnectionState::AuthenticationInProgress => {
@@ -233,23 +282,19 @@ where
     Ok(())
 }
 
-async fn process_error<S, ST>(
+pub async fn process_error<S, ST>(
     socket: &mut Framed<S, PgWireMessageServerCodec<ST>>,
     error: PgWireError,
     wait_for_sync: bool,
 ) -> Result<(), io::Error>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
+    S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
     let error_info: ErrorInfo = error.into();
     let is_fatal = error_info.is_fatal();
     socket
         .send(PgWireBackendMessage::ErrorResponse(error_info.into()))
         .await?;
-
-    if is_fatal {
-        return socket.close().await;
-    }
 
     let transaction_status = socket.transaction_status().to_error_state();
     socket.set_transaction_status(transaction_status);
@@ -265,6 +310,10 @@ where
             .await?;
     }
     socket.flush().await?;
+
+    if is_fatal {
+        return socket.close().await;
+    }
 
     Ok(())
 }
@@ -289,60 +338,61 @@ async fn peek_for_sslrequest<ST>(
 ) -> Result<SslNegotiationType, io::Error> {
     if check_ssl_direct_negotiation(socket.get_ref()).await? {
         Ok(SslNegotiationType::Direct)
-    } else if let Some(Ok(PgWireFrontendMessage::SslRequest(Some(_)))) = socket.next().await {
-        if ssl_supported {
-            socket
-                .send(PgWireBackendMessage::SslResponse(SslResponse::Accept))
-                .await?;
-            Ok(SslNegotiationType::Postgres)
-        } else {
-            socket
-                .send(PgWireBackendMessage::SslResponse(SslResponse::Refuse))
-                .await?;
-            Ok(SslNegotiationType::None)
-        }
     } else {
-        Ok(SslNegotiationType::None)
-    }
-}
+        let mut ssl_done = false;
+        let mut gss_done = false;
 
-async fn do_process_socket<S, A, Q, EQ, C, E>(
-    socket: &mut Framed<S, PgWireMessageServerCodec<EQ::Statement>>,
-    startup_handler: Arc<A>,
-    simple_query_handler: Arc<Q>,
-    extended_query_handler: Arc<EQ>,
-    copy_handler: Arc<C>,
-    error_handler: Arc<E>,
-) -> Result<(), io::Error>
-where
-    S: AsyncRead + AsyncWrite + Unpin + Send + Sync,
-    A: StartupHandler,
-    Q: SimpleQueryHandler,
-    EQ: ExtendedQueryHandler,
-    C: CopyHandler,
-    E: ErrorHandler,
-{
-    while let Some(Ok(msg)) = socket.next().await {
-        let is_extended_query = match socket.state() {
-            PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
-            _ => msg.is_extended_query(),
-        };
-        if let Err(mut e) = process_message(
-            msg,
-            socket,
-            startup_handler.clone(),
-            simple_query_handler.clone(),
-            extended_query_handler.clone(),
-            copy_handler.clone(),
-        )
-        .await
-        {
-            error_handler.on_error(socket, &mut e);
-            process_error(socket, e, is_extended_query).await?;
+        loop {
+            match socket.next().await {
+                // postgres ssl
+                Some(Ok(PgWireFrontendMessage::SslNegotiation(
+                    SslNegotiationMetaMessage::PostgresSsl(_),
+                ))) => {
+                    // ssl request
+                    if ssl_supported {
+                        socket
+                            .send(PgWireBackendMessage::SslResponse(SslResponse::Accept))
+                            .await?;
+                        return Ok(SslNegotiationType::Postgres);
+                    } else {
+                        socket
+                            .send(PgWireBackendMessage::SslResponse(SslResponse::Refuse))
+                            .await?;
+                        ssl_done = true;
+
+                        if gss_done {
+                            return Ok(SslNegotiationType::None);
+                        } else {
+                            // Continue to check for more requests (e.g., GssEncRequest after SSL refuse)
+                            continue;
+                        }
+                    }
+                }
+
+                // postgres gss
+                Some(Ok(PgWireFrontendMessage::SslNegotiation(
+                    SslNegotiationMetaMessage::PostgresGss(_),
+                ))) => {
+                    socket
+                        .send(PgWireBackendMessage::GssEncResponse(GssEncResponse::Refuse))
+                        .await?;
+                    gss_done = true;
+
+                    if ssl_done {
+                        return Ok(SslNegotiationType::None);
+                    } else {
+                        // Continue to check for more requests (e.g., SSL request after GSSAPI refuse)
+                        continue;
+                    }
+                }
+
+                // not a handshake request or connection is broken
+                _ => {
+                    return Ok(SslNegotiationType::None);
+                }
+            }
         }
     }
-
-    Ok(())
 }
 
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
@@ -350,10 +400,10 @@ fn check_alpn_for_direct_ssl<IO>(tls_socket: &TlsStream<IO>) -> Result<(), io::E
     let (_, the_conn) = tls_socket.get_ref();
     let mut accept = false;
 
-    if let Some(alpn) = the_conn.alpn_protocol() {
-        if alpn == super::POSTGRESQL_ALPN_NAME {
-            accept = true;
-        }
+    if let Some(alpn) = the_conn.alpn_protocol()
+        && alpn == super::POSTGRESQL_ALPN_NAME
+    {
+        accept = true;
     }
 
     if !accept {
@@ -366,6 +416,199 @@ fn check_alpn_for_direct_ssl<IO>(tls_socket: &TlsStream<IO>) -> Result<(), io::E
     }
 }
 
+#[non_exhaustive]
+pub enum MaybeTls {
+    Plain(TcpStream),
+    #[cfg(unix)]
+    Unix(UnixStream),
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    Tls(Box<TlsStream<TcpStream>>),
+}
+
+macro_rules! maybe_tls {
+    ($self:ident, $poll_x:ident($($args:expr),*)) => {
+        match $self.get_mut() {
+            MaybeTls::Plain(io) => Pin::new(io).$poll_x($($args),*),
+            #[cfg(unix)]
+            MaybeTls::Unix(io) => Pin::new(io).$poll_x($($args),*),
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+            MaybeTls::Tls(io) => Pin::new(io).$poll_x($($args),*),
+        }
+    };
+}
+
+impl AsyncRead for MaybeTls {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        maybe_tls!(self, poll_read(cx, buf))
+    }
+}
+
+impl AsyncWrite for MaybeTls {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        maybe_tls!(self, poll_write(cx, buf))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        maybe_tls!(self, poll_flush(cx))
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        maybe_tls!(self, poll_shutdown(cx))
+    }
+}
+
+/// Negotiate TLS with the given client stream.
+///
+/// Returns `Ok(None)` if the client sent a direct TLS negotiation but
+/// `tls_acceptor` was `None`.
+pub async fn negotiate_tls<S>(
+    tcp_socket: TcpStream,
+    tls_acceptor: Option<crate::tokio::TlsAcceptor>,
+) -> io::Result<Option<Framed<MaybeTls, PgWireMessageServerCodec<S>>>> {
+    let addr = tcp_socket.peer_addr()?;
+    tcp_socket.set_nodelay(true)?;
+
+    let client_info = DefaultClient::new(addr, false);
+    let mut tcp_socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
+
+    // this function will process postgres ssl negotiation and consume the first
+    // SslRequest packet if detected.
+    let ssl = peek_for_sslrequest(&mut tcp_socket, tls_acceptor.is_some()).await?;
+
+    let old_parts = tcp_socket.into_parts();
+
+    if ssl == SslNegotiationType::None {
+        let mut parts = FramedParts::new(MaybeTls::Plain(old_parts.io), old_parts.codec);
+        parts.read_buf = old_parts.read_buf;
+        parts.write_buf = old_parts.write_buf;
+        let mut socket = Framed::from_parts(parts);
+
+        socket.set_state(PgWireConnectionState::AwaitingStartup);
+
+        return Ok(Some(socket));
+    }
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    if let Some(tls_acceptor) = tls_acceptor {
+        // mention the use of ssl
+        let mut client_info = DefaultClient::new(addr, true);
+
+        let ssl_socket = Box::new(tls_acceptor.accept(old_parts.io).await?);
+
+        // check alpn for direct ssl connection
+        if ssl == SslNegotiationType::Direct {
+            check_alpn_for_direct_ssl(&ssl_socket)?;
+        }
+
+        // capture SNI (server name) from the underlying TLS connection
+        let sni = {
+            let (_, conn) = ssl_socket.get_ref();
+            conn.server_name().map(|s| s.to_string())
+        };
+        if let Some(s) = sni {
+            client_info.sni_server_name = Some(s);
+        }
+
+        let mut parts = FramedParts::new(
+            MaybeTls::Tls(ssl_socket),
+            PgWireMessageServerCodec::new(client_info),
+        );
+        parts.read_buf = old_parts.read_buf;
+        parts.write_buf = old_parts.write_buf;
+        let mut socket = Framed::from_parts(parts);
+
+        socket.set_state(PgWireConnectionState::AwaitingStartup);
+
+        return Ok(Some(socket));
+    }
+    Ok(None)
+}
+
+/// Process messages on an already-negotiated socket.
+///
+/// This is the common message processing loop shared by both TCP and Unix sockets.
+macro_rules! process_socket_messages {
+    ($socket:expr, $startup_timeout:expr, $handlers:expr) => {{
+        let startup_handler = $handlers.startup_handler();
+        let simple_query_handler = $handlers.simple_query_handler();
+        let extended_query_handler = $handlers.extended_query_handler();
+        let copy_handler = $handlers.copy_handler();
+        let cancel_handler = $handlers.cancel_handler();
+        let error_handler = $handlers.error_handler();
+
+        let socket = &mut $socket;
+        loop {
+            let msg = if matches!(
+                socket.state(),
+                PgWireConnectionState::AwaitingStartup
+                    | PgWireConnectionState::AuthenticationInProgress
+            ) {
+                tokio::select! {
+                    _ = &mut $startup_timeout => None,
+                    msg = socket.next() => msg,
+                }
+            } else {
+                socket.next().await
+            };
+
+            if let Some(Ok(msg)) = msg {
+                let is_extended_query = match socket.state() {
+                    PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
+                    _ => msg.is_extended_query(),
+                };
+                if let Err(mut e) = process_message(
+                    msg,
+                    socket,
+                    startup_handler.clone(),
+                    simple_query_handler.clone(),
+                    extended_query_handler.clone(),
+                    copy_handler.clone(),
+                    cancel_handler.clone(),
+                )
+                .await
+                {
+                    error_handler.on_error(socket, &mut e);
+                    process_error(socket, e, is_extended_query).await?;
+                }
+            } else {
+                break;
+            }
+        }
+    }};
+}
+
+/// Process Unix domain socket connection.
+#[cfg(unix)]
+pub async fn process_socket_unix<H>(unix_socket: UnixStream, handlers: H) -> Result<(), io::Error>
+where
+    H: PgWireServerHandlers,
+{
+    let startup_timeout = sleep(Duration::from_millis(STARTUP_TIMEOUT_MILLIS));
+    tokio::pin!(startup_timeout);
+
+    // Use a dummy socket address for Unix domain socket connections
+    // This is consistent with how PostgreSQL handles Unix socket connections
+    let addr = "127.0.0.1:0".parse().unwrap();
+
+    let client_info = DefaultClient::new(addr, false);
+    let mut socket = Framed::new(
+        MaybeTls::Unix(unix_socket),
+        PgWireMessageServerCodec::new(client_info),
+    );
+
+    socket.set_state(PgWireConnectionState::AwaitingStartup);
+
+    process_socket_messages!(socket, startup_timeout, handlers);
+    Ok(())
+}
+
 pub async fn process_socket<H>(
     tcp_socket: TcpStream,
     tls_acceptor: Option<crate::tokio::TlsAcceptor>,
@@ -374,63 +617,277 @@ pub async fn process_socket<H>(
 where
     H: PgWireServerHandlers,
 {
-    let addr = tcp_socket.peer_addr()?;
-    tcp_socket.set_nodelay(true)?;
+    // start a timer for startup process, if the client couldn't finish startup
+    // within the timeout, it has to be dropped.
+    let startup_timeout = sleep(Duration::from_millis(STARTUP_TIMEOUT_MILLIS));
+    tokio::pin!(startup_timeout);
 
-    let client_info = DefaultClient::new(addr, false);
-    let mut tcp_socket = Framed::new(tcp_socket, PgWireMessageServerCodec::new(client_info));
+    // this function will process postgres ssl negotiation and consume the first
+    // SslRequest packet if detected.
+    let socket = tokio::select! {
+        _ = &mut startup_timeout => {
+            return Ok(())
+        },
+        socket = negotiate_tls(tcp_socket, tls_acceptor) => {
+            socket?
+        }
+    };
+    let Some(mut socket) = socket else {
+        // no tls_acceptor configured. But the client sends direct tls
+        // negotiation. this is typically an invalid connection
+        return Ok(());
+    };
 
-    let ssl = peek_for_sslrequest(&mut tcp_socket, tls_acceptor.is_some()).await?;
+    process_socket_messages!(socket, startup_timeout, handlers);
+    Ok(())
+}
 
-    let startup_handler = handlers.startup_handler();
-    let simple_query_handler = handlers.simple_query_handler();
-    let extended_query_handler = handlers.extended_query_handler();
-    let copy_handler = handlers.copy_handler();
-    let error_handler = handlers.error_handler();
+#[cfg(all(test, any(feature = "_ring", feature = "_aws-lc-rs")))]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::{BufReader, Error as IOError};
+    use std::sync::Arc;
+    use tokio::sync::oneshot;
+    use tokio_rustls::TlsAcceptor;
+    use tokio_rustls::TlsConnector;
+    use tokio_rustls::rustls;
+    use tokio_rustls::rustls::crypto::CryptoProvider;
 
-    if ssl == SslNegotiationType::None {
-        // use an already configured socket.
-        let mut socket = tcp_socket;
+    fn load_test_server_config() -> Result<rustls::ServerConfig, IOError> {
+        use rustls_pemfile::{certs, pkcs8_private_keys};
+        use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 
-        do_process_socket(
-            &mut socket,
-            startup_handler,
-            simple_query_handler,
-            extended_query_handler,
-            copy_handler,
-            error_handler,
-        )
-        .await
-    } else {
-        #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
-        {
-            // mention the use of ssl
-            let client_info = DefaultClient::new(addr, true);
-            // safe to unwrap tls_acceptor here
-            let ssl_socket = tls_acceptor
-                .unwrap()
-                .accept(tcp_socket.into_inner())
-                .await?;
+        let certs = certs(&mut BufReader::new(File::open("examples/ssl/server.crt")?))
+            .collect::<Result<Vec<CertificateDer>, _>>()?;
+        let key = pkcs8_private_keys(&mut BufReader::new(File::open("examples/ssl/server.key")?))
+            .map(|key| key.map(PrivateKeyDer::from))
+            .collect::<Result<Vec<PrivateKeyDer>, _>>()?
+            .remove(0);
 
-            // check alpn for direct ssl connection
-            if ssl == SslNegotiationType::Direct {
-                check_alpn_for_direct_ssl(&ssl_socket)?;
+        let mut cfg = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+        // ALPN is optional for this test; SNI extraction doesn't depend on it.
+        cfg.alpn_protocols = vec![crate::tokio::POSTGRESQL_ALPN_NAME.to_vec()];
+        Ok(cfg)
+    }
+
+    fn make_test_client_connector() -> Result<TlsConnector, IOError> {
+        // For this unit test we are only validating SNI plumbing, not cert validation.
+        // Use a custom verifier that accepts any certificate.
+        #[derive(Debug)]
+        struct NoCertVerifier;
+        impl rustls::client::danger::ServerCertVerifier for NoCertVerifier {
+            fn verify_server_cert(
+                &self,
+                _end_entity: &rustls::pki_types::CertificateDer<'_>,
+                _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+                _server_name: &rustls::pki_types::ServerName<'_>,
+                _ocsp_response: &[u8],
+                _now: rustls::pki_types::UnixTime,
+            ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+                Ok(rustls::client::danger::ServerCertVerified::assertion())
             }
 
-            let mut socket = Framed::new(ssl_socket, PgWireMessageServerCodec::new(client_info));
+            fn verify_tls12_signature(
+                &self,
+                _message: &[u8],
+                _cert: &rustls::pki_types::CertificateDer<'_>,
+                _dss: &rustls::DigitallySignedStruct,
+            ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error>
+            {
+                Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+            }
 
-            do_process_socket(
-                &mut socket,
-                startup_handler,
-                simple_query_handler,
-                extended_query_handler,
-                copy_handler,
-                error_handler,
-            )
-            .await
+            fn verify_tls13_signature(
+                &self,
+                _message: &[u8],
+                _cert: &rustls::pki_types::CertificateDer<'_>,
+                _dss: &rustls::DigitallySignedStruct,
+            ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error>
+            {
+                Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+            }
+
+            fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+                vec![
+                    rustls::SignatureScheme::RSA_PKCS1_SHA256,
+                    rustls::SignatureScheme::RSA_PKCS1_SHA384,
+                    rustls::SignatureScheme::RSA_PKCS1_SHA512,
+                    rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
+                    rustls::SignatureScheme::ECDSA_NISTP384_SHA384,
+                    rustls::SignatureScheme::RSA_PSS_SHA256,
+                    rustls::SignatureScheme::RSA_PSS_SHA384,
+                    rustls::SignatureScheme::RSA_PSS_SHA512,
+                ]
+            }
         }
 
-        #[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]
-        Ok(())
+        let mut cfg = rustls::ClientConfig::builder()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(NoCertVerifier))
+            .with_no_client_auth();
+        // Align ALPN to server to reduce negotiation variance
+        cfg.alpn_protocols = vec![crate::tokio::POSTGRESQL_ALPN_NAME.to_vec()];
+        Ok(TlsConnector::from(Arc::new(cfg)))
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn server_name_metadata_is_set_from_tls_sni() {
+        use std::net::SocketAddr;
+        use tokio::io::duplex;
+
+        // set up TLS server and client configs
+        let server_cfg = load_test_server_config().expect("server config");
+        let acceptor = TlsAcceptor::from(Arc::new(server_cfg));
+        let connector = make_test_client_connector().expect("client connector");
+
+        // in-memory full-duplex stream pair (use a larger buffer for TLS handshake)
+        let (server_io, client_io) = duplex(64 * 1024);
+
+        let (tx, rx) = oneshot::channel::<Option<String>>();
+
+        // spawn server task to accept TLS over in-memory IO
+        tokio::spawn(async move {
+            let tls = acceptor.accept(server_io).await.unwrap();
+
+            // mimic production path: capture SNI and store on client_info
+            let sni = {
+                let (_, conn) = tls.get_ref();
+                conn.server_name().map(|s| s.to_string())
+            };
+            let peer: SocketAddr = "127.0.0.1:0".parse().unwrap();
+            let mut ci: DefaultClient<()> = DefaultClient::new(peer, true);
+            if let Some(s) = sni {
+                ci.sni_server_name = Some(s);
+            }
+            let framed = Framed::new(tls, PgWireMessageServerCodec::new(ci));
+            let server_name = framed.sni_server_name().map(str::to_string);
+            let _ = tx.send(server_name);
+        });
+
+        // client side: connect with SNI=localhost over in-memory IO
+        let server_name = rustls_pki_types::ServerName::try_from("localhost").unwrap();
+        let _ = connector.connect(server_name, client_io).await.unwrap();
+
+        // verify server observed SNI and stored as `server_name`
+        let observed = rx.await.expect("server_name from server");
+        assert_eq!(observed.as_deref(), Some("localhost"));
+    }
+
+    #[tokio::test]
+    async fn server_name_metadata_is_set_from_tls_sni_in_memory() {
+        use std::net::SocketAddr;
+
+        #[cfg(feature = "_aws-lc-rs")]
+        CryptoProvider::install_default(tokio_rustls::rustls::crypto::aws_lc_rs::default_provider()).unwrap();
+        #[cfg(feature = "_ring")]
+        CryptoProvider::install_default(tokio_rustls::rustls::crypto::ring::default_provider())
+            .unwrap();
+
+        // server and client rustls configs
+        let server_cfg = Arc::new(load_test_server_config().expect("server config"));
+
+        // no-op verifier to focus on SNI plumbing
+        #[derive(Debug)]
+        struct NoCertVerifier;
+        impl rustls::client::danger::ServerCertVerifier for NoCertVerifier {
+            fn verify_server_cert(
+                &self,
+                _end_entity: &rustls::pki_types::CertificateDer<'_>,
+                _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+                _server_name: &rustls::pki_types::ServerName<'_>,
+                _ocsp_response: &[u8],
+                _now: rustls::pki_types::UnixTime,
+            ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+                Ok(rustls::client::danger::ServerCertVerified::assertion())
+            }
+            fn verify_tls12_signature(
+                &self,
+                _message: &[u8],
+                _cert: &rustls::pki_types::CertificateDer<'_>,
+                _dss: &rustls::DigitallySignedStruct,
+            ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error>
+            {
+                Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+            }
+            fn verify_tls13_signature(
+                &self,
+                _message: &[u8],
+                _cert: &rustls::pki_types::CertificateDer<'_>,
+                _dss: &rustls::DigitallySignedStruct,
+            ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error>
+            {
+                Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+            }
+            fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+                vec![
+                    rustls::SignatureScheme::RSA_PKCS1_SHA256,
+                    rustls::SignatureScheme::RSA_PKCS1_SHA384,
+                    rustls::SignatureScheme::RSA_PKCS1_SHA512,
+                    rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
+                    rustls::SignatureScheme::ECDSA_NISTP384_SHA384,
+                    rustls::SignatureScheme::RSA_PSS_SHA256,
+                    rustls::SignatureScheme::RSA_PSS_SHA384,
+                    rustls::SignatureScheme::RSA_PSS_SHA512,
+                ]
+            }
+        }
+
+        let mut client_cfg = rustls::ClientConfig::builder()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(NoCertVerifier))
+            .with_no_client_auth();
+        client_cfg.alpn_protocols = vec![crate::tokio::POSTGRESQL_ALPN_NAME.to_vec()];
+        let client_cfg = Arc::new(client_cfg);
+
+        // build rustls connections directly and drive handshake in-memory
+        let mut server_conn = rustls::ServerConnection::new(server_cfg).unwrap();
+        let mut client_conn = rustls::ClientConnection::new(
+            client_cfg,
+            rustls_pki_types::ServerName::try_from("localhost").unwrap(),
+        )
+        .unwrap();
+
+        // in-memory pipes for TLS records
+        let mut c2s = Vec::new();
+        let mut s2c = Vec::new();
+
+        // drive handshake until both sides complete
+        for _ in 0..1000 {
+            // client -> server
+            let _ = client_conn.write_tls(&mut c2s);
+            if !c2s.is_empty() {
+                let mut cur = std::io::Cursor::new(&c2s);
+                let _ = server_conn.read_tls(&mut cur);
+                c2s.clear();
+                server_conn.process_new_packets().unwrap();
+            }
+
+            // server -> client
+            let _ = server_conn.write_tls(&mut s2c);
+            if !s2c.is_empty() {
+                let mut cur = std::io::Cursor::new(&s2c);
+                let _ = client_conn.read_tls(&mut cur);
+                s2c.clear();
+                client_conn.process_new_packets().unwrap();
+            }
+
+            if !client_conn.is_handshaking() && !server_conn.is_handshaking() {
+                break;
+            }
+        }
+
+        // capture SNI from server side and store on client info
+        let sni = server_conn.server_name().map(|s| s.to_string());
+        let peer: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let mut ci: DefaultClient<()> = DefaultClient::new(peer, true);
+        if let Some(s) = sni {
+            ci.sni_server_name = Some(s);
+        }
+        assert_eq!(ci.sni_server_name(), Some("localhost"));
     }
 }

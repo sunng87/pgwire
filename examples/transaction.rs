@@ -2,16 +2,15 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{stream, Sink, SinkExt};
+use futures::{Sink, SinkExt, stream};
+use pgwire::api::auth::StartupHandler;
 use tokio::net::TcpListener;
 
 use pgwire::api::auth::noop::NoopStartupHandler;
-use pgwire::api::copy::NoopCopyHandler;
-use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
+use pgwire::api::query::SimpleQueryHandler;
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
-use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type};
-use pgwire::error::ErrorInfo;
-use pgwire::error::{PgWireError, PgWireResult};
+use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
+use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::response::NoticeResponse;
 use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 use pgwire::tokio::process_socket;
@@ -47,11 +46,7 @@ impl NoopStartupHandler for DummyProcessor {
 
 #[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
-    async fn do_query<'a, C>(
-        &self,
-        _client: &mut C,
-        query: &'a str,
-    ) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -67,11 +62,11 @@ impl SimpleQueryHandler for DummyProcessor {
                 let schema = Arc::new(vec![f1]);
                 let schema_ref = schema.clone();
 
+                let mut encoder = DataRowEncoder::new(schema_ref.clone());
                 let row = {
-                    let mut encoder = DataRowEncoder::new(schema_ref.clone());
                     encoder.encode_field(&Some(1))?;
 
-                    encoder.finish()
+                    Ok(encoder.take_row())
                 };
                 let data_row_stream = stream::iter(vec![row]);
                 Response::Query(QueryResponse::new(schema, data_row_stream))
@@ -92,30 +87,12 @@ struct DummyProcessorFactory {
 }
 
 impl PgWireServerHandlers for DummyProcessorFactory {
-    type StartupHandler = DummyProcessor;
-    type SimpleQueryHandler = DummyProcessor;
-    type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
-    type CopyHandler = NoopCopyHandler;
-    type ErrorHandler = NoopErrorHandler;
-
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+    fn simple_query_handler(&self) -> Arc<impl SimpleQueryHandler> {
         self.handler.clone()
     }
 
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
-        Arc::new(PlaceholderExtendedQueryHandler)
-    }
-
-    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+    fn startup_handler(&self) -> Arc<impl StartupHandler> {
         self.handler.clone()
-    }
-
-    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
-        Arc::new(NoopCopyHandler)
-    }
-
-    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
-        Arc::new(NoopErrorHandler)
     }
 }
 

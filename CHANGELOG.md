@@ -6,7 +6,292 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - ReleaseDate
+## [2026-03-25] - 0.38.2
+
+### Changed
+
+- Removed size limit for ParameterDescription message [#418]
+
+## [0.38.1] - 2026-03-18
+
+### Added
+
+- Client API: SCRAM authentication [#414]
+
+### Fixed
+
+- Added more ISO datetime string format for timestamp, timestamptz and date types [#417]
+- Panic when parsing non null terminated cstring [#407]
+
+## [0.38.0] - 2026-02-15
+
+### Added
+
+- CopyEncoder, PGCOPY protocol and full Copy out API support [#403]
+
+### Fixed
+
+- TLS handshake in client API [#400]
+- ClientConfig compilation on Windows [#392]
+- Resetting DecodeContext fields [#394]
+
+### Changed
+
+- `FromSqlText` is no longer implemented for `Vec<T>`, use `Vec<Option<T>>`
+  instead [#395]
+- `standard_string_conforming` is always on now [#388]
+
+## [0.37.3] - 2026-01-23
+
+### Fixed
+
+- Issue with `postgres` DateStyle [#387]
+
+## [0.37.2] - 2026-01-22
+
+### Changed
+
+- Add auto `FromSqlText` implementation for `Vec<Option<T>>` where T is
+  `FromSqlText`. We are going to remove `FromSqlText` for `Vec<T>` in
+  next breaking release due to conflicts and lack of NULL semantic. [#385]
+
+## [0.37.1] - 2026-01-22
+
+### Added
+
+- New data type supported: PostGIS types [#382]
+- New data type supported: Interval [#383]
+- UDS server and client socket support [#381] [#379]
+
+## [0.37.0] - 2025-12-18
+
+### Added
+
+- Postgres 18 OAuth Authentication support [#349]
+- More `ToSqlText` implementations [#364]
+
+### Changed
+
+- Deprecated `finish()` and make `DataRowEncoder` reusable for a massive
+  performance gain [#366]
+- Parameter type and result schema functions added to `QueryParser` trait,
+  for default implementation of describe statement and portal in
+  ExtendedQueryHandler. This change allow us to provide postgres compatible
+  default behavior for describing statement.[#356]
+
+## Fixed
+
+- `ToSqlText` for String array with backslash and empty strings [#361]
+- `FromSqlText` for timestamps [#363]
+
+## [0.36.3] - 2025-12-04
+
+### Fixed
+
+- `FromSqlText` implementation for text and bytea arrays, with backslash or
+empty string [#361]
+- `FromSqlText` implementation for date time when JDBC encode `.0` in timestamp
+string [#363]
+
+### Added
+
+- `FromSqlText` implementation for timestamp array and timestamptz array. [#363]
+
+## [0.36.2] - 2025-11-28
+
+### Fixed
+
+- Fixed text decoding for `NaiveTime` and `SystemTime`. [#358]
+
+## [0.36.1] - 2025-11-24
+
+### Changed
+
+- Add and correct more implements of `FromSqlText`: new implementations are
+  added for `Vec<Option<T>>` where T is `FromSqlText`. Corrected parsing for
+  timestamp and date types. [#353]
+
+## [0.36.0] - 2025-11-21
+
+### Changed
+
+- Client provided parameter types are now stored as `Vec<Option<Type>>`. If
+  the OID of client provided type is 0, we use `None` here. Previously we will
+  default to `UNKNOWN` type but it has different semantics. [#350]
+- Extended query parameter parsing now respects format code, we will use
+  `FromSqlText` to parse those types encoded as text. More type to be supported
+  for `FromSqlText`. [#351]
+- Unnamed portal is automatically dropped when execution finished [#348]
+
+### Fixed
+
+- Issue with client-api when decoding data [#347]
+
+## [0.35.0] - 2025-11-05
+
+### Added
+
+- Customisible `DateStyle`, `IntervalStyle`, `extra_float_digits` support.
+
+### Changed
+
+- Updated `ToSqlText` and `FromSqlText` interface to include a new
+  `FormatOptions` for postgres' additional options on text representation of
+  some types.
+
+## [0.34.2] - 2025-10-21
+
+### Added
+
+- Exposed more functions from `pgwire::tokio::server`. [#333]
+
+### Changed
+
+- Removed `BufReader` wrapper on socket [#332]
+
+## [0.34.1] - 2025-10-20
+
+### Changed
+
+- Update `pg_type_*` feature flags to `pg-type-*` following our previous naming
+  pattern. [#331]
+
+## [0.34.0] - 2025-10-18
+
+### Added
+
+- Access SNI server name from `ClientInfo` [#323]
+- Added encode API for `serde_json::Value`/json in postgres [#321]
+- Added `Debug` to `Response` enum [#325]
+
+### Changed
+
+- No-op handlers now returns error [#319]
+- Make `pgwire::tokio::server` public [#329]
+
+### Fixed
+
+- Potential busy loop with peeking data [#330]
+
+
+## [0.33.0] - 2025-09-22
+
+### Added
+
+- Portal suspension support, aka server-side cursor in extended query. This
+  feature allows client to send `Execute` with a `max_row` property to limit how
+  many rows to return. Client can send further `Execute` against the same portal
+  until all rows returned. [#303]
+
+### Changed
+
+- Simplified and removed lifetime specifier from `Response` and
+  `QueryResponse`. Breaking change.
+- Changed SCRAM authentication implementation. SASL is now a framework to
+  support multiple authentication mechanisms. Breaking change. [#302]
+- Added `Send` to client in `StartupHandler`.
+- Added `Debug` requirement for `AuthSource`.
+
+### Removed
+
+- `scram` feature is removed, it's enabled with either of `ring` or `aws-lc-rs`
+  is on.
+
+## [0.32.1] - 2025-08-12
+
+### Fixed
+
+- Correct packet length check [#295]
+- Potential panic on direct TLS when it is not configured [#296]
+- Timeout on getting startup message on Windows [#297]
+
+## [0.32.0] - 2025-08-07
+
+### Added
+
+- Added support for GSSAPI handshake. This fixes connection issue with psql 14
+  homebrew on Mac. [#290]
+- Added authentication timeout (60s). Unauthenticated connection will be dropped
+  after timeout. [#293]
+- Added validation on packet length. [#292]
+
+### Changed
+
+- Corrected typo for `MESSAGE_TYPE_BYTE_PASSWORD_MESSAGE_FAMILY`
+
+## [0.31.1] - 2025-07-31
+
+### Added
+
+- The default implementation of `SimpleQueryHandler#on_query`,
+  `ExtendedQueryHandler#on_execute` and `ExtendedQueryHandler#on_describe` and
+  moved to `SimpleQueryHandler#_on_query`, `ExtendedQueryHandler#_on_execute`
+  and `ExtendedQueryHandler#_on_describe`. This allows you to reuse the
+  implementation in your own `on_query`/`on_execute`/`on_describe` without
+  copying the code. [#287]
+
+### Fixed
+
+- `NegotiateProtocolVersion` code and member visibility [#288]
+
+## [0.31.0] - 2025-07-04
+
+### Added
+
+- Initial support for Postgres 18 new proptocol version 3.2, and protocol
+  negotiation for future protocol upgrades [#281]
+- CancelRequest message and initial (unstable) API, made backend key and secret
+  key configurable by user [#266] [#267]
+
+### Changed
+
+- Updated `PgWireServerHandlers` to use `impl trait` style return value, this
+  allow us to define default implementation easier, which requires less
+  boilerplate code. [#269]
+- Updated message decode functions to take an additional `DecodeContext`. It
+  provides some state information like protocol version, connection state, with
+  which we can not decode `SslRequest`, `Startup` messages in the `decode`
+  function. [#282]
+- Using `arrow-pg` crate for duckdb example [#273]
+
+## [0.30.2] - 2025-06-03
+
+### Changed
+
+- Add `QUOTE_CHECK` and `QUOTE_ESCAPE` back to types public APIs [#264]
+
+## [0.30.1] - 2025-05-28
+
+### Changed
+
+- Set chrono version to `0.4` as we don't require features in `0.4.40`
+
+## [0.30.0] - 2025-05-28
+
+### Changed
+
+- Lifetime specifier of do_query methods in query handlers, it doesn't have to
+  be same with query input at all [#260]
+- Provide `ClientInfo` to `QueryParser` for context-aware parsing [#263]
+
+### Fixed
+
+- Scram authentication failure error [#257]
+
+## [0.29.1] - 2025-05-21
+
+### Changed
+
+- Released version restrictions on chrono [#259]
+
+## [0.29.0] - 2025-05-07
+
+### Added
+
+- New API `client_certificates` in `ClientInfo` for retrieving clietn
+  certificate information. [#255]
+- A few unfinished client API. These APIs are disabled with feature gate by
+  default.
 
 ### Changed
 
@@ -16,6 +301,13 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - Previously we treat all error as fatal internal error but some of them are due
   to client invalid input. This version corrected this and return `ERROR` for
   these type of errors. [#240]
+- For direct SSL negotiation, we now check ALPN strictly. [#243]
+- Changed default server_version format for compatibility. [#233]
+
+### Fixed
+
+- Avoid panic for `get_string` on empty buffer [#247]
+
 
 ## [0.28.0] - 2024-12-07
 

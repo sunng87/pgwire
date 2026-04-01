@@ -10,6 +10,11 @@ This library implements PostgreSQL Wire Protocol, and provide essential APIs to
 write PostgreSQL compatible servers and clients. It's like
 [hyper](https://github.com/hyperium/hyper/), but for postgres wire protocol.
 
+The
+[datafusion-postgres](https://github.com/datafusion-contrib/datafusion-postgres)
+project is a more complete library built on top of pgwire, with datafusion as
+query engine, as well as pg_catalog implementation over datafusion.
+
 If you are interested in related topic, you can check [project
 ideas](https://github.com/sunng87/pgwire/discussions/204) to build on top of
 this library.
@@ -19,6 +24,8 @@ this library.
 
 - Message format
   - [x] Frontend-Backend protocol messages
+    - [x] 3.0
+    - [x] 3.2, Postgres 18
   - [ ] Streaming replication protocol
   - [ ] Logical streaming replication protocol message
 - [x] Backend TCP/TLS server on Tokio
@@ -26,14 +33,16 @@ this library.
 - Frontend-Backend interaction over TCP
   - [x] SSL Request and Response
     - [x] PostgreSQL 17 direct SSL negotiation
+  - [x] GSSAPI Request and Response: GSSAPI encryption is not supported
   - [x] Startup
+    - [x] Protocol negotiation
     - [x] No authentication
     - [x] Clear-text password authentication
     - [x] Md5 Password authentication
-    - [x] SASL SCRAM authentication (optional feature `server-api-scram-ring` or
-          `server-api-scram-aws-lc-rs`)
+    - [x] SASL SCRAM authentication
       - [x] SCRAM-SHA-256
       - [x] SCRAM-SHA-256-PLUS
+    - [x] SASL OAUTH
   - [x] Simple Query and Response
   - [x] Extended Query and Response
     - [x] Parse
@@ -60,7 +69,7 @@ this library.
     - [x] Extended Query API
       - [x] QueryParser API, for transforming prepared statement
     - [x] ResultSet builder/encoder API
-    - [ ] Query Cancellation API
+    - [x] Query Cancellation API
     - [x] Error and Notice API
     - [x] Copy API
       - [x] Copy-in
@@ -124,9 +133,8 @@ Examples are provided to demo the very basic usage of `pgwire` on server side:
   it with postgresql protocol. This is a full example with both simple and
   extended query implementation. `cargo run --features _sqlite --example
   sqlite`
-- `examples/duckdb.rs`: similar to sqlite example but with duckdb backend. Note
-  that not all data types are implemented in this example. `cargo run --features
-  _duckdb --example duckdb`
+- `examples/duckdb.rs`: Now moved to
+  [pgwire-duckdb](https://github.com/sunng87/pgwire-duckdb)
 - `examples/gluesql.rs`: uses an in-memory
   [gluesql](https://github.com/gluesql/gluesql) at its core and serves
   it with postgresql protocol.
@@ -140,6 +148,8 @@ Examples are provided to demo the very basic usage of `pgwire` on server side:
   protocol level.
 - `examples/datafusion.rs`: Now moved to
   [datafusion-postgres](https://github.com/sunng87/datafusion-postgres)
+- `examples/oauth.rs`, `examples/keycloak_oauth.rs`: Examples for Postgres 18
+  OAuth authentication.
 
 ### Client/Frontend
 
@@ -156,15 +166,33 @@ application development, you can use
 * [risinglight](https://github.com/risinglightdb/risinglight): OLAP database
   system for educational purpose
 * [PeerDB](https://github.com/PeerDB-io/peerdb) Postgres first ETL/ELT, enabling
-  10x faster data movement in and out of Postgres
+  10x faster data movement in and out of Postgres, acquired by Clickhouse
 * [CeresDB](https://github.com/CeresDB/ceresdb) CeresDB is a high-performance,
   distributed, cloud native time-series database from AntGroup.
 * [dozer](https://github.com/getdozer/dozer) a real-time data platform for
   building, deploying and maintaining data products.
-* [restate](https://github.com/restatedev/restate) Framework for building
-  resilient workflow
+* [pg_catalog](https://github.com/ybrs/pg_catalog) Provides a postgres
+  compatibility layer for custom databases.
+* [SpacetimeDB](https://github.com/clockworklabs/SpacetimeDB) The database for
+  multiplayer games. It's using pgwire for postgres protocol interface.
+* [corrosion](https://github.com/superfly/corrosion) from fly.io: Gossip-based
+  service discovery (and more) for large distributed systems.
+* [db9.ai](https://db9.ai/): Postgres but for agents.
+
 
 Submit a pull request if your project isn't listed here.
+
+## Community
+
+### Developer Mailing List
+
+If you like the idea of pgwire and want to join the development of the library,
+or its ecosystem integrations, extensions, you are welcomed to join our
+developer mailing list: https://groups.io/g/pgwire-dev/
+
+### Github Discussion
+
+Github discussion of this repo is also open for more generate questions.
 
 ## License
 

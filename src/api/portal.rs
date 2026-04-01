@@ -1,26 +1,42 @@
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use bytes::Bytes;
 use postgres_types::FromSqlOwned;
+use tokio::sync::Mutex;
 
-use crate::{
-    api::Type,
-    error::{PgWireError, PgWireResult},
-    messages::{data::FORMAT_CODE_BINARY, extendedquery::Bind},
-};
+use crate::api::Type;
+use crate::api::results::QueryResponse;
+use crate::error::{PgWireError, PgWireResult};
+use crate::messages::data::FORMAT_CODE_BINARY;
+use crate::messages::extendedquery::Bind;
+use crate::types::FromSqlText;
+use crate::types::format::FormatOptions;
 
-use super::{results::FieldFormat, stmt::StoredStatement, DEFAULT_NAME};
+use super::DEFAULT_NAME;
+use super::results::FieldFormat;
+use super::stmt::StoredStatement;
 
 /// Represent a prepared sql statement and its parameters bound by a `Bind`
 /// request.
 #[non_exhaustive]
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct Portal<S> {
     pub name: String,
     pub statement: Arc<StoredStatement<S>>,
     pub parameter_format: Format,
     pub parameters: Vec<Option<Bytes>>,
     pub result_column_format: Format,
+    pub state: Arc<Mutex<PortalExecutionState>>,
+}
+
+#[derive(Default, Debug)]
+pub enum PortalExecutionState {
+    #[default]
+    Initial,
+    // tag and data stream
+    Suspended(QueryResponse),
+    Finished,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -47,7 +63,7 @@ impl Format {
         match self {
             Format::UnifiedText => FieldFormat::Text,
             Format::UnifiedBinary => FieldFormat::Binary,
-            Format::Individual(ref fv) => FieldFormat::from(fv[idx]),
+            Format::Individual(fv) => FieldFormat::from(fv[idx]),
         }
     }
 
@@ -92,6 +108,7 @@ impl<S: Clone> Portal<S> {
             parameter_format: param_format,
             parameters: bind.parameters.clone(),
             result_column_format: result_format,
+            state: Arc::new(Mutex::new(PortalExecutionState::Initial)),
         })
     }
 
@@ -102,9 +119,9 @@ impl<S: Clone> Portal<S> {
 
     /// Attempt to get parameter at given index as type `T`.
     ///
-    pub fn parameter<T>(&self, idx: usize, pg_type: &Type) -> PgWireResult<Option<T>>
+    pub fn parameter<'a, T>(&'a self, idx: usize, pg_type: &Type) -> PgWireResult<Option<T>>
     where
-        T: FromSqlOwned,
+        T: FromSqlOwned + FromSqlText<'a>,
     {
         if !T::accepts(pg_type) {
             return Err(PgWireError::InvalidRustTypeForParameter(
@@ -119,16 +136,24 @@ impl<S: Clone> Portal<S> {
 
         let _format = self.parameter_format.format_for(idx);
 
-        if let Some(ref param) = param {
-            // TODO: from_sql only works with binary format
-            // here we need to check format code first and seek to support text
-            T::from_sql(pg_type, param)
-                .map(|v| Some(v))
-                .map_err(PgWireError::FailedToParseParameter)
+        if let Some(param) = param {
+            if self.parameter_format.is_binary(idx) {
+                T::from_sql(pg_type, param)
+                    .map(|v| Some(v))
+                    .map_err(PgWireError::FailedToParseParameter)
+            } else {
+                T::from_sql_text(pg_type, param, &FormatOptions::default())
+                    .map(|v| Some(v))
+                    .map_err(PgWireError::FailedToParseParameter)
+            }
         } else {
             // Null
             Ok(None)
         }
+    }
+
+    pub fn state(&self) -> Arc<Mutex<PortalExecutionState>> {
+        self.state.clone()
     }
 }
 

@@ -5,11 +5,16 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 pub use postgres_types::Type;
+#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+use rustls_pki_types::CertificateDer;
 
 use crate::error::PgWireError;
+use crate::messages::ProtocolVersion;
 use crate::messages::response::TransactionStatus;
+use crate::messages::startup::SecretKey;
 
 pub mod auth;
+pub mod cancel;
 #[cfg(feature = "client-api")]
 pub mod client;
 pub mod copy;
@@ -34,11 +39,20 @@ pub enum PgWireConnectionState {
     AwaitingSync,
 }
 
+// TODO: add oauth scope and issuer
 /// Describe a client information holder
 pub trait ClientInfo {
     fn socket_addr(&self) -> SocketAddr;
 
     fn is_secure(&self) -> bool;
+
+    fn protocol_version(&self) -> ProtocolVersion;
+
+    fn set_protocol_version(&mut self, version: ProtocolVersion);
+
+    fn pid_and_secret_key(&self) -> (i32, SecretKey);
+
+    fn set_pid_and_secret_key(&mut self, pid: i32, secret_key: SecretKey);
 
     fn state(&self) -> PgWireConnectionState;
 
@@ -51,6 +65,12 @@ pub trait ClientInfo {
     fn metadata(&self) -> &HashMap<String, String>;
 
     fn metadata_mut(&mut self) -> &mut HashMap<String, String>;
+
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    fn sni_server_name(&self) -> Option<&str>;
+
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    fn client_certificates<'a>(&self) -> Option<&[CertificateDer<'a>]>;
 }
 
 /// Client Portal Store
@@ -62,15 +82,21 @@ pub trait ClientPortalStore {
 
 pub const METADATA_USER: &str = "user";
 pub const METADATA_DATABASE: &str = "database";
+pub const METADATA_CLIENT_ENCODING: &str = "client_encoding";
+pub const METADATA_APPLICATION_NAME: &str = "application_name";
 
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct DefaultClient<S> {
     pub socket_addr: SocketAddr,
     pub is_secure: bool,
+    pub protocol_version: ProtocolVersion,
+    pub pid_secret_key: (i32, SecretKey),
     pub state: PgWireConnectionState,
     pub transaction_status: TransactionStatus,
     pub metadata: HashMap<String, String>,
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    pub sni_server_name: Option<String>,
     pub portal_store: store::MemPortalStore<S>,
 }
 
@@ -81,6 +107,22 @@ impl<S> ClientInfo for DefaultClient<S> {
 
     fn is_secure(&self) -> bool {
         self.is_secure
+    }
+
+    fn pid_and_secret_key(&self) -> (i32, SecretKey) {
+        self.pid_secret_key.clone()
+    }
+
+    fn set_pid_and_secret_key(&mut self, pid: i32, secret_key: SecretKey) {
+        self.pid_secret_key = (pid, secret_key);
+    }
+
+    fn protocol_version(&self) -> ProtocolVersion {
+        self.protocol_version
+    }
+
+    fn set_protocol_version(&mut self, version: ProtocolVersion) {
+        self.protocol_version = version;
     }
 
     fn state(&self) -> PgWireConnectionState {
@@ -106,6 +148,16 @@ impl<S> ClientInfo for DefaultClient<S> {
     fn set_transaction_status(&mut self, new_status: TransactionStatus) {
         self.transaction_status = new_status
     }
+
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    fn sni_server_name(&self) -> Option<&str> {
+        self.sni_server_name.as_deref()
+    }
+
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    fn client_certificates<'a>(&self) -> Option<&[CertificateDer<'a>]> {
+        None
+    }
 }
 
 impl<S> DefaultClient<S> {
@@ -113,9 +165,13 @@ impl<S> DefaultClient<S> {
         DefaultClient {
             socket_addr,
             is_secure,
+            protocol_version: ProtocolVersion::default(),
+            pid_secret_key: (0, SecretKey::default()),
             state: PgWireConnectionState::default(),
             transaction_status: TransactionStatus::Idle,
             metadata: HashMap::new(),
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+            sni_server_name: None,
             portal_store: store::MemPortalStore::new(),
         }
     }
@@ -143,55 +199,62 @@ pub trait ErrorHandler: Send + Sync {
 }
 
 /// A noop implementation for `ErrorHandler`.
-pub struct NoopErrorHandler;
+#[derive(Debug)]
+pub struct NoopHandler;
 
-impl ErrorHandler for NoopErrorHandler {}
+impl ErrorHandler for NoopHandler {}
 
 pub trait PgWireServerHandlers {
-    type StartupHandler: auth::StartupHandler;
-    type SimpleQueryHandler: query::SimpleQueryHandler;
-    type ExtendedQueryHandler: query::ExtendedQueryHandler;
-    type CopyHandler: copy::CopyHandler;
-    type ErrorHandler: ErrorHandler;
+    fn simple_query_handler(&self) -> Arc<impl query::SimpleQueryHandler> {
+        Arc::new(NoopHandler)
+    }
 
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler>;
+    fn extended_query_handler(&self) -> Arc<impl query::ExtendedQueryHandler> {
+        Arc::new(NoopHandler)
+    }
 
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler>;
+    fn startup_handler(&self) -> Arc<impl auth::StartupHandler> {
+        Arc::new(NoopHandler)
+    }
 
-    fn startup_handler(&self) -> Arc<Self::StartupHandler>;
+    fn copy_handler(&self) -> Arc<impl copy::CopyHandler> {
+        Arc::new(NoopHandler)
+    }
 
-    fn copy_handler(&self) -> Arc<Self::CopyHandler>;
+    fn error_handler(&self) -> Arc<impl ErrorHandler> {
+        Arc::new(NoopHandler)
+    }
 
-    fn error_handler(&self) -> Arc<Self::ErrorHandler>;
+    fn cancel_handler(&self) -> Arc<impl cancel::CancelHandler> {
+        Arc::new(NoopHandler)
+    }
 }
 
 impl<T> PgWireServerHandlers for Arc<T>
 where
     T: PgWireServerHandlers,
 {
-    type StartupHandler = T::StartupHandler;
-    type SimpleQueryHandler = T::SimpleQueryHandler;
-    type ExtendedQueryHandler = T::ExtendedQueryHandler;
-    type CopyHandler = T::CopyHandler;
-    type ErrorHandler = T::ErrorHandler;
-
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+    fn simple_query_handler(&self) -> Arc<impl query::SimpleQueryHandler> {
         (**self).simple_query_handler()
     }
 
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+    fn extended_query_handler(&self) -> Arc<impl query::ExtendedQueryHandler> {
         (**self).extended_query_handler()
     }
 
-    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+    fn startup_handler(&self) -> Arc<impl auth::StartupHandler> {
         (**self).startup_handler()
     }
 
-    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
+    fn copy_handler(&self) -> Arc<impl copy::CopyHandler> {
         (**self).copy_handler()
     }
 
-    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
+    fn error_handler(&self) -> Arc<impl ErrorHandler> {
         (**self).error_handler()
+    }
+
+    fn cancel_handler(&self) -> Arc<impl cancel::CancelHandler> {
+        (**self).cancel_handler()
     }
 }

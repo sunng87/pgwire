@@ -1,6 +1,6 @@
 use bytes::{Buf, BufMut, Bytes};
 
-use super::{codec, Message};
+use super::{DecodeContext, Message, codec};
 use crate::error::PgWireResult;
 
 /// Request from frontend to parse a prepared query string
@@ -18,6 +18,11 @@ impl Message for Parse {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_PARSE)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::LARGE_PACKET_SIZE_LIMIT
     }
 
     fn message_length(&self) -> usize {
@@ -38,7 +43,11 @@ impl Message for Parse {
         Ok(())
     }
 
-    fn decode_body(buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        buf: &mut bytes::BytesMut,
+        _: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         let name = codec::get_cstring(buf);
         let query = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
         let type_oid_count = buf.get_u16();
@@ -70,6 +79,11 @@ impl Message for ParseComplete {
     }
 
     #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
+    }
+
+    #[inline]
     fn message_length(&self) -> usize {
         4
     }
@@ -80,7 +94,11 @@ impl Message for ParseComplete {
     }
 
     #[inline]
-    fn decode_body(_buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        _buf: &mut bytes::BytesMut,
+        _: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         Ok(ParseComplete)
     }
 }
@@ -114,7 +132,11 @@ impl Message for Close {
         Ok(())
     }
 
-    fn decode_body(buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        buf: &mut bytes::BytesMut,
+        _: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         let target_type = buf.get_u8();
         let name = codec::get_cstring(buf);
 
@@ -136,6 +158,11 @@ impl Message for CloseComplete {
     }
 
     #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
+    }
+
+    #[inline]
     fn message_length(&self) -> usize {
         4
     }
@@ -146,7 +173,11 @@ impl Message for CloseComplete {
     }
 
     #[inline]
-    fn decode_body(_buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        _buf: &mut bytes::BytesMut,
+        _: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         Ok(CloseComplete)
     }
 }
@@ -171,6 +202,11 @@ impl Message for Bind {
     #[inline]
     fn message_type() -> Option<u8> {
         Some(MESSAGE_TYPE_BYTE_BIND)
+    }
+
+    #[inline]
+    fn max_message_length() -> usize {
+        super::LARGE_PACKET_SIZE_LIMIT
     }
 
     fn message_length(&self) -> usize {
@@ -210,7 +246,11 @@ impl Message for Bind {
         Ok(())
     }
 
-    fn decode_body(buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        buf: &mut bytes::BytesMut,
+        _: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         let portal_name = codec::get_cstring(buf);
         let statement_name = codec::get_cstring(buf);
 
@@ -266,6 +306,11 @@ impl Message for BindComplete {
     }
 
     #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
+    }
+
+    #[inline]
     fn message_length(&self) -> usize {
         4
     }
@@ -276,7 +321,11 @@ impl Message for BindComplete {
     }
 
     #[inline]
-    fn decode_body(_buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        _buf: &mut bytes::BytesMut,
+        _: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         Ok(BindComplete)
     }
 }
@@ -308,7 +357,11 @@ impl Message for Describe {
         Ok(())
     }
 
-    fn decode_body(buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        buf: &mut bytes::BytesMut,
+        _: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         let target_type = buf.get_u8();
         let name = codec::get_cstring(buf);
 
@@ -342,7 +395,11 @@ impl Message for Execute {
         Ok(())
     }
 
-    fn decode_body(buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        buf: &mut bytes::BytesMut,
+        _: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         let name = codec::get_cstring(buf);
         let max_rows = buf.get_i32();
 
@@ -371,7 +428,11 @@ impl Message for Flush {
         Ok(())
     }
 
-    fn decode_body(_buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        _buf: &mut bytes::BytesMut,
+        _: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         Ok(Flush)
     }
 }
@@ -398,7 +459,11 @@ impl Message for Sync {
         Ok(())
     }
 
-    fn decode_body(_buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        _buf: &mut bytes::BytesMut,
+        _: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         Ok(Sync)
     }
 }
@@ -416,6 +481,11 @@ impl Message for PortalSuspended {
     }
 
     #[inline]
+    fn max_message_length() -> usize {
+        super::SMALL_BACKEND_PACKET_SIZE_LIMIT
+    }
+
+    #[inline]
     fn message_length(&self) -> usize {
         4
     }
@@ -424,7 +494,11 @@ impl Message for PortalSuspended {
         Ok(())
     }
 
-    fn decode_body(_buf: &mut bytes::BytesMut, _: usize) -> PgWireResult<Self> {
+    fn decode_body(
+        _buf: &mut bytes::BytesMut,
+        _: usize,
+        _ctx: &DecodeContext,
+    ) -> PgWireResult<Self> {
         Ok(PortalSuspended)
     }
 }

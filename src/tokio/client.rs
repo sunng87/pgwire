@@ -1,14 +1,20 @@
 use std::collections::BTreeMap;
 use std::io::{Error as IOError, ErrorKind};
+use std::net::SocketAddr;
+#[cfg(unix)]
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
-use futures::{Sink, SinkExt, StreamExt};
+use futures::{Sink, SinkExt, Stream, StreamExt};
 use pin_project::pin_project;
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use rustls_pki_types::ServerName;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
+#[cfg(unix)]
+use tokio::net::UnixStream;
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use tokio_rustls::client::TlsStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
@@ -19,18 +25,23 @@ use crate::api::client::config::Host;
 use crate::api::client::query::SimpleQueryHandler;
 use crate::api::client::{ClientInfo, Config, ReadyState, ServerInformation};
 use crate::error::{PgWireClientError, PgWireClientResult, PgWireError};
-use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
+use crate::messages::{
+    DecodeContext, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,
+    SslNegotiationMetaMessage,
+};
 
 #[non_exhaustive]
-#[derive(Debug)]
-pub struct PgWireMessageClientCodec;
+#[derive(Debug, Default)]
+pub struct PgWireMessageClientCodec {
+    decode_context: DecodeContext,
+}
 
 impl Decoder for PgWireMessageClientCodec {
     type Item = PgWireBackendMessage;
     type Error = PgWireError;
 
     fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        PgWireBackendMessage::decode(src)
+        PgWireBackendMessage::decode(src, &self.decode_context)
     }
 }
 
@@ -42,6 +53,20 @@ impl Encoder<PgWireFrontendMessage> for PgWireMessageClientCodec {
         item: PgWireFrontendMessage,
         dst: &mut bytes::BytesMut,
     ) -> Result<(), Self::Error> {
+        match item {
+            // check special messages for decoding state
+            PgWireFrontendMessage::SslNegotiation(SslNegotiationMetaMessage::PostgresSsl(_)) => {
+                self.decode_context.awaiting_backend_ssl_response = true;
+            }
+            PgWireFrontendMessage::SslNegotiation(SslNegotiationMetaMessage::PostgresGss(_)) => {
+                self.decode_context.awaiting_backend_gss_response = true;
+            }
+            _ => {
+                self.decode_context.awaiting_backend_ssl_response = false;
+                self.decode_context.awaiting_backend_gss_response = false;
+            }
+        }
+
         item.encode(dst)
     }
 }
@@ -65,16 +90,17 @@ impl ClientInfo for PgWireClient {
     fn process_id(&self) -> i32 {
         self.server_information.process_id
     }
+
+    fn protocol_version(&self) -> ProtocolVersion {
+        self.socket.codec().decode_context.protocol_version
+    }
 }
 
 impl Sink<PgWireFrontendMessage> for PgWireClient {
     type Error =
         <Framed<ClientSocket, PgWireMessageClientCodec> as Sink<PgWireFrontendMessage>>::Error;
 
-    fn poll_ready(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Pin::new(self.project().socket).poll_ready(cx)
     }
 
@@ -82,17 +108,11 @@ impl Sink<PgWireFrontendMessage> for PgWireClient {
         Pin::new(self.project().socket).start_send(item)
     }
 
-    fn poll_flush(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Pin::new(self.project().socket).poll_flush(cx)
     }
 
-    fn poll_close(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Pin::new(self.project().socket).poll_close(cx)
     }
 }
@@ -109,13 +129,25 @@ impl PgWireClient {
         S: StartupHandler,
     {
         // tcp connect
-        let socket = TcpStream::connect(get_addr(&config)?).await?;
-        let socket = Framed::new(socket, PgWireMessageClientCodec);
-        // perform ssl handshake based on postgres configuration
-        // if tls is not enabled, just return the socket and perform startup
-        // directly
-        let socket = ssl_handshake(socket, &config, tls_connector).await?;
-        let socket = Framed::new(socket, PgWireMessageClientCodec);
+        let mut socket = match get_addr(&config)? {
+            PgSocketAddr::Ip(socket_addr) => {
+                ClientSocket::Plain(TcpStream::connect(socket_addr).await?)
+            }
+            PgSocketAddr::Host(socket_addr) => {
+                ClientSocket::Plain(TcpStream::connect(socket_addr).await?)
+            }
+            #[cfg(unix)]
+            PgSocketAddr::Unix(socket_addr) => {
+                ClientSocket::Unix(UnixStream::connect(socket_addr).await?)
+            }
+        };
+        if let ClientSocket::Plain(tcp_socket) = socket {
+            // perform ssl handshake based on postgres configuration
+            // if tls is not enabled, just return the socket and perform startup
+            // directly
+            socket = ssl_handshake(tcp_socket, &config, tls_connector).await?;
+        };
+        let socket = Framed::new(socket, PgWireMessageClientCodec::default());
 
         let mut client = PgWireClient {
             socket,
@@ -150,7 +182,7 @@ impl PgWireClient {
     {
         simple_query_handler.simple_query(self, query).await?;
 
-        while let Some(message_result) = self.socket.next().await {
+        while let Some(message_result) = self.next().await {
             let message = message_result?;
 
             if let ReadyState::Ready(responses) =
@@ -184,59 +216,74 @@ impl PgWireClient {
     }
 }
 
+impl Stream for PgWireClient {
+    type Item = Result<PgWireBackendMessage, PgWireError>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(self.project().socket).poll_next(cx)
+    }
+}
+
 #[pin_project(project = ClientSocketProj)]
 pub enum ClientSocket {
     Plain(#[pin] TcpStream),
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
-    Secure(#[pin] TlsStream<TcpStream>),
+    Secure(#[pin] Box<TlsStream<TcpStream>>),
+    #[cfg(unix)]
+    Unix(#[pin] UnixStream),
 }
 
 impl AsyncRead for ClientSocket {
     fn poll_read(
         self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        cx: &mut Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
+    ) -> Poll<std::io::Result<()>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_read(cx, buf),
             #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_read(cx, buf),
+            #[cfg(unix)]
+            ClientSocketProj::Unix(socket) => socket.poll_read(cx, buf),
         }
     }
 }
 
 impl AsyncWrite for ClientSocket {
     fn poll_write(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
         buf: &[u8],
-    ) -> std::task::Poll<Result<usize, std::io::Error>> {
+    ) -> Poll<Result<usize, std::io::Error>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_write(cx, buf),
             #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_write(cx, buf),
+            #[cfg(unix)]
+            ClientSocketProj::Unix(tls_socket) => tls_socket.poll_write(cx, buf),
         }
     }
 
-    fn poll_flush(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), std::io::Error>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), std::io::Error>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_flush(cx),
             #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_flush(cx),
+            #[cfg(unix)]
+            ClientSocketProj::Unix(tls_socket) => tls_socket.poll_flush(cx),
         }
     }
 
     fn poll_shutdown(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), std::io::Error>> {
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_shutdown(cx),
             #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_shutdown(cx),
+            #[cfg(unix)]
+            ClientSocketProj::Unix(tls_socket) => tls_socket.poll_shutdown(cx),
         }
     }
 }
@@ -264,34 +311,33 @@ async fn connect_tls(
     let server_name =
         ServerName::try_from(hostname).map_err(|e| IOError::new(ErrorKind::InvalidInput, e))?;
     let tls_stream = tls_connector.connect(server_name, socket).await?;
-    Ok(ClientSocket::Secure(tls_stream))
+    Ok(ClientSocket::Secure(Box::new(tls_stream)))
 }
 
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 pub(crate) async fn ssl_handshake(
-    mut socket: Framed<TcpStream, PgWireMessageClientCodec>,
+    socket: TcpStream,
     config: &Config,
     tls_connector: Option<TlsConnector>,
 ) -> PgWireClientResult<ClientSocket> {
-    use crate::{
-        api::client::config::{SslMode, SslNegotiation},
-        messages::response::SslResponse,
-    };
+    use crate::api::client::config::{SslMode, SslNegotiation};
+    use crate::messages::response::SslResponse;
 
     // ssl is disabled on client side
     if config.ssl_mode == SslMode::Disable {
-        return Ok(ClientSocket::Plain(socket.into_inner()));
+        return Ok(ClientSocket::Plain(socket));
     }
 
     if let Some(tls_connector) = tls_connector {
         if config.ssl_negotiation == SslNegotiation::Direct {
-            connect_tls(socket.into_inner(), config, tls_connector).await
+            connect_tls(socket, config, tls_connector).await
         } else {
+            let mut socket = Framed::new(socket, PgWireMessageClientCodec::default());
             // postgres ssl handshake
             socket
-                .send(PgWireFrontendMessage::SslRequest(Some(
-                    crate::messages::startup::SslRequest,
-                )))
+                .send(PgWireFrontendMessage::SslNegotiation(
+                    SslNegotiationMetaMessage::PostgresSsl(crate::messages::startup::SslRequest),
+                ))
                 .await?;
 
             if let Some(Ok(PgWireBackendMessage::SslResponse(ssl_resp))) = socket.next().await {
@@ -317,41 +363,37 @@ pub(crate) async fn ssl_handshake(
             }
         }
     } else {
-        Ok(ClientSocket::Plain(socket.into_inner()))
+        Ok(ClientSocket::Plain(socket))
     }
 }
 
 #[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]
 pub(crate) async fn ssl_handshake(
-    socket: Framed<TcpStream, PgWireMessageClientCodec>,
+    socket: ClientSocket,
     _config: &Config,
     _tls_connector: Option<TlsConnector>,
 ) -> PgWireClientResult<ClientSocket> {
-    Ok(ClientSocket::Plain(socket.into_inner()))
+    Ok(socket)
 }
 
-fn get_addr(config: &Config) -> Result<String, PgWireClientError> {
-    if !config.get_hostaddrs().is_empty() {
-        return Ok(format!(
-            "{}:{}",
-            config.get_hostaddrs()[0],
-            config.get_ports().first().cloned().unwrap_or(5432u16)
-        ));
+enum PgSocketAddr {
+    Ip(SocketAddr),
+    Host((String, u16)),
+    Unix(PathBuf),
+}
+
+fn get_addr(config: &Config) -> Result<PgSocketAddr, PgWireClientError> {
+    let port = config.get_ports().first().cloned().unwrap_or(5432);
+
+    if let Some(hostaddr) = config.get_hostaddrs().first() {
+        return Ok(PgSocketAddr::Ip(SocketAddr::new(*hostaddr, port)));
     }
 
-    if !config.get_hosts().is_empty() {
-        match &config.get_hosts()[0] {
-            Host::Tcp(host) => {
-                return Ok(format!(
-                    "{}:{}",
-                    host,
-                    config.get_ports().first().cloned().unwrap_or(5432u16)
-                ))
-            }
-            _ => {
-                return Err(PgWireClientError::InvalidConfig("host".to_string()));
-            }
-        }
+    if let Some(host) = config.get_hosts().first() {
+        return Ok(match host {
+            Host::Tcp(host) => PgSocketAddr::Host((host.clone(), port)),
+            Host::Unix(path) => PgSocketAddr::Unix(path.join(format!(".s.PGSQL.{}", port))),
+        });
     }
 
     Err(PgWireClientError::InvalidConfig("host".to_string()))

@@ -1,12 +1,15 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use futures::stream;
-use futures::Stream;
+use futures::{Stream, stream};
+use rusqlite::types::ValueRef;
+use rusqlite::{Connection, Rows, Statement, ToSql};
+use tokio::net::TcpListener;
 
-use pgwire::api::auth::md5pass::{hash_md5_password, Md5PasswordAuthStartupHandler};
-use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
-use pgwire::api::copy::NoopCopyHandler;
+use pgwire::api::auth::md5pass::{Md5PasswordAuthStartupHandler, hash_md5_password};
+use pgwire::api::auth::{
+    AuthSource, DefaultServerParameterProvider, LoginInfo, Password, StartupHandler,
+};
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
@@ -14,21 +17,17 @@ use pgwire::api::results::{
     Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
-use pgwire::api::NoopErrorHandler;
-use pgwire::api::PgWireServerHandlers;
-use pgwire::api::{ClientInfo, Type};
+use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::data::DataRow;
 use pgwire::tokio::process_socket;
-use rusqlite::Rows;
-use rusqlite::{types::ValueRef, Connection, Statement, ToSql};
-use tokio::net::TcpListener;
 
 pub struct SqliteBackend {
     conn: Arc<Mutex<Connection>>,
     query_parser: Arc<NoopQueryParser>,
 }
 
+#[derive(Debug)]
 struct DummyAuthSource;
 
 #[async_trait]
@@ -47,11 +46,7 @@ impl AuthSource for DummyAuthSource {
 
 #[async_trait]
 impl SimpleQueryHandler for SqliteBackend {
-    async fn do_query<'a, C>(
-        &self,
-        _client: &mut C,
-        query: &'a str,
-    ) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -70,9 +65,7 @@ impl SimpleQueryHandler for SqliteBackend {
         } else {
             conn.execute(query, ())
                 .map(|affected_rows| {
-                    vec![Response::Execution(
-                        Tag::new("OK").with_rows(affected_rows).into(),
-                    )]
+                    vec![Response::Execution(Tag::new("OK").with_rows(affected_rows))]
                 })
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         }
@@ -80,7 +73,6 @@ impl SimpleQueryHandler for SqliteBackend {
 }
 
 fn name_to_type(name: &str) -> PgWireResult<Type> {
-    dbg!(name);
     match name.to_uppercase().as_ref() {
         "INT" => Ok(Type::INT8),
         "VARCHAR" => Ok(Type::VARCHAR),
@@ -118,11 +110,11 @@ fn row_desc_from_stmt(stmt: &Statement, format: &Format) -> PgWireResult<Vec<Fie
 fn encode_row_data(
     mut rows: Rows,
     schema: Arc<Vec<FieldInfo>>,
-) -> impl Stream<Item = PgWireResult<DataRow>> {
+) -> impl Stream<Item = PgWireResult<DataRow>> + use<> {
     let mut results = Vec::new();
     let ncols = schema.len();
+    let mut encoder = DataRowEncoder::new(schema.clone());
     while let Ok(Some(row)) = rows.next() {
-        let mut encoder = DataRowEncoder::new(schema.clone());
         for idx in 0..ncols {
             let data = row.get_ref_unwrap::<usize>(idx);
             match data {
@@ -144,16 +136,22 @@ fn encode_row_data(
             }
         }
 
-        results.push(encoder.finish());
+        results.push(Ok(encoder.take_row()));
     }
 
-    stream::iter(results.into_iter())
+    stream::iter(results)
 }
 
 fn get_params(portal: &Portal<String>) -> Vec<Box<dyn ToSql>> {
     let mut results = Vec::with_capacity(portal.parameter_len());
     for i in 0..portal.parameter_len() {
-        let param_type = portal.statement.parameter_types.get(i).unwrap();
+        let param_type = portal
+            .statement
+            .parameter_types
+            .get(i)
+            .unwrap()
+            .as_ref()
+            .unwrap_or(&Type::UNKNOWN);
         // we only support a small amount of types for demo
         match param_type {
             &Type::BOOL => {
@@ -202,12 +200,12 @@ impl ExtendedQueryHandler for SqliteBackend {
         self.query_parser.clone()
     }
 
-    async fn do_query<'a, C>(
+    async fn do_query<C>(
         &self,
         _client: &mut C,
-        portal: &'a Portal<Self::Statement>,
+        portal: &Portal<Self::Statement>,
         _max_rows: usize,
-    ) -> PgWireResult<Response<'a>>
+    ) -> PgWireResult<Response>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -232,9 +230,7 @@ impl ExtendedQueryHandler for SqliteBackend {
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         } else {
             stmt.execute::<&[&dyn rusqlite::ToSql]>(params_ref.as_ref())
-                .map(|affected_rows| {
-                    Response::Execution(Tag::new("OK").with_rows(affected_rows).into())
-                })
+                .map(|affected_rows| Response::Execution(Tag::new("OK").with_rows(affected_rows)))
                 .map_err(|e| PgWireError::ApiError(Box::new(e)))
         }
     }
@@ -248,7 +244,11 @@ impl ExtendedQueryHandler for SqliteBackend {
         C: ClientInfo + Unpin + Send + Sync,
     {
         let conn = self.conn.lock().unwrap();
-        let param_types = stmt.parameter_types.clone();
+        let param_types = stmt
+            .parameter_types
+            .iter()
+            .map(|t| t.clone().unwrap_or(Type::UNKNOWN))
+            .collect();
         let stmt = conn
             .prepare_cached(&stmt.statement)
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
@@ -268,8 +268,7 @@ impl ExtendedQueryHandler for SqliteBackend {
         let stmt = conn
             .prepare_cached(&portal.statement.statement)
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-        row_desc_from_stmt(&stmt, &portal.result_column_format)
-            .map(|fields| DescribePortalResponse::new(fields))
+        row_desc_from_stmt(&stmt, &portal.result_column_format).map(DescribePortalResponse::new)
     }
 }
 
@@ -287,22 +286,15 @@ struct SqliteBackendFactory {
 }
 
 impl PgWireServerHandlers for SqliteBackendFactory {
-    type StartupHandler =
-        Md5PasswordAuthStartupHandler<DummyAuthSource, DefaultServerParameterProvider>;
-    type SimpleQueryHandler = SqliteBackend;
-    type ExtendedQueryHandler = SqliteBackend;
-    type CopyHandler = NoopCopyHandler;
-    type ErrorHandler = NoopErrorHandler;
-
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+    fn simple_query_handler(&self) -> Arc<impl SimpleQueryHandler> {
         self.handler.clone()
     }
 
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+    fn extended_query_handler(&self) -> Arc<impl ExtendedQueryHandler> {
         self.handler.clone()
     }
 
-    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+    fn startup_handler(&self) -> Arc<impl StartupHandler> {
         let mut parameters = DefaultServerParameterProvider::default();
         parameters.server_version = rusqlite::version().to_owned();
 
@@ -310,14 +302,6 @@ impl PgWireServerHandlers for SqliteBackendFactory {
             Arc::new(DummyAuthSource),
             Arc::new(parameters),
         ))
-    }
-
-    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
-        Arc::new(NoopCopyHandler)
-    }
-
-    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
-        Arc::new(NoopErrorHandler)
     }
 }
 

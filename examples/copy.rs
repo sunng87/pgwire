@@ -2,32 +2,24 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{Sink, SinkExt};
+use futures::{Sink, SinkExt, StreamExt, stream};
 use tokio::net::TcpListener;
 
-use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::copy::CopyHandler;
-use pgwire::api::query::{PlaceholderExtendedQueryHandler, SimpleQueryHandler};
-use pgwire::api::results::{CopyResponse, Response};
-use pgwire::api::{ClientInfo, NoopErrorHandler, PgWireConnectionState, PgWireServerHandlers};
-use pgwire::error::ErrorInfo;
-use pgwire::error::{PgWireError, PgWireResult};
+use pgwire::api::query::SimpleQueryHandler;
+use pgwire::api::results::{CopyEncoder, CopyResponse, FieldFormat, FieldInfo, Response};
+use pgwire::api::{ClientInfo, PgWireConnectionState, PgWireServerHandlers, Type};
+use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
+use pgwire::messages::PgWireBackendMessage;
 use pgwire::messages::copy::{CopyData, CopyDone, CopyFail};
 use pgwire::messages::response::NoticeResponse;
-use pgwire::messages::PgWireBackendMessage;
 use pgwire::tokio::process_socket;
 
 pub struct DummyProcessor;
 
-impl NoopStartupHandler for DummyProcessor {}
-
 #[async_trait]
 impl SimpleQueryHandler for DummyProcessor {
-    async fn do_query<'a, C>(
-        &self,
-        client: &mut C,
-        query: &'a str,
-    ) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<C>(&self, client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -43,7 +35,46 @@ impl SimpleQueryHandler for DummyProcessor {
             )))
             .await?;
 
-        Ok(vec![Response::CopyIn(CopyResponse::new(0, 1, vec![0]))])
+        if query.to_ascii_uppercase().starts_with("COPY FROM STDIN") {
+            // copy in
+            Ok(vec![Response::CopyIn(CopyResponse::new(
+                0,
+                1,
+                futures::stream::empty(),
+            ))])
+        } else if query.to_ascii_uppercase().starts_with("COPY TO STDOUT") {
+            let f1 = FieldInfo::new("id".into(), None, None, Type::INT4, FieldFormat::Text);
+            let f2 = FieldInfo::new("name".into(), None, None, Type::VARCHAR, FieldFormat::Text);
+            let schema = Arc::new(vec![f1, f2]);
+
+            let data = vec![
+                (Some(0), Some("Tom")),
+                (Some(1), Some("Jerry")),
+                (Some(2), None),
+            ];
+
+            let mut encoder = CopyEncoder::new_binary(schema.clone());
+            // we need to chain an empty finish packet
+            let copy_stream = stream::iter(data).map(move |r| {
+                encoder.encode_field(&r.0)?;
+                encoder.encode_field(&r.1)?;
+
+                Ok(encoder.take_copy())
+            });
+
+            // copy out
+            Ok(vec![Response::CopyOut(CopyResponse::new(
+                1, // binary
+                schema.len(),
+                copy_stream,
+            ))])
+        } else {
+            Ok(vec![Response::Error(Box::new(ErrorInfo::new(
+                "FATAL".to_owned(),
+                "08P01".to_owned(),
+                "COPY FROM STDIN / COPY TO STDOUT expected.".to_string(),
+            )))])
+        }
     }
 }
 
@@ -107,30 +138,12 @@ struct DummyProcessorFactory {
 }
 
 impl PgWireServerHandlers for DummyProcessorFactory {
-    type StartupHandler = DummyProcessor;
-    type SimpleQueryHandler = DummyProcessor;
-    type ExtendedQueryHandler = PlaceholderExtendedQueryHandler;
-    type CopyHandler = DummyProcessor;
-    type ErrorHandler = NoopErrorHandler;
-
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+    fn simple_query_handler(&self) -> Arc<impl SimpleQueryHandler> {
         self.handler.clone()
     }
 
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
-        Arc::new(PlaceholderExtendedQueryHandler)
-    }
-
-    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+    fn copy_handler(&self) -> Arc<impl CopyHandler> {
         self.handler.clone()
-    }
-
-    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
-        self.handler.clone()
-    }
-
-    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
-        Arc::new(NoopErrorHandler)
     }
 }
 
