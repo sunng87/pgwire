@@ -2,11 +2,11 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures::{Sink, SinkExt, StreamExt};
+use futures::{Sink, SinkExt, Stream, StreamExt};
 use postgres_types::{Oid, Type};
 
 use crate::api::results::{FieldInfo, Tag};
-use crate::error::{ErrorInfo, PgWireClientError, PgWireClientResult};
+use crate::error::{ErrorInfo, PgWireClientError, PgWireClientResult, PgWireError};
 use crate::messages::data::{DataRow, ParameterDescription, RowDescription};
 use crate::messages::extendedquery::{
     Bind, Close, Describe, Execute, Flush, Parse, Sync, TARGET_TYPE_BYTE_PORTAL,
@@ -350,7 +350,11 @@ pub struct ExtendedQueryClient<'a, C, H> {
 
 impl<'a, C, H> ExtendedQueryClient<'a, C, H>
 where
-    C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
+    C: ClientInfo
+        + Sink<PgWireFrontendMessage, Error = PgWireError>
+        + Stream<Item = Result<PgWireBackendMessage, PgWireError>>
+        + Unpin
+        + Send,
     H: ExtendedQueryHandler,
 {
     pub fn new(client: &'a mut C, handler: &'a mut H) -> Self {
@@ -662,7 +666,7 @@ impl ExtendedQueryHandler for DefaultExtendedQueryHandler {
         Ok(msg
             .types
             .into_iter()
-            .map(|oid| Type::from_oid(*oid))
+            .filter_map(Type::from_oid)
             .collect())
     }
 
@@ -675,7 +679,7 @@ impl ExtendedQueryHandler for DefaultExtendedQueryHandler {
     }
 
     async fn on_data_row(&mut self, msg: DataRow) -> PgWireClientResult<DataRow> {
-        self.current_row = Some(msg);
+        self.current_row = Some(msg.clone());
         Ok(msg)
     }
 
