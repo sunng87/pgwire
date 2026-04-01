@@ -22,7 +22,7 @@ use tokio_util::codec::{Decoder, Encoder, Framed};
 use super::TlsConnector;
 use crate::api::client::auth::StartupHandler;
 use crate::api::client::config::Host;
-use crate::api::client::query::SimpleQueryHandler;
+use crate::api::client::query::{ExtendedQueryClient, ExtendedQueryHandler, SimpleQueryHandler};
 use crate::api::client::{ClientInfo, Config, ReadyState, ServerInformation};
 use crate::error::{PgWireClientError, PgWireClientResult, PgWireError};
 use crate::messages::{
@@ -195,24 +195,15 @@ impl PgWireClient {
         Err(PgWireClientError::UnexpectedEOF)
     }
 
-    /// Parse a query to server side
-    pub async fn parse<H>(
+    /// Create an extended query client for extended query subprotocol
+    pub fn extended_query<H>(
         &mut self,
-        mut extended_query_handler: H,
-        name: Option<&str>,
-        query: &str,
-    ) -> PgWireClientResult<()> {
-        todo!()
-    }
-
-    /// Execute the query
-    pub async fn execute<H>(
-        &mut self,
-        mut extended_query_handler: H,
-        name: Option<&str>,
-        parameters: Vec<String>, //TODO
-    ) -> PgWireClientResult<()> {
-        todo!()
+        handler: &mut H,
+    ) -> ExtendedQueryClient<'_, Self, H>
+    where
+        H: ExtendedQueryHandler,
+    {
+        ExtendedQueryClient::new(self, handler)
     }
 }
 
