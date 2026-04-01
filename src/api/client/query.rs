@@ -363,7 +363,11 @@ where
         query: &str,
         param_types: &[Oid],
     ) -> PgWireClientResult<PrepareResponse> {
-        let parse = Parse::new(name.map(|n| n.to_owned()), query.to_owned(), param_types.to_vec());
+        let parse = Parse::new(
+            name.map(|n| n.to_owned()),
+            query.to_owned(),
+            param_types.to_vec(),
+        );
         self.handler.parse(self.client, parse).await?;
         self.handler.sync(self.client, Sync::new()).await?;
 
@@ -502,7 +506,8 @@ where
             let message = message_result?;
             match message {
                 PgWireBackendMessage::ParameterDescription(param_desc) => {
-                    response.param_types = self.handler.on_parameter_description(param_desc).await?;
+                    response.param_types =
+                        self.handler.on_parameter_description(param_desc).await?;
                 }
                 PgWireBackendMessage::RowDescription(row_desc) => {
                     response.fields = self.handler.on_row_description(row_desc).await?;
@@ -585,56 +590,34 @@ pub struct DefaultExtendedQueryHandler {
 impl ExtendedQueryHandler for DefaultExtendedQueryHandler {
     type QueryResponse = DataRow;
 
-    async fn parse<C>(
-        &mut self,
-        client: &mut C,
-        query: Parse,
-    ) -> PgWireClientResult<()>
+    async fn parse<C>(&mut self, client: &mut C, query: Parse) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
-        client
-            .send(PgWireFrontendMessage::Parse(query))
-            .await?;
+        client.send(PgWireFrontendMessage::Parse(query)).await?;
         Ok(())
     }
 
-    async fn bind<C>(
-        &mut self,
-        client: &mut C,
-        bind: Bind,
-    ) -> PgWireClientResult<()>
+    async fn bind<C>(&mut self, client: &mut C, bind: Bind) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
-        client
-            .send(PgWireFrontendMessage::Bind(bind))
-            .await?;
+        client.send(PgWireFrontendMessage::Bind(bind)).await?;
         Ok(())
     }
 
-    async fn execute<C>(
-        &mut self,
-        client: &mut C,
-        execute: Execute,
-    ) -> PgWireClientResult<()>
+    async fn execute<C>(&mut self, client: &mut C, execute: Execute) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
-        client
-            .send(PgWireFrontendMessage::Execute(execute))
-            .await?;
+        client.send(PgWireFrontendMessage::Execute(execute)).await?;
         Ok(())
     }
 
-    async fn describe<C>(
-        &mut self,
-        client: &mut C,
-        describe: Describe,
-    ) -> PgWireClientResult<()>
+    async fn describe<C>(&mut self, client: &mut C, describe: Describe) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
@@ -645,48 +628,30 @@ impl ExtendedQueryHandler for DefaultExtendedQueryHandler {
         Ok(())
     }
 
-    async fn close<C>(
-        &mut self,
-        client: &mut C,
-        close: Close,
-    ) -> PgWireClientResult<()>
+    async fn close<C>(&mut self, client: &mut C, close: Close) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
-        client
-            .send(PgWireFrontendMessage::Close(close))
-            .await?;
+        client.send(PgWireFrontendMessage::Close(close)).await?;
         Ok(())
     }
 
-    async fn sync<C>(
-        &mut self,
-        client: &mut C,
-        _sync: Sync,
-    ) -> PgWireClientResult<()>
+    async fn sync<C>(&mut self, client: &mut C, _sync: Sync) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
-        client
-            .send(PgWireFrontendMessage::Sync(_sync))
-            .await?;
+        client.send(PgWireFrontendMessage::Sync(_sync)).await?;
         Ok(())
     }
 
-    async fn flush<C>(
-        &mut self,
-        client: &mut C,
-        _flush: Flush,
-    ) -> PgWireClientResult<()>
+    async fn flush<C>(&mut self, client: &mut C, _flush: Flush) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
-        client
-            .send(PgWireFrontendMessage::Flush(_flush))
-            .await?;
+        client.send(PgWireFrontendMessage::Flush(_flush)).await?;
         Ok(())
     }
 
@@ -705,11 +670,7 @@ impl ExtendedQueryHandler for DefaultExtendedQueryHandler {
         &mut self,
         msg: RowDescription,
     ) -> PgWireClientResult<Vec<FieldInfo>> {
-        self.current_fields = msg
-            .fields
-            .into_iter()
-            .map(|f| f.into())
-            .collect();
+        self.current_fields = msg.fields.into_iter().map(|f| f.into()).collect();
         Ok(self.current_fields.clone())
     }
 
@@ -718,10 +679,7 @@ impl ExtendedQueryHandler for DefaultExtendedQueryHandler {
         Ok(msg)
     }
 
-    async fn on_command_complete(
-        &mut self,
-        _msg: CommandComplete,
-    ) -> PgWireClientResult<Tag> {
+    async fn on_command_complete(&mut self, _msg: CommandComplete) -> PgWireClientResult<Tag> {
         Ok(_msg.tag.parse::<Tag>()?)
     }
 

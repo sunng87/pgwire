@@ -196,10 +196,7 @@ impl PgWireClient {
     }
 
     /// Create an extended query client for extended query subprotocol
-    pub fn extended_query<H>(
-        &mut self,
-        handler: &mut H,
-    ) -> ExtendedQueryClient<'_, Self, H>
+    pub fn extended_query<H>(&mut self, handler: &mut H) -> ExtendedQueryClient<'_, Self, H>
     where
         H: ExtendedQueryHandler,
     {
