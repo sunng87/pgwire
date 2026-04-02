@@ -663,11 +663,7 @@ impl ExtendedQueryHandler for DefaultExtendedQueryHandler {
         &mut self,
         msg: ParameterDescription,
     ) -> PgWireClientResult<Vec<Type>> {
-        Ok(msg
-            .types
-            .into_iter()
-            .filter_map(Type::from_oid)
-            .collect())
+        Ok(msg.types.into_iter().filter_map(Type::from_oid).collect())
     }
 
     async fn on_row_description(
