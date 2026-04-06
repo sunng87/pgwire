@@ -1,11 +1,14 @@
+use std::any::Any;
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 
 use super::portal::Portal;
 use super::stmt::StoredStatement;
 
-pub trait PortalStore: Send + Sync {
+pub trait PortalStore: Any + Send + Sync + 'static {
     type Statement;
+
+    fn as_any(&self) -> &dyn Any;
 
     fn put_statement(&self, statement: Arc<StoredStatement<Self::Statement>>);
 
@@ -28,8 +31,12 @@ pub struct MemPortalStore<S> {
     portals: RwLock<BTreeMap<String, Arc<Portal<S>>>>,
 }
 
-impl<S: Clone + Send + Sync> PortalStore for MemPortalStore<S> {
+impl<S: Clone + Send + Sync + 'static> PortalStore for MemPortalStore<S> {
     type Statement = S;
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 
     fn put_statement(&self, statement: Arc<StoredStatement<Self::Statement>>) {
         let mut guard = self.statements.write().unwrap();

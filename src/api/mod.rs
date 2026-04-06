@@ -274,7 +274,7 @@ pub struct NoopHandler;
 
 impl ErrorHandler for NoopHandler {}
 
-pub trait PgWireServerHandlers {
+pub trait PgWireServerHandlers: 'static {
     fn simple_query_handler(&self) -> Arc<impl query::SimpleQueryHandler> {
         Arc::new(NoopHandler)
     }

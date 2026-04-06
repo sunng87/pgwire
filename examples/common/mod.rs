@@ -7,7 +7,8 @@ use futures::{Sink, StreamExt, stream};
 use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::query::SimpleQueryHandler;
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
-use pgwire::api::{ClientInfo, Type};
+use pgwire::api::store::PortalStore;
+use pgwire::api::{ClientInfo, ClientPortalStore, Type};
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
@@ -41,7 +42,8 @@ impl NoopStartupHandler for DummyProcessor {
 impl SimpleQueryHandler for DummyProcessor {
     async fn do_query<C>(&self, _client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + ClientPortalStore + Unpin + Send + Sync,
+        C::PortalStore: PortalStore,
     {
         println!("{:?}", query);
         if query.starts_with("SELECT") {
@@ -62,6 +64,13 @@ impl SimpleQueryHandler for DummyProcessor {
 
                 Ok(encoder.take_row())
             });
+
+            // Downcast portal store to get reference
+            // if let Some(_portal_store) = client
+            //     .portal_store()
+            //     .as_any()
+            //     .downcast_ref::<MemPortalStore<String>>()
+            // {}
 
             Ok(vec![Response::Query(QueryResponse::new(
                 schema,
