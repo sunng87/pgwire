@@ -22,7 +22,7 @@ use tokio_util::codec::{Decoder, Encoder, Framed};
 use super::TlsConnector;
 use crate::api::client::auth::StartupHandler;
 use crate::api::client::config::Host;
-use crate::api::client::query::SimpleQueryHandler;
+use crate::api::client::query::{ExtendedQueryClient, ExtendedQueryHandler, SimpleQueryHandler};
 use crate::api::client::{ClientInfo, Config, ReadyState, ServerInformation};
 use crate::error::{PgWireClientError, PgWireClientResult, PgWireError};
 use crate::messages::{
@@ -193,6 +193,17 @@ impl PgWireClient {
         }
 
         Err(PgWireClientError::UnexpectedEOF)
+    }
+
+    /// Create an extended query client for extended query subprotocol
+    pub fn extended_query<'a, H>(
+        &'a mut self,
+        handler: &'a mut H,
+    ) -> ExtendedQueryClient<'a, Self, H>
+    where
+        H: ExtendedQueryHandler,
+    {
+        ExtendedQueryClient::new(self, handler)
     }
 }
 
