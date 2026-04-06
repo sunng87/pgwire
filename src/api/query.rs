@@ -44,7 +44,8 @@ pub trait SimpleQueryHandler: Send + Sync {
     /// or `;`, it returns `EmptyQueryResponse` and does not call `self.do_query`.
     async fn on_query<C>(&self, client: &mut C, query: Query) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -56,7 +57,8 @@ pub trait SimpleQueryHandler: Send + Sync {
     /// call this function.
     async fn _on_query<C>(&self, client: &mut C, query: Query) -> PgWireResult<()>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
@@ -143,14 +145,15 @@ pub trait SimpleQueryHandler: Send + Sync {
     /// simple and extended query protocols.
     async fn do_query<C>(&self, client: &mut C, query: &str) -> PgWireResult<Vec<Response>>
     where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 }
 
 #[async_trait]
 pub trait ExtendedQueryHandler: Send + Sync {
-    type Statement: Clone + Send + Sync;
+    type Statement: Clone + Send + Sync + 'static;
     type QueryParser: QueryParser<Statement = Self::Statement> + Send + Sync;
 
     /// Get a reference to associated `QueryParser` implementation
