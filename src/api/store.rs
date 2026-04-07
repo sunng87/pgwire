@@ -17,6 +17,8 @@ pub trait PortalStore: Send + Sync {
 
     fn rm_portal(&self, name: &str);
 
+    fn clear_portals(&self);
+
     fn get_portal(&self, name: &str) -> Option<Arc<Portal<Self::Statement>>>;
 }
 
@@ -54,6 +56,11 @@ impl<S: Clone + Send + Sync> PortalStore for MemPortalStore<S> {
     fn rm_portal(&self, name: &str) {
         let mut guard = self.portals.write().unwrap();
         guard.remove(name);
+    }
+
+    fn clear_portals(&self) {
+        let mut guard = self.portals.write().unwrap();
+        guard.clear();
     }
 
     fn get_portal(&self, name: &str) -> Option<Arc<Portal<Self::Statement>>> {
