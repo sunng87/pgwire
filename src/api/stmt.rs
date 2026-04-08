@@ -25,7 +25,7 @@ pub struct StoredStatement<S> {
 }
 
 impl<S> StoredStatement<S> {
-    pub(crate) async fn parse<C, Q>(
+    pub async fn parse<C, Q>(
         client: &C,
         parse: &Parse,
         parser: Q,
