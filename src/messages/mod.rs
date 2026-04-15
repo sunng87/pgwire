@@ -141,6 +141,8 @@ pub mod copy;
 pub mod data;
 /// Extended query messages, including request/response for parse, bind and etc.
 pub mod extendedquery;
+/// Replication protocol messages
+pub mod replication;
 /// General response messages
 pub mod response;
 /// Simple query messages, including descriptions
