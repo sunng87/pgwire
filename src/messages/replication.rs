@@ -897,12 +897,12 @@ impl HotStandbyFeedback {
 
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum PrimaryStreamingReplicationMessage {
+pub enum BackendStreamingReplicationMessage {
     XLogData(XLogData),
     PrimaryKeepalive(PrimaryKeepalive),
 }
 
-impl PrimaryStreamingReplicationMessage {
+impl BackendStreamingReplicationMessage {
     pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         match self {
             Self::XLogData(msg) => msg.encode(buf),
@@ -928,12 +928,12 @@ impl PrimaryStreamingReplicationMessage {
 
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum StandbyStreamingReplicationMessage {
+pub enum FrontendStreamingReplicationMessage {
     StandbyStatusUpdate(StandbyStatusUpdate),
     HotStandbyFeedback(HotStandbyFeedback),
 }
 
-impl StandbyStreamingReplicationMessage {
+impl FrontendStreamingReplicationMessage {
     pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         match self {
             Self::StandbyStatusUpdate(msg) => msg.encode(buf),
@@ -961,7 +961,7 @@ impl StandbyStreamingReplicationMessage {
 
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum PublisherReplicationMessage {
+pub enum BackendLogicalReplicationMessage {
     Begin(Begin),
     Commit(Commit),
     Origin(Origin),
@@ -983,7 +983,7 @@ pub enum PublisherReplicationMessage {
     StreamPrepare(StreamPrepare),
 }
 
-impl PublisherReplicationMessage {
+impl BackendLogicalReplicationMessage {
     pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         match self {
             Self::Begin(msg) => msg.encode(buf),
@@ -1049,11 +1049,11 @@ impl PublisherReplicationMessage {
 
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum SubscriberReplicationMessage {
+pub enum FrontendLogicalReplicationMessage {
     StandbyStatusUpdate(StandbyStatusUpdate),
 }
 
-impl SubscriberReplicationMessage {
+impl FrontendLogicalReplicationMessage {
     pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         match self {
             Self::StandbyStatusUpdate(msg) => msg.encode(buf),
@@ -1080,72 +1080,72 @@ mod test {
     use super::*;
     use bytes::BytesMut;
 
-    macro_rules! primary_roundtrip {
+    macro_rules! backend_streaming_roundtrip {
         ($msg:expr, $variant:ident) => {
             let mut buf = BytesMut::new();
             $msg.encode(&mut buf).unwrap();
             assert!(buf.remaining() > 0);
 
-            let decoded = PrimaryStreamingReplicationMessage::decode(&mut buf)
+            let decoded = BackendStreamingReplicationMessage::decode(&mut buf)
                 .unwrap()
                 .unwrap();
             assert_eq!(buf.remaining(), 0);
 
             match decoded {
-                PrimaryStreamingReplicationMessage::$variant(m) => assert_eq!($msg, m),
+                BackendStreamingReplicationMessage::$variant(m) => assert_eq!($msg, m),
                 _ => panic!("wrong message type"),
             }
         };
     }
 
-    macro_rules! standby_roundtrip {
+    macro_rules! frontend_streaming_roundtrip {
         ($msg:expr, $variant:ident) => {
             let mut buf = BytesMut::new();
             $msg.encode(&mut buf).unwrap();
             assert!(buf.remaining() > 0);
 
-            let decoded = StandbyStreamingReplicationMessage::decode(&mut buf)
+            let decoded = FrontendStreamingReplicationMessage::decode(&mut buf)
                 .unwrap()
                 .unwrap();
             assert_eq!(buf.remaining(), 0);
 
             match decoded {
-                StandbyStreamingReplicationMessage::$variant(m) => assert_eq!($msg, m),
+                FrontendStreamingReplicationMessage::$variant(m) => assert_eq!($msg, m),
                 _ => panic!("wrong message type"),
             }
         };
     }
 
-    macro_rules! publisher_roundtrip {
+    macro_rules! backend_logical_roundtrip {
         ($msg:expr, $variant:ident) => {
             let mut buf = BytesMut::new();
             $msg.encode(&mut buf).unwrap();
             assert!(buf.remaining() > 0);
 
-            let decoded = PublisherReplicationMessage::decode(&mut buf)
+            let decoded = BackendLogicalReplicationMessage::decode(&mut buf)
                 .unwrap()
                 .unwrap();
             assert_eq!(buf.remaining(), 0);
 
             match decoded {
-                PublisherReplicationMessage::$variant(m) => assert_eq!($msg, m),
+                BackendLogicalReplicationMessage::$variant(m) => assert_eq!($msg, m),
                 _ => panic!("wrong message type"),
             }
         };
     }
 
-    macro_rules! subscriber_roundtrip {
+    macro_rules! frontend_logical_roundtrip {
         ($msg:expr, $variant:ident) => {
             let mut buf = BytesMut::new();
             $msg.encode(&mut buf).unwrap();
             assert!(buf.remaining() > 0);
 
-            let decoded = SubscriberReplicationMessage::decode(&mut buf)
+            let decoded = FrontendLogicalReplicationMessage::decode(&mut buf)
                 .unwrap()
                 .unwrap();
             assert_eq!(buf.remaining(), 0);
 
-            let SubscriberReplicationMessage::$variant(m) = decoded;
+            let FrontendLogicalReplicationMessage::$variant(m) = decoded;
             assert_eq!($msg, m);
         };
     }
@@ -1153,19 +1153,19 @@ mod test {
     #[test]
     fn test_begin() {
         let msg = Begin::new(12345, 67890, 42);
-        publisher_roundtrip!(msg, Begin);
+        backend_logical_roundtrip!(msg, Begin);
     }
 
     #[test]
     fn test_commit() {
         let msg = Commit::new(0, 100, 200, 300);
-        publisher_roundtrip!(msg, Commit);
+        backend_logical_roundtrip!(msg, Commit);
     }
 
     #[test]
     fn test_origin() {
         let msg = Origin::new(555, "origin_server".to_owned());
-        publisher_roundtrip!(msg, Origin);
+        backend_logical_roundtrip!(msg, Origin);
     }
 
     #[test]
@@ -1180,13 +1180,13 @@ mod test {
                 RelationColumn::new(0, "name".to_owned(), 25, -1),
             ],
         );
-        publisher_roundtrip!(msg, Relation);
+        backend_logical_roundtrip!(msg, Relation);
     }
 
     #[test]
     fn test_type_message() {
         let msg = TypeMessage::new(12345, "public".to_owned(), "my_type".to_owned());
-        publisher_roundtrip!(msg, Type);
+        backend_logical_roundtrip!(msg, Type);
     }
 
     #[test]
@@ -1199,7 +1199,7 @@ mod test {
                 TupleDataColumn::Binary(Bytes::from_static(b"\x00\x01\x02\x03")),
             ]),
         );
-        publisher_roundtrip!(msg, Insert);
+        backend_logical_roundtrip!(msg, Insert);
     }
 
     #[test]
@@ -1215,7 +1215,7 @@ mod test {
                 TupleDataColumn::Text(Bytes::from_static(b"new_name")),
             ]),
         );
-        publisher_roundtrip!(msg, Update);
+        backend_logical_roundtrip!(msg, Update);
     }
 
     #[test]
@@ -1229,7 +1229,7 @@ mod test {
                 TupleDataColumn::Text(Bytes::from_static(b"updated")),
             ]),
         );
-        publisher_roundtrip!(msg, Update);
+        backend_logical_roundtrip!(msg, Update);
     }
 
     #[test]
@@ -1239,13 +1239,13 @@ mod test {
             DELETE_OLD_TUPLE_KEY,
             TupleData::new(vec![TupleDataColumn::Text(Bytes::from_static(b"42"))]),
         );
-        publisher_roundtrip!(msg, Delete);
+        backend_logical_roundtrip!(msg, Delete);
     }
 
     #[test]
     fn test_truncate() {
         let msg = Truncate::new(2, TRUNCATE_OPTION_CASCADE, vec![16384, 16385]);
-        publisher_roundtrip!(msg, Truncate);
+        backend_logical_roundtrip!(msg, Truncate);
     }
 
     #[test]
@@ -1256,61 +1256,61 @@ mod test {
             "test_prefix".to_owned(),
             Bytes::from_static(b"hello world"),
         );
-        publisher_roundtrip!(msg, LogicalMessage);
+        backend_logical_roundtrip!(msg, LogicalMessage);
     }
 
     #[test]
     fn test_stream_start() {
         let msg = StreamStart::new(100, true);
-        publisher_roundtrip!(msg, StreamStart);
+        backend_logical_roundtrip!(msg, StreamStart);
     }
 
     #[test]
     fn test_stream_stop() {
         let msg = StreamStop::new();
-        publisher_roundtrip!(msg, StreamStop);
+        backend_logical_roundtrip!(msg, StreamStop);
     }
 
     #[test]
     fn test_stream_commit() {
         let msg = StreamCommit::new(100, 0, 500, 600, 700);
-        publisher_roundtrip!(msg, StreamCommit);
+        backend_logical_roundtrip!(msg, StreamCommit);
     }
 
     #[test]
     fn test_stream_abort() {
         let msg = StreamAbort::new(100, 100);
-        publisher_roundtrip!(msg, StreamAbort);
+        backend_logical_roundtrip!(msg, StreamAbort);
     }
 
     #[test]
     fn test_begin_prepare() {
         let msg = BeginPrepare::new(100, 200, 300, 42, "tx_gid".to_owned());
-        publisher_roundtrip!(msg, BeginPrepare);
+        backend_logical_roundtrip!(msg, BeginPrepare);
     }
 
     #[test]
     fn test_prepare() {
         let msg = Prepare::new(0, 100, 200, 300, 42, "tx_gid".to_owned());
-        publisher_roundtrip!(msg, Prepare);
+        backend_logical_roundtrip!(msg, Prepare);
     }
 
     #[test]
     fn test_commit_prepared() {
         let msg = CommitPrepared::new(0, 100, 200, 300, 42, "tx_gid".to_owned());
-        publisher_roundtrip!(msg, CommitPrepared);
+        backend_logical_roundtrip!(msg, CommitPrepared);
     }
 
     #[test]
     fn test_rollback_prepared() {
         let msg = RollbackPrepared::new(0, 100, 200, 300, 400, 42, "tx_gid".to_owned());
-        publisher_roundtrip!(msg, RollbackPrepared);
+        backend_logical_roundtrip!(msg, RollbackPrepared);
     }
 
     #[test]
     fn test_stream_prepare() {
         let msg = StreamPrepare::new(0, 100, 200, 300, 42, "tx_gid".to_owned());
-        publisher_roundtrip!(msg, StreamPrepare);
+        backend_logical_roundtrip!(msg, StreamPrepare);
     }
 
     #[test]
@@ -1321,31 +1321,31 @@ mod test {
             1234567890,
             Bytes::from_static(b"walogdata"),
         );
-        primary_roundtrip!(msg, XLogData);
+        backend_streaming_roundtrip!(msg, XLogData);
     }
 
     #[test]
     fn test_primary_keepalive() {
         let msg = PrimaryKeepalive::new(0x0100000000, 1234567890, true);
-        primary_roundtrip!(msg, PrimaryKeepalive);
+        backend_streaming_roundtrip!(msg, PrimaryKeepalive);
     }
 
     #[test]
     fn test_standby_status_update_physical() {
         let msg = StandbyStatusUpdate::new(100, 200, 300, 1234567890, false);
-        standby_roundtrip!(msg, StandbyStatusUpdate);
+        frontend_streaming_roundtrip!(msg, StandbyStatusUpdate);
     }
 
     #[test]
     fn test_standby_status_update_logical() {
         let msg = StandbyStatusUpdate::new(100, 200, 300, 1234567890, true);
-        subscriber_roundtrip!(msg, StandbyStatusUpdate);
+        frontend_logical_roundtrip!(msg, StandbyStatusUpdate);
     }
 
     #[test]
     fn test_hot_standby_feedback() {
         let msg = HotStandbyFeedback::new(1234567890, 100, 1, 50, 1);
-        standby_roundtrip!(msg, HotStandbyFeedback);
+        frontend_streaming_roundtrip!(msg, HotStandbyFeedback);
     }
 
     #[test]
@@ -1357,7 +1357,7 @@ mod test {
                 TupleDataColumn::UnchangedToast,
             ]),
         );
-        publisher_roundtrip!(msg, Insert);
+        backend_logical_roundtrip!(msg, Insert);
     }
 
     #[test]
@@ -1368,6 +1368,6 @@ mod test {
                 b"\xff\xfe",
             ))]),
         );
-        publisher_roundtrip!(msg, Insert);
+        backend_logical_roundtrip!(msg, Insert);
     }
 }
