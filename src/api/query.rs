@@ -4,6 +4,8 @@ use std::ops::DerefMut;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::channel::oneshot;
+use futures::future::{Either, select};
 use futures::sink::{Sink, SinkExt};
 use futures::stream::StreamExt;
 
@@ -11,7 +13,7 @@ use super::portal::Portal;
 use super::results::{Tag, into_row_description};
 use super::stmt::{NoopQueryParser, QueryParser, StoredStatement};
 use super::store::PortalStore;
-use super::{ClientInfo, ClientPortalStore, DEFAULT_NAME, copy};
+use super::{ClientInfo, ClientPortalStore, ConnectionHandle, DEFAULT_NAME, copy};
 use crate::api::PgWireConnectionState;
 use crate::api::Type;
 use crate::api::portal::PortalExecutionState;
@@ -31,6 +33,14 @@ use crate::messages::simplequery::Query;
 fn is_empty_query(q: &str) -> bool {
     let trimmed_query = q.trim();
     trimmed_query == ";" || trimmed_query.is_empty()
+}
+
+async fn get_cancel_receiver<C>(client: &mut C) -> Option<oneshot::Receiver<()>>
+where
+    C: ClientInfo + ClientPortalStore + Unpin + Send + Sync,
+{
+    let handle = client.session_extensions().get::<Arc<ConnectionHandle>>()?;
+    Some(handle.start_query().await)
 }
 
 /// handler for processing simple query.
@@ -80,7 +90,7 @@ pub trait SimpleQueryHandler: Send + Sync {
                 .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
                 .await?;
         } else {
-            let resp = self.do_query(client, &query_string).await?;
+            let resp = run_query_with_cancel(self, client, &query_string).await?;
             for r in resp {
                 match r {
                     Response::EmptyQuery => {
@@ -149,6 +159,29 @@ pub trait SimpleQueryHandler: Send + Sync {
         C::PortalStore: PortalStore,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
+}
+
+async fn run_query_with_cancel<H, C>(
+    handler: &H,
+    client: &mut C,
+    query: &str,
+) -> PgWireResult<Vec<Response>>
+where
+    H: SimpleQueryHandler + ?Sized,
+    C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+    C::PortalStore: PortalStore,
+    C::Error: Debug,
+    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+{
+    let cancel_rx = get_cancel_receiver(client).await;
+    if let Some(cancel_rx) = cancel_rx {
+        match select(handler.do_query(client, query), cancel_rx).await {
+            Either::Left((result, _)) => result,
+            Either::Right(_) => Err(PgWireError::QueryCanceled),
+        }
+    } else {
+        handler.do_query(client, query).await
+    }
 }
 
 #[async_trait]
@@ -250,7 +283,25 @@ pub trait ExtendedQueryHandler: Send + Sync {
             let mut portal_state = portal_state_lock.lock().await;
             match portal_state.deref_mut() {
                 PortalExecutionState::Initial => {
-                    match self.do_query(client, portal.as_ref(), max_rows).await? {
+                    let resp = {
+                        let cancel_rx = get_cancel_receiver(client).await;
+                        if let Some(cancel_rx) = cancel_rx {
+                            match select(
+                                self.do_query(client, portal.as_ref(), max_rows),
+                                cancel_rx,
+                            )
+                            .await
+                            {
+                                Either::Left((result, _)) => result?,
+                                Either::Right(_) => {
+                                    return Err(PgWireError::QueryCanceled);
+                                }
+                            }
+                        } else {
+                            self.do_query(client, portal.as_ref(), max_rows).await?
+                        }
+                    };
+                    match resp {
                         Response::EmptyQuery => {
                             client
                                 .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))

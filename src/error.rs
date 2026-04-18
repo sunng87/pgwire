@@ -56,6 +56,8 @@ pub enum PgWireError {
     UserNameRequired,
     #[error("Connection is not ready for query")]
     NotReadyForQuery,
+    #[error("canceling statement due to user request")]
+    QueryCanceled,
     #[error("Invalid option value {0}")]
     InvalidOptionValue(String),
     #[error("{0}")]
@@ -379,6 +381,9 @@ impl From<PgWireError> for ErrorInfo {
             }
             PgWireError::NotReadyForQuery => {
                 ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
+            }
+            PgWireError::QueryCanceled => {
+                ErrorInfo::new("ERROR".to_owned(), "57014".to_owned(), error.to_string())
             }
             PgWireError::InvalidSecretKey => {
                 ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
