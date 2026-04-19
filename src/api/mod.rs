@@ -306,12 +306,6 @@ impl std::fmt::Debug for ConnectionHandle {
     }
 }
 
-impl Default for ConnectionHandle {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl ConnectionHandle {
     pub fn new() -> Self {
         Self {
@@ -343,11 +337,17 @@ impl ConnectionHandle {
     }
 }
 
+impl Default for ConnectionHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// RAII guard that unregisters a connection from the [`ConnectionManager`] on
 /// drop.
 pub struct ConnectionGuard {
     pid: i32,
-    secret_key: SecretKey,
+    secret_key: Bytes,
     manager: Arc<ConnectionManager>,
 }
 
@@ -361,7 +361,11 @@ impl std::fmt::Debug for ConnectionGuard {
 
 impl Drop for ConnectionGuard {
     fn drop(&mut self) {
-        self.manager.unregister(self.pid, &self.secret_key);
+        self.manager
+            .inner
+            .write()
+            .unwrap()
+            .remove(&(self.pid, self.secret_key.clone()));
     }
 }
 
@@ -394,31 +398,42 @@ impl ConnectionManager {
         }
     }
 
+    /// Register a new connection.
+    ///
+    /// Returns a shared [`ConnectionHandle`] for query-time cancel signaling
+    /// and a [`ConnectionGuard`] that unregisters on drop.
+    ///
+    /// If the `(pid, secret_key)` pair is already registered, returns the
+    /// existing handle and a new guard.
     pub fn register(
         self: &Arc<Self>,
         pid: i32,
         secret_key: SecretKey,
     ) -> (Arc<ConnectionHandle>, ConnectionGuard) {
         let key = (pid, secret_key.to_bytes());
-        {
-            let mut map = self.inner.write().unwrap();
-            assert!(
-                !map.contains_key(&key),
-                "ConnectionManager: (pid, secret_key) already registered"
-            );
+        let mut map = self.inner.write().unwrap();
+        let handle = if let Some(existing) = map.get(&key) {
+            existing.clone()
+        } else {
             let handle = Arc::new(ConnectionHandle::new());
-            map.insert(key, handle.clone());
-            (
-                handle,
-                ConnectionGuard {
-                    pid,
-                    secret_key,
-                    manager: Arc::clone(self),
-                },
-            )
-        }
+            map.insert(key.clone(), handle.clone());
+            handle
+        };
+        (
+            handle,
+            ConnectionGuard {
+                pid,
+                secret_key: key.1,
+                manager: Arc::clone(self),
+            },
+        )
     }
 
+    /// Cancel the current query on a connection identified by `(pid,
+    /// secret_key)`.
+    ///
+    /// Returns `true` if the connection was found (regardless of whether a
+    /// query was active), `false` if the connection was not registered.
     pub async fn cancel(&self, pid: i32, secret_key: &SecretKey) -> bool {
         let key = (pid, secret_key.to_bytes());
         let handle = self.inner.read().unwrap().get(&key).cloned();
@@ -428,21 +443,6 @@ impl ConnectionManager {
         } else {
             false
         }
-    }
-
-    fn unregister(&self, pid: i32, secret_key: &SecretKey) {
-        let key = (pid, secret_key.to_bytes());
-        self.inner.write().unwrap().remove(&key);
-    }
-}
-
-impl ConnectionGuard {
-    pub fn pid(&self) -> i32 {
-        self.pid
-    }
-
-    pub fn secret_key(&self) -> &SecretKey {
-        &self.secret_key
     }
 }
 
