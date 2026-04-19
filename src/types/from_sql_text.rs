@@ -55,27 +55,19 @@ impl<'a> FromSqlText<'a> for bool {
 
         match input[0].to_ascii_lowercase() {
             // --- Cases 't' and 'f' ---
-            b't' => {
-                if input.eq_ignore_ascii_case(b"true") || input.eq_ignore_ascii_case(b"t") {
-                    return Ok(true);
-                }
+            b't' if input.eq_ignore_ascii_case(b"true") || input.eq_ignore_ascii_case(b"t") => {
+                return Ok(true);
             }
-            b'f' => {
-                if input.eq_ignore_ascii_case(b"false") || input.eq_ignore_ascii_case(b"f") {
-                    return Ok(false);
-                }
+            b'f' if input.eq_ignore_ascii_case(b"false") || input.eq_ignore_ascii_case(b"f") => {
+                return Ok(false);
             }
 
             // --- Cases 'y' and 'n' ---
-            b'y' => {
-                if input.eq_ignore_ascii_case(b"yes") || input.eq_ignore_ascii_case(b"y") {
-                    return Ok(true);
-                }
+            b'y' if input.eq_ignore_ascii_case(b"yes") || input.eq_ignore_ascii_case(b"y") => {
+                return Ok(true);
             }
-            b'n' => {
-                if input.eq_ignore_ascii_case(b"no") || input.eq_ignore_ascii_case(b"n") {
-                    return Ok(false);
-                }
+            b'n' if input.eq_ignore_ascii_case(b"no") || input.eq_ignore_ascii_case(b"n") => {
+                return Ok(false);
             }
 
             // --- Case 'o' ---
@@ -91,15 +83,11 @@ impl<'a> FromSqlText<'a> for bool {
             }
 
             // --- Cases '1' and '0' ---
-            b'1' => {
-                if len == 1 {
-                    return Ok(true);
-                }
+            b'1' if len == 1 => {
+                return Ok(true);
             }
-            b'0' => {
-                if len == 1 {
-                    return Ok(false);
-                }
+            b'0' if len == 1 => {
+                return Ok(false);
             }
 
             _ => {}
