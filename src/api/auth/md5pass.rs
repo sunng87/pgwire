@@ -9,6 +9,7 @@ use super::{
     AuthSource, ClientInfo, LoginInfo, PgWireConnectionState, ServerParameterProvider,
     StartupHandler,
 };
+use crate::api::{ConnectionManager, PidSecretKeyGenerator, RandomPidSecretKeyGenerator};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::Authentication;
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
@@ -16,6 +17,8 @@ use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 pub struct Md5PasswordAuthStartupHandler<A, P> {
     auth_source: Arc<A>,
     parameter_provider: Arc<P>,
+    pid_secret_key_generator: Arc<dyn PidSecretKeyGenerator>,
+    connection_manager: Option<Arc<ConnectionManager>>,
     cached_password: Mutex<Vec<u8>>,
 }
 
@@ -24,8 +27,23 @@ impl<A, P> Md5PasswordAuthStartupHandler<A, P> {
         Md5PasswordAuthStartupHandler {
             auth_source,
             parameter_provider,
+            pid_secret_key_generator: Arc::new(RandomPidSecretKeyGenerator),
+            connection_manager: None,
             cached_password: Mutex::new(vec![]),
         }
+    }
+
+    pub fn with_pid_secret_key_generator(
+        mut self,
+        generator: Arc<dyn PidSecretKeyGenerator>,
+    ) -> Self {
+        self.pid_secret_key_generator = generator;
+        self
+    }
+
+    pub fn with_connection_manager(mut self, manager: Arc<ConnectionManager>) -> Self {
+        self.connection_manager = Some(manager);
+        self
     }
 }
 
@@ -73,6 +91,11 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
                 let cached_pass = self.cached_password.lock().await;
 
                 if pwd.password.as_bytes() == *cached_pass {
+                    let (pid, secret_key) = self.pid_secret_key_generator.generate(client);
+                    client.set_pid_and_secret_key(pid, secret_key);
+                    if let Some(manager) = &self.connection_manager {
+                        super::register_connection(client, manager);
+                    }
                     super::finish_authentication(client, self.parameter_provider.as_ref()).await?;
                 } else {
                     let login_info = LoginInfo::from_client_info(client);
@@ -87,13 +110,6 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
     }
 }
 
-/// This function is to compute postgres standard md5 hashed password
-///
-/// concat('md5', md5(concat(md5(concat(password, username)), random-salt)))
-///
-/// the input parameter `md5hashed_username_password` represents
-/// `md5(concat(password, username))` so that your can store hashed password in
-/// storage.
 pub fn hash_md5_password(username: &str, password: &str, salt: &[u8]) -> String {
     let hashed_bytes = format!("{:x}", md5::compute(format!("{password}{username}")));
     let mut bytes = Vec::with_capacity(hashed_bytes.len() + 4);

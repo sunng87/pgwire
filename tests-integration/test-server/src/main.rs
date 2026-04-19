@@ -21,8 +21,7 @@ use pgwire::api::auth::{
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
-    CopyEncoder, CopyResponse, DataRowEncoder, DescribePortalResponse, DescribeResponse,
-    DescribeStatementResponse, FieldInfo, QueryResponse, Response, Tag,
+    DataRowEncoder, FieldFormat, FieldInfo, IntoDataRowEncoder, QueryResponse, Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};

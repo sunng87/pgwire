@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 
+use bytes::Bytes;
 use futures::channel::oneshot;
 use futures::lock::Mutex;
 pub use postgres_types::Type;
@@ -257,6 +258,39 @@ impl<S> ClientPortalStore for DefaultClient<S> {
     }
 }
 
+/// Generator for process ID and secret key pairs used to identify connections
+/// for cancel requests.
+///
+/// Implement this trait to customize how PID and secret key values are
+/// produced. The default implementation [`RandomPidSecretKeyGenerator`]
+/// generates random values.
+pub trait PidSecretKeyGenerator: Send + Sync {
+    fn generate(&self, client: &dyn ClientInfo) -> (i32, SecretKey);
+}
+
+/// Default implementation of [`PidSecretKeyGenerator`] that produces random
+/// values using the `rand` crate.
+///
+/// For protocol 3.0, generates a 4-byte `SecretKey::I32`. For protocol 3.2,
+/// generates a 32-byte `SecretKey::Bytes`.
+#[derive(Debug, Default)]
+pub struct RandomPidSecretKeyGenerator;
+
+impl PidSecretKeyGenerator for RandomPidSecretKeyGenerator {
+    fn generate(&self, client: &dyn ClientInfo) -> (i32, SecretKey) {
+        let pid = rand::random::<u32>() as i32;
+        let secret_key = match client.protocol_version() {
+            ProtocolVersion::PROTOCOL3_0 => SecretKey::I32(rand::random::<i32>()),
+            ProtocolVersion::PROTOCOL3_2 => {
+                let mut bytes = vec![0u8; 32];
+                rand::fill(&mut bytes);
+                SecretKey::Bytes(bytes.into())
+            }
+        };
+        (pid, secret_key)
+    }
+}
+
 /// Per-connection cancel handle.
 ///
 /// Stores a replaceable `oneshot::Sender` that is swapped out before each
@@ -350,7 +384,7 @@ impl Drop for ConnectionGuard {
 ///    unregisters from this manager.
 #[derive(Debug)]
 pub struct ConnectionManager {
-    inner: RwLock<HashMap<(i32, SecretKey), Arc<ConnectionHandle>>>,
+    inner: RwLock<HashMap<(i32, Bytes), Arc<ConnectionHandle>>>,
 }
 
 impl ConnectionManager {
@@ -360,20 +394,12 @@ impl ConnectionManager {
         }
     }
 
-    /// Register a new connection.
-    ///
-    /// Returns a shared [`ConnectionHandle`] for query-time cancel signaling
-    /// and a [`ConnectionGuard`] that unregisters on drop.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the `(pid, secret_key)` pair is already registered.
     pub fn register(
         self: &Arc<Self>,
         pid: i32,
         secret_key: SecretKey,
     ) -> (Arc<ConnectionHandle>, ConnectionGuard) {
-        let key = (pid, secret_key.clone());
+        let key = (pid, secret_key.to_bytes());
         {
             let mut map = self.inner.write().unwrap();
             assert!(
@@ -393,18 +419,9 @@ impl ConnectionManager {
         }
     }
 
-    /// Cancel the current query on a connection identified by `(pid,
-    /// secret_key)`.
-    ///
-    /// Returns `true` if the connection was found (regardless of whether a
-    /// query was active), `false` if the connection was not registered.
     pub async fn cancel(&self, pid: i32, secret_key: &SecretKey) -> bool {
-        let handle = self
-            .inner
-            .read()
-            .unwrap()
-            .get(&(pid, secret_key.clone()))
-            .cloned();
+        let key = (pid, secret_key.to_bytes());
+        let handle = self.inner.read().unwrap().get(&key).cloned();
         if let Some(handle) = handle {
             handle.cancel().await;
             true
@@ -414,10 +431,8 @@ impl ConnectionManager {
     }
 
     fn unregister(&self, pid: i32, secret_key: &SecretKey) {
-        self.inner
-            .write()
-            .unwrap()
-            .remove(&(pid, secret_key.clone()));
+        let key = (pid, secret_key.to_bytes());
+        self.inner.write().unwrap().remove(&key);
     }
 }
 

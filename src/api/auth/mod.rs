@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
 
 use super::{
-    ClientInfo, METADATA_APPLICATION_NAME, METADATA_CLIENT_ENCODING, METADATA_DATABASE,
-    METADATA_USER, PgWireConnectionState,
+    ClientInfo, ConnectionGuard, ConnectionHandle, METADATA_APPLICATION_NAME,
+    METADATA_CLIENT_ENCODING, METADATA_DATABASE, METADATA_USER, PgWireConnectionState,
 };
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::response::{ReadyForQuery, TransactionStatus};
@@ -289,6 +290,18 @@ where
             .iter()
             .map(|(k, v)| (k.to_owned(), v.to_owned())),
     );
+}
+
+pub(crate) fn register_connection<C>(client: &C, manager: &Arc<super::ConnectionManager>)
+where
+    C: ClientInfo,
+{
+    let (pid, secret_key) = client.pid_and_secret_key();
+    let (handle, guard) = manager.register(pid, secret_key);
+    client
+        .session_extensions()
+        .insert::<Arc<ConnectionHandle>>(handle);
+    client.session_extensions().insert::<ConnectionGuard>(guard);
 }
 
 pub(crate) async fn finish_authentication0<C, P>(
