@@ -32,6 +32,7 @@ pub trait StartupHandler: Send + Sync {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 }
 
+/// Provides server parameters to send to the client during startup.
 pub trait ServerParameterProvider: Send + Sync {
     fn server_parameters<C>(&self, _client: &C) -> Option<HashMap<String, String>>
     where
@@ -185,6 +186,7 @@ impl ServerParameterProvider for DefaultServerParameterProvider {
     }
 }
 
+/// Represents a password with an optional salt.
 #[derive(Debug, new, Clone)]
 pub struct Password {
     salt: Option<Vec<u8>>,
@@ -192,15 +194,18 @@ pub struct Password {
 }
 
 impl Password {
+    /// Returns the salt, if any.
     pub fn salt(&self) -> Option<&[u8]> {
         self.salt.as_deref()
     }
 
+    /// Returns the password bytes.
     pub fn password(&self) -> &[u8] {
         &self.password
     }
 }
 
+/// Login information extracted from the client connection.
 #[derive(Debug, new)]
 pub struct LoginInfo<'a> {
     user: Option<&'a str>,
@@ -209,18 +214,22 @@ pub struct LoginInfo<'a> {
 }
 
 impl LoginInfo<'_> {
+    /// Returns the user name.
     pub fn user(&self) -> Option<&str> {
         self.user
     }
 
+    /// Returns the database name.
     pub fn database(&self) -> Option<&str> {
         self.database
     }
 
+    /// Returns the client host address.
     pub fn host(&self) -> &str {
         &self.host
     }
 
+    /// Creates `LoginInfo` from a client.
     pub fn from_client_info<C>(client: &C) -> LoginInfo<'_>
     where
         C: ClientInfo,
@@ -248,6 +257,7 @@ pub trait AuthSource: Send + Sync + Debug {
     async fn get_password(&self, login: &LoginInfo) -> PgWireResult<Password>;
 }
 
+/// Negotiates the protocol version with the client.
 pub async fn protocol_negotiation<C>(client: &mut C, startup_message: &Startup) -> PgWireResult<()>
 where
     C: ClientInfo + Sink<PgWireBackendMessage> + Unpin,
@@ -280,6 +290,7 @@ where
     }
 }
 
+/// Saves startup message parameters into client metadata.
 pub fn save_startup_parameters_to_metadata<C>(client: &mut C, startup_message: &Startup)
 where
     C: ClientInfo,
@@ -338,6 +349,7 @@ where
     Ok(())
 }
 
+/// Completes authentication by sending `AuthenticationOk`, parameter status, backend key data, and `ReadyForQuery`.
 pub async fn finish_authentication<C, P>(
     client: &mut C,
     server_parameter_provider: &P,

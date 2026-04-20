@@ -7,6 +7,7 @@ use crate::messages::data::DataRow;
 use crate::types::FromSqlText;
 use crate::types::format::FormatOptions;
 
+/// Reader for iterating over query result data rows.
 #[derive(new, Debug)]
 pub struct DataRowsReader {
     fields: Vec<FieldInfo>,
@@ -14,6 +15,7 @@ pub struct DataRowsReader {
 }
 
 impl DataRowsReader {
+    /// Create an empty `DataRowsReader` with no rows.
     pub fn empty() -> DataRowsReader {
         Self {
             fields: vec![],
@@ -32,6 +34,7 @@ impl DataRowsReader {
     }
 }
 
+/// Decoder for reading typed values from a single data row.
 #[derive(new, Debug)]
 pub struct DataRowDecoder<'a> {
     fields: &'a [FieldInfo],
@@ -81,6 +84,7 @@ impl DataRowDecoder<'_> {
         self.fields.len()
     }
 
+    /// Returns `true` if there are no fields.
     pub fn is_empty(&self) -> bool {
         self.fields.is_empty()
     }

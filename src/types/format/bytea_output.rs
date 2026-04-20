@@ -1,8 +1,11 @@
 use crate::error::PgWireError;
 
+/// Hex output mode constant for bytea.
 pub const BYTEA_OUTPUT_HEX: &str = "hex";
+/// Escape output mode constant for bytea.
 pub const BYTEA_OUTPUT_ESCAPE: &str = "escape";
 
+/// Bytea output format (hex or escape).
 #[derive(Debug, Default, Copy, Clone)]
 pub enum ByteaOutput {
     #[default]

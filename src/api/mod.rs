@@ -17,29 +17,48 @@ use crate::messages::ProtocolVersion;
 use crate::messages::response::TransactionStatus;
 use crate::messages::startup::SecretKey;
 
+/// Authentication handlers for the startup phase.
 pub mod auth;
+/// Cancel request handling.
 pub mod cancel;
 #[cfg(feature = "client-api")]
+/// Client-side PostgreSQL protocol implementation.
 pub mod client;
+/// COPY protocol handlers.
 pub mod copy;
+/// Portal management for the extended query protocol.
 pub mod portal;
+/// Simple and extended query handlers.
 pub mod query;
+/// Query result encoding and formatting.
 pub mod results;
+/// Prepared statement management.
 pub mod stmt;
+/// Portal and prepared statement storage backends.
 pub mod store;
+/// Transaction status tracking.
 pub mod transaction;
 
+/// Default name used when no name is provided for prepared statements or portals.
 pub const DEFAULT_NAME: &str = "POSTGRESQL_DEFAULT_NAME";
 
+/// States of a PostgreSQL connection lifecycle.
 #[derive(Debug, Clone, Copy, Default)]
 pub enum PgWireConnectionState {
+    /// Waiting for an SSL request from the client.
     #[default]
     AwaitingSslRequest,
+    /// Waiting for a startup message from the client.
     AwaitingStartup,
+    /// Authentication handshake in progress.
     AuthenticationInProgress,
+    /// Connection is idle and ready for queries.
     ReadyForQuery,
+    /// A query is currently being executed.
     QueryInProgress,
+    /// A COPY operation is in progress.
     CopyInProgress(bool),
+    /// Waiting for a Sync message from the client.
     AwaitingSync,
 }
 
@@ -63,6 +82,7 @@ impl std::fmt::Debug for SessionExtensions {
 }
 
 impl SessionExtensions {
+    /// Create a new empty extension store.
     pub fn new() -> Self {
         Self {
             map: RwLock::new(HashMap::new()),
@@ -107,64 +127,96 @@ impl SessionExtensions {
 // TODO: add oauth scope and issuer
 /// Describe a client information holder
 pub trait ClientInfo {
+    /// Returns the client's socket address.
     fn socket_addr(&self) -> SocketAddr;
 
+    /// Returns whether the connection is secured (TLS).
     fn is_secure(&self) -> bool;
 
+    /// Returns the protocol version negotiated with the client.
     fn protocol_version(&self) -> ProtocolVersion;
 
+    /// Sets the protocol version for this connection.
     fn set_protocol_version(&mut self, version: ProtocolVersion);
 
+    /// Returns the process ID and secret key used for cancel requests.
     fn pid_and_secret_key(&self) -> (i32, SecretKey);
 
+    /// Sets the process ID and secret key for cancel requests.
     fn set_pid_and_secret_key(&mut self, pid: i32, secret_key: SecretKey);
 
+    /// Returns the current connection state.
     fn state(&self) -> PgWireConnectionState;
 
+    /// Transitions the connection to a new state.
     fn set_state(&mut self, new_state: PgWireConnectionState);
 
+    /// Returns the current transaction status.
     fn transaction_status(&self) -> TransactionStatus;
 
+    /// Updates the transaction status.
     fn set_transaction_status(&mut self, new_status: TransactionStatus);
 
+    /// Returns the connection metadata key-value map.
     fn metadata(&self) -> &HashMap<String, String>;
 
+    /// Returns a mutable reference to the connection metadata.
     fn metadata_mut(&mut self) -> &mut HashMap<String, String>;
 
+    /// Returns the per-session extension store.
     fn session_extensions(&self) -> &SessionExtensions;
 
+    /// Returns the TLS SNI server name, if available.
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     fn sni_server_name(&self) -> Option<&str>;
 
+    /// Returns the client TLS certificates, if available.
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     fn client_certificates<'a>(&self) -> Option<&[CertificateDer<'a>]>;
 }
 
 /// Client Portal Store
 pub trait ClientPortalStore {
+    /// The underlying portal store type.
     type PortalStore;
 
+    /// Returns a reference to the portal store.
     fn portal_store(&self) -> &Self::PortalStore;
 }
 
+/// Metadata key for the connected user name.
 pub const METADATA_USER: &str = "user";
+/// Metadata key for the target database name.
 pub const METADATA_DATABASE: &str = "database";
+/// Metadata key for the client encoding setting.
 pub const METADATA_CLIENT_ENCODING: &str = "client_encoding";
+/// Metadata key for the application name.
 pub const METADATA_APPLICATION_NAME: &str = "application_name";
 
+/// Default client implementation holding all per-connection state.
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct DefaultClient<S> {
+    /// The client's socket address.
     pub socket_addr: SocketAddr,
+    /// Whether the connection is secured with TLS.
     pub is_secure: bool,
+    /// The negotiated protocol version.
     pub protocol_version: ProtocolVersion,
+    /// Process ID and secret key for cancel requests.
     pub pid_secret_key: (i32, SecretKey),
+    /// Current connection state.
     pub state: PgWireConnectionState,
+    /// Current transaction status.
     pub transaction_status: TransactionStatus,
+    /// Connection metadata key-value pairs.
     pub metadata: HashMap<String, String>,
+    /// The TLS SNI server name, if using TLS.
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     pub sni_server_name: Option<String>,
+    /// In-memory portal and prepared statement store.
     pub portal_store: store::MemPortalStore<S>,
+    /// Per-session typed extension store.
     pub session_extensions: SessionExtensions,
 }
 
@@ -233,6 +285,7 @@ impl<S> ClientInfo for DefaultClient<S> {
 }
 
 impl<S> DefaultClient<S> {
+    /// Create a new `DefaultClient` with the given socket address and TLS status.
     pub fn new(socket_addr: SocketAddr, is_secure: bool) -> DefaultClient<S> {
         DefaultClient {
             socket_addr,
@@ -471,27 +524,36 @@ pub struct NoopHandler;
 
 impl ErrorHandler for NoopHandler {}
 
+/// A collection of all handler traits required to serve a PostgreSQL connection.
+///
+/// Implement this trait to provide handlers for each phase of the wire protocol.
 pub trait PgWireServerHandlers: 'static {
+    /// Returns the handler for simple (text) queries.
     fn simple_query_handler(&self) -> Arc<impl query::SimpleQueryHandler> {
         Arc::new(NoopHandler)
     }
 
+    /// Returns the handler for extended query protocol messages.
     fn extended_query_handler(&self) -> Arc<impl query::ExtendedQueryHandler> {
         Arc::new(NoopHandler)
     }
 
+    /// Returns the handler for the startup/authentication phase.
     fn startup_handler(&self) -> Arc<impl auth::StartupHandler> {
         Arc::new(NoopHandler)
     }
 
+    /// Returns the handler for COPY sub-protocol messages.
     fn copy_handler(&self) -> Arc<impl copy::CopyHandler> {
         Arc::new(NoopHandler)
     }
 
+    /// Returns the error handler for processing errors before sending to the client.
     fn error_handler(&self) -> Arc<impl ErrorHandler> {
         Arc::new(NoopHandler)
     }
 
+    /// Returns the handler for cancel requests.
     fn cancel_handler(&self) -> Arc<impl cancel::CancelHandler> {
         Arc::new(NoopHandler)
     }

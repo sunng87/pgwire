@@ -169,6 +169,7 @@ pub trait SimpleQueryHandler: Send + Sync {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 }
 
+/// Handler for extended query protocol (parse/bind/describe/execute/close).
 #[async_trait]
 pub trait ExtendedQueryHandler: Send + Sync {
     type Statement: Clone + Send + Sync + 'static;
@@ -583,6 +584,7 @@ where
     Ok(())
 }
 
+/// Sends up to `max_rows` from the query response, returning `true` if more rows remain.
 pub async fn send_partial_query_response<C>(
     client: &mut C,
     results: &mut QueryResponse,

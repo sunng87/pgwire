@@ -1,7 +1,7 @@
 //! Connection configuration.
 //!
 //! This module is copied from rust-postgres and slightly modified for pgwire:
-//! https://github.com/sfackler/rust-postgres/blob/master/tokio-postgres/src/config.rs
+//! <https://github.com/sfackler/rust-postgres/blob/master/tokio-postgres/src/config.rs>
 
 use std::borrow::Cow;
 #[cfg(unix)]

@@ -19,39 +19,46 @@ use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 use super::result::DataRowsReader;
 use super::{ClientInfo, ReadyState};
 
+/// Response from a prepare (Parse) operation.
 #[derive(Debug, Clone)]
 pub struct PrepareResponse {
     pub name: Option<String>,
     pub param_types: Vec<Type>,
 }
 
+/// Response from a describe operation, containing parameter and result field metadata.
 #[derive(Debug, Default)]
 pub struct DescribeResponse {
     pub param_types: Vec<Type>,
     pub fields: Vec<FieldInfo>,
 }
 
+/// Result of an execute operation, either completed or suspended.
 #[derive(Debug)]
 pub enum ExecuteResult<T> {
     Complete(T),
     Suspended(T),
 }
 
+/// Target of a describe or close operation (statement or portal).
 #[derive(Debug, Clone, Copy)]
 pub enum DescribeTarget<'a> {
     Statement(Option<&'a str>),
     Portal(Option<&'a str>),
 }
 
+/// Handler trait for the simple query subprotocol.
 #[async_trait]
 pub trait SimpleQueryHandler: Send {
     type QueryResponse;
 
+    /// Send a simple query to the server.
     async fn simple_query<C>(&mut self, client: &mut C, query: &str) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
+    /// Handle a single backend message during simple query execution.
     async fn on_message<C>(
         &mut self,
         client: &mut C,
@@ -89,6 +96,7 @@ pub trait SimpleQueryHandler: Send {
         Ok(ReadyState::Pending)
     }
 
+    /// Called when a `RowDescription` message is received.
     async fn on_row_description<C>(
         &mut self,
         client: &mut C,
@@ -98,11 +106,13 @@ pub trait SimpleQueryHandler: Send {
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
+    /// Called when a `DataRow` message is received.
     async fn on_data_row<C>(&mut self, client: &mut C, message: DataRow) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
+    /// Called when a `CommandComplete` message is received.
     async fn on_command_complete<C>(
         &mut self,
         client: &mut C,
@@ -112,6 +122,7 @@ pub trait SimpleQueryHandler: Send {
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
+    /// Called when an `EmptyQueryResponse` message is received.
     async fn on_empty_query<C>(
         &mut self,
         client: &mut C,
@@ -121,6 +132,7 @@ pub trait SimpleQueryHandler: Send {
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
+    /// Called when a `ReadyForQuery` message is received.
     async fn on_ready_for_query<C>(
         &mut self,
         client: &mut C,
@@ -131,65 +143,80 @@ pub trait SimpleQueryHandler: Send {
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 }
 
+/// Handler trait for the extended query subprotocol.
 #[async_trait]
 pub trait ExtendedQueryHandler: Send {
     type QueryResponse;
 
+    /// Send a Parse message to the server.
     async fn parse<C>(&mut self, client: &mut C, query: Parse) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
+    /// Send a Bind message to the server.
     async fn bind<C>(&mut self, client: &mut C, bind: Bind) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
+    /// Send an Execute message to the server.
     async fn execute<C>(&mut self, client: &mut C, execute: Execute) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
+    /// Send a Describe message to the server.
     async fn describe<C>(&mut self, client: &mut C, describe: Describe) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
+    /// Send a Close message to the server.
     async fn close<C>(&mut self, client: &mut C, close: Close) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
+    /// Send a Sync message to the server.
     async fn sync<C>(&mut self, client: &mut C, sync: Sync) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
+    /// Send a Flush message to the server.
     async fn flush<C>(&mut self, client: &mut C, flush: Flush) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
+    /// Called when a `ParameterDescription` message is received.
     async fn on_parameter_description(
         &mut self,
         msg: ParameterDescription,
     ) -> PgWireClientResult<Vec<Type>>;
 
+    /// Called when a `RowDescription` message is received.
     async fn on_row_description(
         &mut self,
         msg: RowDescription,
     ) -> PgWireClientResult<Vec<FieldInfo>>;
 
+    /// Called when a `DataRow` message is received.
     async fn on_data_row(&mut self, msg: DataRow) -> PgWireClientResult<Self::QueryResponse>;
 
+    /// Called when a `CommandComplete` message is received.
     async fn on_command_complete(&mut self, msg: CommandComplete) -> PgWireClientResult<Tag>;
 
+    /// Called when a `PortalSuspended` message is received.
     async fn on_portal_suspended(&mut self) -> PgWireClientResult<()>;
 }
 
+/// State tracker for extended query operations.
 #[derive(Debug)]
 pub struct ExtendedQueryState {}
 
+/// Response from a simple or extended query execution.
 #[derive(Debug)]
 pub enum Response {
     EmptyQuery,
@@ -198,6 +225,7 @@ pub enum Response {
 }
 
 impl Response {
+    /// Convert this response into a `DataRowsReader` for row-by-row access.
     pub fn into_data_rows_reader(self) -> DataRowsReader {
         if let Response::Query((_, fields, rows)) = self {
             DataRowsReader::new(fields, rows)
@@ -236,6 +264,7 @@ struct QueryResponseBuffer {
     data_rows: Vec<DataRow>,
 }
 
+/// Default handler that collects simple query results into `Response` values.
 #[derive(Default, new)]
 pub struct DefaultSimpleQueryHandler {
     #[new(default)]
@@ -343,6 +372,7 @@ impl SimpleQueryHandler for DefaultSimpleQueryHandler {
     }
 }
 
+/// Client for executing extended query protocol operations.
 pub struct ExtendedQueryClient<'a, C, H> {
     client: &'a mut C,
     handler: &'a mut H,
@@ -357,10 +387,12 @@ where
         + Send,
     H: ExtendedQueryHandler,
 {
+    /// Create a new extended query client.
     pub fn new(client: &'a mut C, handler: &'a mut H) -> Self {
         Self { client, handler }
     }
 
+    /// Prepare a statement for later execution.
     pub async fn prepare(
         &mut self,
         name: Option<&str>,
@@ -409,6 +441,7 @@ where
         Err(PgWireClientError::UnexpectedEOF)
     }
 
+    /// Bind parameters to a prepared statement, creating a portal.
     pub async fn bind(
         &mut self,
         portal: Option<&str>,
@@ -446,6 +479,7 @@ where
         Err(PgWireClientError::UnexpectedEOF)
     }
 
+    /// Execute a portal and return the result rows.
     pub async fn execute(
         &mut self,
         portal: Option<&str>,
@@ -492,6 +526,7 @@ where
         Err(PgWireClientError::UnexpectedEOF)
     }
 
+    /// Describe a prepared statement or portal.
     pub async fn describe(
         &mut self,
         target: DescribeTarget<'_>,
@@ -533,6 +568,7 @@ where
         Err(PgWireClientError::UnexpectedEOF)
     }
 
+    /// Close a prepared statement or portal.
     pub async fn close(&mut self, target: DescribeTarget<'_>) -> PgWireClientResult<()> {
         let (target_type, name) = match target {
             DescribeTarget::Statement(name) => (TARGET_TYPE_BYTE_STATEMENT, name),
@@ -562,6 +598,7 @@ where
         Err(PgWireClientError::UnexpectedEOF)
     }
 
+    /// Execute a one-shot extended query (prepare, bind, execute, close).
     pub async fn query(
         &mut self,
         sql: &str,
@@ -582,6 +619,7 @@ where
     }
 }
 
+/// Default handler that forwards extended query messages and collects results.
 #[derive(Default, new)]
 pub struct DefaultExtendedQueryHandler {
     #[new(default)]

@@ -13,6 +13,7 @@ use crate::messages::response::{ReadyForQuery, TransactionStatus};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 #[async_trait]
+/// A startup handler that performs no authentication.
 pub trait NoopStartupHandler: StartupHandler {
     fn connection_manager(&self) -> Option<Arc<ConnectionManager>> {
         None

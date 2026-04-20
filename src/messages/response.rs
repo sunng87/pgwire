@@ -3,12 +3,14 @@ use bytes::{Buf, BufMut, BytesMut};
 use super::{DecodeContext, Message, codec};
 use crate::error::{PgWireError, PgWireResult};
 
+/// Command completion response from backend
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct CommandComplete {
     pub tag: String,
 }
 
+/// Message type byte for CommandComplete
 pub const MESSAGE_TYPE_BYTE_COMMAND_COMPLETE: u8 = b'C';
 
 impl Message for CommandComplete {
@@ -39,10 +41,12 @@ impl Message for CommandComplete {
     }
 }
 
+/// Response sent when an empty query string is submitted
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct EmptyQueryResponse;
 
+/// Message type byte for EmptyQueryResponse
 pub const MESSAGE_TYPE_BYTE_EMPTY_QUERY_RESPONSE: u8 = b'I';
 
 impl Message for EmptyQueryResponse {
@@ -72,12 +76,14 @@ impl Message for EmptyQueryResponse {
     }
 }
 
+/// Indicates the backend is ready for a new query cycle
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct ReadyForQuery {
     pub status: TransactionStatus,
 }
 
+/// Current transaction status indicator
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum TransactionStatus {
@@ -86,10 +92,14 @@ pub enum TransactionStatus {
     Error = READY_STATUS_FAILED_TRANSACTION_BLOCK,
 }
 
+/// Backend is idle, not in a transaction
 pub const READY_STATUS_IDLE: u8 = b'I';
+/// Backend is in a transaction block
 pub const READY_STATUS_TRANSACTION_BLOCK: u8 = b'T';
+/// Backend is in a failed transaction block
 pub const READY_STATUS_FAILED_TRANSACTION_BLOCK: u8 = b'E';
 
+/// Message type byte for ReadyForQuery
 pub const MESSAGE_TYPE_BYTE_READY_FOR_QUERY: u8 = b'Z';
 
 impl Message for ReadyForQuery {
@@ -139,6 +149,7 @@ pub struct ErrorResponse {
     pub fields: Vec<(u8, String)>,
 }
 
+/// Message type byte for ErrorResponse
 pub const MESSAGE_TYPE_BYTE_ERROR_RESPONSE: u8 = b'E';
 
 impl Message for ErrorResponse {
@@ -189,6 +200,7 @@ pub struct NoticeResponse {
     pub fields: Vec<(u8, String)>,
 }
 
+/// Message type byte for NoticeResponse
 pub const MESSAGE_TYPE_BYTE_NOTICE_RESPONSE: u8 = b'N';
 
 impl Message for NoticeResponse {
@@ -246,9 +258,12 @@ pub enum SslResponse {
 }
 
 impl SslResponse {
+    /// Byte value indicating SSL is accepted
     pub const BYTE_ACCEPT: u8 = b'S';
+    /// Byte value indicating SSL is refused
     pub const BYTE_REFUSE: u8 = b'N';
     // The whole message takes only one byte and has no size field.
+    /// Message length in bytes
     pub const MESSAGE_LENGTH: usize = 1;
 }
 
@@ -301,9 +316,12 @@ pub enum GssEncResponse {
 }
 
 impl GssEncResponse {
+    /// Byte value indicating GSS encryption is accepted
     pub const BYTE_ACCEPT: u8 = b'G';
+    /// Byte value indicating GSS encryption is refused
     pub const BYTE_REFUSE: u8 = b'N';
     // The whole message takes only one byte and has no size field.
+    /// Message length in bytes
     pub const MESSAGE_LENGTH: usize = 1;
 }
 
@@ -356,6 +374,7 @@ pub struct NotificationResponse {
     pub payload: String,
 }
 
+/// Message type byte for NotificationResponse
 pub const MESSAGE_TYPE_BYTE_NOTIFICATION_RESPONSE: u8 = b'A';
 
 impl Message for NotificationResponse {

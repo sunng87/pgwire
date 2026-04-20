@@ -16,13 +16,16 @@ use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 use super::{ClientInfo, ReadyState, ServerInformation};
 
+/// Handler trait for the startup/authentication phase of a client connection.
 #[async_trait]
 pub trait StartupHandler: Send {
+    /// Initiate the startup process by sending a startup message.
     async fn startup<C>(&mut self, client: &mut C) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
+    /// Handle a single backend message during startup/authentication.
     async fn on_message<C>(
         &mut self,
         client: &mut C,
@@ -61,6 +64,7 @@ pub trait StartupHandler: Send {
         Ok(ReadyState::Pending)
     }
 
+    /// Handle an authentication message from the server.
     async fn on_authentication<C>(
         &mut self,
         client: &mut C,
@@ -74,6 +78,7 @@ pub trait StartupHandler: Send {
             + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
+    /// Handle a parameter status message from the server.
     async fn on_parameter_status<C>(
         &mut self,
         client: &mut C,
@@ -83,6 +88,7 @@ pub trait StartupHandler: Send {
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
+    /// Handle a backend key data message from the server.
     async fn on_backend_key<C>(
         &mut self,
         client: &mut C,
@@ -92,6 +98,7 @@ pub trait StartupHandler: Send {
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 
+    /// Handle a `ReadyForQuery` message and return the collected server information.
     async fn on_ready_for_query<C>(
         &mut self,
         client: &mut C,
@@ -102,6 +109,7 @@ pub trait StartupHandler: Send {
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
 }
 
+/// Default startup handler that supports cleartext, MD5, and SCRAM-SHA-256 authentication.
 #[derive(new, Debug)]
 pub struct DefaultStartupHandler {
     #[new(default)]

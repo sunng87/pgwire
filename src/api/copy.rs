@@ -15,18 +15,21 @@ use super::results::{CopyResponse, Tag};
 /// handler for copy messages
 #[async_trait]
 pub trait CopyHandler: Send + Sync {
+    /// Called when copy data is received from the client.
     async fn on_copy_data<C>(&self, _client: &mut C, _copy_data: CopyData) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
+    /// Called when the client signals the copy-in operation is complete.
     async fn on_copy_done<C>(&self, _client: &mut C, _done: CopyDone) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
 
+    /// Called when the client aborts the copy-in operation.
     async fn on_copy_fail<C>(&self, _client: &mut C, fail: CopyFail) -> PgWireError
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -41,6 +44,7 @@ pub trait CopyHandler: Send + Sync {
     }
 }
 
+/// Send a CopyInResponse message to the client.
 pub async fn send_copy_in_response<C>(client: &mut C, resp: CopyResponse) -> PgWireResult<()>
 where
     C: Sink<PgWireBackendMessage> + Unpin,
@@ -55,6 +59,7 @@ where
     Ok(())
 }
 
+/// Send a CopyOutResponse header and stream copy data to the client.
 pub async fn send_copy_out_response<C>(client: &mut C, resp: CopyResponse) -> PgWireResult<()>
 where
     C: Sink<PgWireBackendMessage> + Unpin,
@@ -108,6 +113,7 @@ where
     Ok(())
 }
 
+/// Send a CopyBothResponse header and stream copy data to the client.
 pub async fn send_copy_both_response<C>(client: &mut C, resp: CopyResponse) -> PgWireResult<()>
 where
     C: Sink<PgWireBackendMessage> + Unpin,

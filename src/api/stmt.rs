@@ -12,6 +12,7 @@ use super::portal::Format;
 use super::results::FieldInfo;
 use super::{ClientInfo, DEFAULT_NAME};
 
+/// A parsed SQL statement stored in the portal store.
 #[non_exhaustive]
 #[derive(Debug, Default, new)]
 pub struct StoredStatement<S> {
@@ -25,6 +26,7 @@ pub struct StoredStatement<S> {
 }
 
 impl<S> StoredStatement<S> {
+    /// Parse a `Parse` message into a stored statement using the given query parser.
     pub async fn parse<C, Q>(
         client: &C,
         parse: &Parse,

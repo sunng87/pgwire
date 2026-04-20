@@ -1,10 +1,12 @@
 use super::{DecodeContext, Message};
 use crate::error::PgWireResult;
 
+/// Termination message sent from frontend to close the connection
 #[non_exhaustive]
 #[derive(Default, PartialEq, Eq, Debug, new)]
 pub struct Terminate;
 
+/// Message type byte for Terminate
 pub const MESSAGE_TYPE_BYTE_TERMINATE: u8 = b'X';
 
 impl Message for Terminate {

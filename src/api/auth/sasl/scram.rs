@@ -12,6 +12,7 @@ use x509_certificate::SignatureAlgorithm;
 use x509_certificate::certificate::CapturedX509Certificate;
 
 use crate::api::ClientInfo;
+/// Re-exports client-side SCRAM authentication types.
 #[cfg(feature = "client-api")]
 pub use crate::api::auth::sasl::scram::client::*;
 use crate::api::auth::{AuthSource, LoginInfo, Password};
@@ -25,8 +26,10 @@ use aws_lc_rs::{digest, hmac, pbkdf2};
 #[cfg(all(feature = "_ring", not(feature = "_aws-lc-rs")))]
 use ring::{digest, hmac, pbkdf2};
 
+/// Default SCRAM iteration count.
 pub const SCRAM_ITERATIONS: usize = 4096;
 
+/// SCRAM authentication configuration and state.
 #[derive(Debug)]
 pub struct ScramAuth {
     auth_db: Arc<dyn AuthSource>,
@@ -34,6 +37,7 @@ pub struct ScramAuth {
 }
 
 impl ScramAuth {
+    /// Creates a new SCRAM auth instance.
     pub fn new(auth_db: Arc<dyn AuthSource>) -> ScramAuth {
         ScramAuth {
             auth_db,
@@ -62,6 +66,7 @@ impl ScramAuth {
         self.authenticator.set_iterations(iterations);
     }
 
+    /// Returns `true` if channel binding is configured.
     pub fn supports_channel_binding(&self) -> bool {
         self.authenticator.server_cert_sig.is_some()
     }
@@ -84,6 +89,7 @@ pub fn gen_salted_password(password: &str, salt: &[u8], iters: usize) -> Vec<u8>
     hi(pass_bytes, salt, iters)
 }
 
+/// Generates a random nonce for SCRAM authentication.
 pub fn random_nonce() -> String {
     STANDARD.encode(rand::random::<[u8; 18]>())
 }
@@ -149,6 +155,7 @@ impl Default for ScramServerAuth {
 }
 
 impl ScramServerAuth {
+    /// Creates a new SCRAM server authenticator.
     pub fn new() -> Self {
         Self {
             server_cert_sig: None,
@@ -227,6 +234,7 @@ pub struct ScramServerAuthWaitingForClientFinal {
 }
 
 impl ScramServerAuthWaitingForClientFinal {
+    /// Processes the client final message and verifies the proof.
     pub fn on_client_final_message(&self, client_final_message: &[u8]) -> PgWireResult<String> {
         let client_final = ClientFinal::from_str(decode_str(client_final_message)?)?;
 
@@ -267,12 +275,14 @@ mod client {
     use super::*;
     use crate::error::{PgWireClientError, PgWireClientResult};
 
+    /// Client-side SCRAM authenticator.
     pub struct ScramClientAuth {
         username: String,
         password: String,
     }
 
     impl ScramClientAuth {
+        /// Creates a new SCRAM client authenticator.
         pub fn new(username: String, password: String) -> Self {
             Self { username, password }
         }

@@ -30,6 +30,7 @@ pub struct Portal<S> {
     pub state: Arc<Mutex<PortalExecutionState>>,
 }
 
+/// Execution state of a portal during extended query processing.
 #[derive(Default, Debug)]
 pub enum PortalExecutionState {
     #[default]
@@ -39,6 +40,7 @@ pub enum PortalExecutionState {
     Finished,
 }
 
+/// Column format specification for parameters or result columns.
 #[derive(Debug, Clone, Default)]
 pub enum Format {
     #[default]
@@ -152,6 +154,7 @@ impl<S: Clone> Portal<S> {
         }
     }
 
+    /// Get a handle to the portal's execution state.
     pub fn state(&self) -> Arc<Mutex<PortalExecutionState>> {
         self.state.clone()
     }

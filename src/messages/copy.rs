@@ -3,8 +3,10 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use super::{DecodeContext, Message, codec};
 use crate::error::PgWireResult;
 
+/// Message type byte for CopyData
 pub const MESSAGE_TYPE_BYTE_COPY_DATA: u8 = b'd';
 
+/// Copy data message for COPY operations
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyData {
@@ -37,8 +39,10 @@ impl Message for CopyData {
     }
 }
 
+/// Message type byte for CopyDone
 pub const MESSAGE_TYPE_BYTE_COPY_DONE: u8 = b'c';
 
+/// Copy completion message
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyDone;
@@ -62,8 +66,10 @@ impl Message for CopyDone {
     }
 }
 
+/// Message type byte for CopyFail
 pub const MESSAGE_TYPE_BYTE_COPY_FAIL: u8 = b'f';
 
+/// Copy failure message from frontend
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyFail {
@@ -91,8 +97,10 @@ impl Message for CopyFail {
     }
 }
 
+/// Message type byte for CopyInResponse
 pub const MESSAGE_TYPE_BYTE_COPY_IN_RESPONSE: u8 = b'G';
 
+/// Backend response to start COPY FROM STDIN
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyInResponse {
@@ -137,8 +145,10 @@ impl Message for CopyInResponse {
     }
 }
 
+/// Message type byte for CopyOutResponse
 pub const MESSAGE_TYPE_BYTE_COPY_OUT_RESPONSE: u8 = b'H';
 
+/// Backend response to start COPY TO STDOUT
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyOutResponse {
@@ -183,8 +193,10 @@ impl Message for CopyOutResponse {
     }
 }
 
+/// Message type byte for CopyBothResponse
 pub const MESSAGE_TYPE_BYTE_COPY_BOTH_RESPONSE: u8 = b'W';
 
+/// Backend response for bidirectional copy mode
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct CopyBothResponse {

@@ -16,6 +16,7 @@ use crate::types::ToSqlText;
 use crate::types::format::FormatOptions;
 use smol_str::SmolStr;
 
+/// Command completion tag for a query response.
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Tag {
     command: String,
@@ -24,6 +25,7 @@ pub struct Tag {
 }
 
 impl Tag {
+    /// Create a new tag with the given command name.
     pub fn new(command: &str) -> Tag {
         Tag {
             command: command.to_owned(),
@@ -32,11 +34,13 @@ impl Tag {
         }
     }
 
+    /// Set the number of rows affected.
     pub fn with_rows(mut self, rows: usize) -> Tag {
         self.rows = Some(rows);
         self
     }
 
+    /// Set the OID of the inserted row.
     pub fn with_oid(mut self, oid: Oid) -> Tag {
         self.oid = Some(oid);
         self
@@ -139,6 +143,7 @@ thread_local! {
     static DEFAULT_FORMAT_OPTIONS: LazyLock<Arc<FormatOptions>> = LazyLock::new(Default::default);
 }
 
+/// Metadata for a single field (column) in a query result.
 #[derive(Debug, new, Eq, PartialEq, Clone)]
 pub struct FieldInfo {
     name: String,
@@ -151,30 +156,37 @@ pub struct FieldInfo {
 }
 
 impl FieldInfo {
+    /// Get the field name.
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// Get the source table OID, if any.
     pub fn table_id(&self) -> Option<i32> {
         self.table_id
     }
 
+    /// Get the column number within the source table, if any.
     pub fn column_id(&self) -> Option<i16> {
         self.column_id
     }
 
+    /// Get the PostgreSQL type of this field.
     pub fn datatype(&self) -> &Type {
         &self.datatype
     }
 
+    /// Get the field encoding format (text or binary).
     pub fn format(&self) -> FieldFormat {
         self.format
     }
 
+    /// Get the format options for text encoding.
     pub fn format_options(&self) -> &Arc<FormatOptions> {
         &self.format_options
     }
 
+    /// Set custom format options for text encoding.
     pub fn with_format_options(mut self, format_options: Arc<FormatOptions>) -> Self {
         self.format_options = format_options;
         self
@@ -212,10 +224,13 @@ pub(crate) fn into_row_description(fields: &[FieldInfo]) -> RowDescription {
     RowDescription::new(fields.iter().map(Into::into).collect())
 }
 
+/// Type alias for a boxed, pinned, sendable stream of data rows.
 pub type SendableRowStream = Pin<Box<dyn Stream<Item = PgWireResult<DataRow>> + Send>>;
 
+/// Type alias for a boxed, pinned, sendable stream of copy data.
 pub type SendableCopyDataStream = Pin<Box<dyn Stream<Item = PgWireResult<CopyData>> + Send>>;
 
+/// Response containing row data for a SELECT-style query.
 #[non_exhaustive]
 pub struct QueryResponse {
     pub command_tag: String,
@@ -267,6 +282,7 @@ impl QueryResponse {
     }
 }
 
+/// Encoder for building `DataRow` messages field by field.
 pub struct DataRowEncoder {
     schema: Arc<Vec<FieldInfo>>,
     row_buffer: BytesMut,
@@ -653,8 +669,10 @@ impl CopyEncoder {
 
 /// Get response data for a `Describe` command
 pub trait DescribeResponse {
+    /// Get parameter types for the described statement.
     fn parameters(&self) -> Option<&[Type]>;
 
+    /// Get result field descriptions.
     fn fields(&self) -> &[FieldInfo];
 
     /// Create an no_data instance of `DescribeResponse`. This is typically used
@@ -743,6 +761,7 @@ impl std::fmt::Debug for CopyResponse {
 }
 
 impl CopyResponse {
+    /// Create a new copy response. Binary format automatically appends a trailer.
     pub fn new<S>(format: i8, columns: usize, data_stream: S) -> CopyResponse
     where
         S: Stream<Item = PgWireResult<CopyData>> + Send + 'static,
@@ -765,10 +784,12 @@ impl CopyResponse {
         }
     }
 
+    /// Get mutable access to the underlying copy data stream.
     pub fn data_stream(&mut self) -> &mut SendableCopyDataStream {
         &mut self.data_stream
     }
 
+    /// Get the format code for each column.
     pub fn column_formats(&self) -> Vec<i16> {
         (0..self.columns).map(|_| self.format as i16).collect()
     }

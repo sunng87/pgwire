@@ -28,6 +28,7 @@ impl ExtraFloatDigits {
     const FLT_DIG: i8 = 6;
     const DBL_DIG: i8 = 15;
 
+    /// Format an f64 value according to the configured precision.
     pub fn format_f64(&self, value: f64) -> SmolStr {
         let extra = self.0.clamp(-15, 3);
 
@@ -61,6 +62,7 @@ impl ExtraFloatDigits {
         format_with_significant_digits(value, sig_digits)
     }
 
+    /// Format an f32 value according to the configured precision.
     pub fn format_f32(&self, value: f32) -> SmolStr {
         let extra = self.0.clamp(-15, 3);
 

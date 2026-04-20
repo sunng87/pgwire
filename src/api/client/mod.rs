@@ -5,6 +5,7 @@ pub mod result;
 
 use std::collections::BTreeMap;
 
+/// Re-export of the connection configuration type.
 pub use config::Config;
 
 use crate::messages::ProtocolVersion;

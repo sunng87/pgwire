@@ -56,6 +56,7 @@ pub struct SimpleOidcValidator {
 }
 
 impl SimpleOidcValidator {
+    /// Creates a new validator by fetching the JWKS URI from the issuer's discovery endpoint.
     pub async fn new(issuer: impl Into<String>) -> Result<Self, PgWireError> {
         let issuer = issuer.into();
         let client = reqwest::Client::new();

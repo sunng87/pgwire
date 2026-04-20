@@ -13,9 +13,11 @@ use crate::{
     messages::startup::{Authentication, PasswordMessageFamily},
 };
 
+/// Re-exports the simple OIDC validator when the feature is enabled.
 #[cfg(feature = "simple-oidc-validator")]
 pub use crate::api::auth::simple_oidc_validator::SimpleOidcValidator;
 
+/// OAuth/OIDC authentication configuration.
 #[derive(Debug)]
 pub struct Oauth {
     pub issuer: String,
@@ -67,6 +69,7 @@ impl Oauth {
         }
     }
 
+    /// Configures whether to skip user mapping.
     pub fn with_skip_usermapping(mut self, skip: bool) -> Self {
         self.skip_usermap = skip;
         self
@@ -259,6 +262,7 @@ impl Oauth {
         Some(token)
     }
 
+    /// Processes an incoming OAuth SASL message and returns the response and new state.
     pub async fn process_oauth_message<C>(
         &self,
         client: &C,
