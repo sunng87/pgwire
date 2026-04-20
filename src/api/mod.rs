@@ -278,7 +278,7 @@ pub struct RandomPidSecretKeyGenerator;
 
 impl PidSecretKeyGenerator for RandomPidSecretKeyGenerator {
     fn generate(&self, client: &dyn ClientInfo) -> (i32, SecretKey) {
-        let pid = rand::random::<u32>() as i32;
+        let pid = (rand::random::<u32>() >> 1) as i32;
         let secret_key = match client.protocol_version() {
             ProtocolVersion::PROTOCOL3_0 => SecretKey::I32(rand::random::<i32>()),
             ProtocolVersion::PROTOCOL3_2 => {
