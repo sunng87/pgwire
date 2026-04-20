@@ -1,10 +1,14 @@
+/// PostgreSQL text format configuration and helpers.
 pub mod format;
 mod from_sql_text;
+/// PostGIS geometry type text serialization support.
 #[cfg(feature = "pg-type-postgis")]
 pub mod postgis;
 mod to_sql_text;
 
+/// Re-export of the text-to-Rust parsing trait.
 pub use from_sql_text::FromSqlText;
+/// Re-export of the Rust-to-text serialization trait and quoting helpers.
 pub use to_sql_text::{QUOTE_CHECK, QUOTE_ESCAPE, ToSqlText};
 
 #[cfg(test)]

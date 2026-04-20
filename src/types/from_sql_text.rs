@@ -20,6 +20,7 @@ use crate::types::format::{
     FormatOptions, interval_style::IntervalStyle, string::parse_string_postgres,
 };
 
+/// Trait for parsing PostgreSQL text format into Rust types.
 pub trait FromSqlText<'a>: fmt::Debug {
     /// Converts value from postgres text format to rust.
     ///

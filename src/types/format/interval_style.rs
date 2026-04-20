@@ -1,10 +1,15 @@
 use crate::error::PgWireError;
 
+/// PostgreSQL interval style constant.
 pub const INTERVAL_STYLE_POSTGRES: &str = "postgres";
+/// ISO 8601 interval style constant.
 pub const INTERVAL_STYLE_ISO_8601: &str = "iso_8601";
+/// SQL standard interval style constant.
 pub const INTERVAL_STYLE_SQL_STANDARD: &str = "sql_standard";
+/// PostgreSQL verbose interval style constant.
 pub const INTERVAL_STYLE_POSTGRES_VERBOSE: &str = "postgres_verbose";
 
+/// Interval output style variant.
 #[derive(Debug, Default, Copy, Clone)]
 pub enum IntervalStyle {
     #[default]

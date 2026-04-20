@@ -4,6 +4,7 @@ use super::startup::{self, SecretKey};
 use super::{DecodeContext, Message, codec};
 use crate::error::{PgWireError, PgWireResult};
 
+/// Cancel request message sent from frontend to abort a running query
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct CancelRequest {

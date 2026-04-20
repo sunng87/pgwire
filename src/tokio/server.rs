@@ -34,6 +34,7 @@ use crate::messages::{
 /// startup timeout
 const STARTUP_TIMEOUT_MILLIS: u64 = 60_000;
 
+/// Codec for encoding and decoding PostgreSQL wire protocol messages on the server side.
 #[non_exhaustive]
 #[derive(Debug, new)]
 pub struct PgWireMessageServerCodec<S> {
@@ -165,6 +166,7 @@ impl<T, S> ClientPortalStore for Framed<T, PgWireMessageServerCodec<S>> {
     }
 }
 
+/// Dispatch a single frontend message to the appropriate handler based on connection state.
 pub async fn process_message<S, A, Q, EQ, C, CR>(
     message: PgWireFrontendMessage,
     socket: &mut Framed<S, PgWireMessageServerCodec<EQ::Statement>>,
@@ -286,6 +288,7 @@ where
     Ok(())
 }
 
+/// Send an error response to the client and update connection state accordingly.
 pub async fn process_error<S, ST>(
     socket: &mut Framed<S, PgWireMessageServerCodec<ST>>,
     error: PgWireError,
@@ -420,6 +423,7 @@ fn check_alpn_for_direct_ssl<IO>(tls_socket: &TlsStream<IO>) -> Result<(), io::E
     }
 }
 
+/// Wrapper around plain TCP, TLS, or Unix domain socket streams.
 #[non_exhaustive]
 pub enum MaybeTls {
     Plain(TcpStream),
@@ -613,6 +617,7 @@ where
     Ok(())
 }
 
+/// Process a TCP client connection with optional TLS negotiation.
 pub async fn process_socket<H>(
     tcp_socket: TcpStream,
     tls_acceptor: Option<crate::tokio::TlsAcceptor>,

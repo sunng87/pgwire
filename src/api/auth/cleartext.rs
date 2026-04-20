@@ -13,6 +13,7 @@ use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::Authentication;
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
+/// Startup handler for cleartext password authentication.
 pub struct CleartextPasswordAuthStartupHandler<A, P> {
     auth_source: A,
     parameter_provider: P,
@@ -21,6 +22,7 @@ pub struct CleartextPasswordAuthStartupHandler<A, P> {
 }
 
 impl<A, P> CleartextPasswordAuthStartupHandler<A, P> {
+    /// Creates a new cleartext password auth handler.
     pub fn new(auth_source: A, parameter_provider: P) -> Self {
         Self {
             auth_source,
@@ -30,6 +32,7 @@ impl<A, P> CleartextPasswordAuthStartupHandler<A, P> {
         }
     }
 
+    /// Sets a custom PID/secret key generator.
     pub fn with_pid_secret_key_generator(
         mut self,
         generator: Arc<dyn PidSecretKeyGenerator>,
@@ -38,6 +41,7 @@ impl<A, P> CleartextPasswordAuthStartupHandler<A, P> {
         self
     }
 
+    /// Sets a connection manager.
     pub fn with_connection_manager(mut self, manager: Arc<ConnectionManager>) -> Self {
         self.connection_manager = Some(manager);
         self

@@ -10,6 +10,7 @@ pub struct Query {
     pub query: String,
 }
 
+/// Message type byte for Query
 pub const MESSAGE_TYPE_BYTE_QUERY: u8 = b'Q';
 
 impl Message for Query {

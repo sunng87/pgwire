@@ -1,9 +1,14 @@
 use std::collections::HashMap;
 
+/// Bytea output format (hex/escape).
 pub mod bytea_output;
+/// Date/time display style and order configuration.
 pub mod date_style;
+/// Float formatting with extra_float_digits support.
 pub mod float_digits;
+/// Interval output style (postgres, iso_8601, etc.).
 pub mod interval_style;
+/// PostgreSQL string literal parsing.
 pub mod string;
 
 /// All possible format options of postgres

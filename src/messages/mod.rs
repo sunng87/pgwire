@@ -9,14 +9,18 @@ use bytes::{Buf, BufMut, BytesMut};
 
 use crate::error::{PgWireError, PgWireResult};
 
+/// PostgreSQL wire protocol version.
 #[derive(Default, Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ProtocolVersion {
+    /// Protocol version 3.0
     PROTOCOL3_0,
     #[default]
+    /// Protocol version 3.2
     PROTOCOL3_2,
 }
 
 impl ProtocolVersion {
+    /// Return the (major, minor) version number tuple.
     pub fn version_number(&self) -> (u16, u16) {
         match &self {
             Self::PROTOCOL3_0 => (3, 0),
@@ -44,17 +48,23 @@ pub(crate) const SMALL_PACKET_SIZE_LIMIT: usize = 10000;
 pub(crate) const SMALL_BACKEND_PACKET_SIZE_LIMIT: usize = 30000;
 pub(crate) const LONG_BACKEND_PACKET_SIZE_LIMIT: usize = i32::MAX as usize;
 
+/// Context for decoding messages, tracking connection state.
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Eq, new)]
 pub struct DecodeContext {
+    /// The protocol version being used.
     pub protocol_version: ProtocolVersion,
     #[new(value = "true")]
+    /// Whether the frontend is waiting for SSL negotiation.
     pub awaiting_frontend_ssl: bool,
     #[new(value = "true")]
+    /// Whether the frontend is waiting for a startup message.
     pub awaiting_frontend_startup: bool,
     #[new(value = "false")]
+    /// Whether the backend is waiting to send an SSL response.
     pub awaiting_backend_ssl_response: bool,
     #[new(value = "false")]
+    /// Whether the backend is waiting to send a GSS encryption response.
     pub awaiting_backend_gss_response: bool,
 }
 
@@ -150,10 +160,14 @@ pub mod startup;
 /// Termination messages
 pub mod terminate;
 
+/// Meta message for SSL/GSS negotiation phase.
 #[derive(Debug)]
 pub enum SslNegotiationMetaMessage {
+    /// SSL negotiation request.
     PostgresSsl(startup::SslRequest),
+    /// GSS encryption negotiation request.
     PostgresGss(startup::GssEncRequest),
+    /// No SSL/GSS negotiation, proceed directly.
     None,
 }
 
@@ -185,6 +199,7 @@ pub enum PgWireFrontendMessage {
 }
 
 impl PgWireFrontendMessage {
+    /// Check if this message is part of the extended query protocol.
     pub fn is_extended_query(&self) -> bool {
         matches!(
             self,
@@ -199,6 +214,7 @@ impl PgWireFrontendMessage {
         )
     }
 
+    /// Encode the frontend message into the given buffer.
     pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         match self {
             Self::Startup(msg) => msg.encode(buf),
@@ -230,6 +246,7 @@ impl PgWireFrontendMessage {
         }
     }
 
+    /// Decode a frontend message from the given buffer.
     pub fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
         if ctx.awaiting_frontend_ssl {
             // Connection just established, the incoming message can be:
@@ -372,6 +389,7 @@ pub enum PgWireBackendMessage {
 }
 
 impl PgWireBackendMessage {
+    /// Encode the backend message into the given buffer.
     pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         match self {
             Self::SslResponse(msg) => msg.encode(buf),
@@ -407,6 +425,7 @@ impl PgWireBackendMessage {
         }
     }
 
+    /// Decode a backend message from the given buffer.
     pub fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
         if ctx.awaiting_backend_ssl_response {
             // We are waiting for the SSL response

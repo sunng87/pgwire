@@ -3,9 +3,12 @@ use bytes::{Buf, BufMut, BytesMut};
 use super::{DecodeContext, Message, codec};
 use crate::error::PgWireResult;
 
+/// Format code for text representation
 pub const FORMAT_CODE_TEXT: i16 = 0;
+/// Format code for binary representation
 pub const FORMAT_CODE_BINARY: i16 = 1;
 
+/// Description of a single field in a query result
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct FieldDescription {
@@ -25,12 +28,14 @@ pub struct FieldDescription {
     pub format_code: i16,
 }
 
+/// Describes the fields returned by a query
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct RowDescription {
     pub fields: Vec<FieldDescription>,
 }
 
+/// Message type byte for RowDescription
 pub const MESSAGE_TYPE_BYTE_ROW_DESCRITION: u8 = b'T';
 
 impl Message for RowDescription {
@@ -99,6 +104,7 @@ pub struct ParameterDescription {
     pub types: Vec<u32>,
 }
 
+/// Message type byte for ParameterDescription
 pub const MESSAGE_TYPE_BYTE_PARAMETER_DESCRITION: u8 = b't';
 
 impl Message for ParameterDescription {
@@ -151,6 +157,7 @@ pub struct DataRow {
 
 impl DataRow {}
 
+/// Message type byte for DataRow
 pub const MESSAGE_TYPE_BYTE_DATA_ROW: u8 = b'D';
 
 impl Message for DataRow {
@@ -191,6 +198,7 @@ impl Message for DataRow {
 #[derive(PartialEq, Eq, Debug, Default, new)]
 pub struct NoData;
 
+/// Message type byte for NoData
 pub const MESSAGE_TYPE_BYTE_NO_DATA: u8 = b'n';
 
 impl Message for NoData {

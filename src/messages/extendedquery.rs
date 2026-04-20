@@ -12,6 +12,7 @@ pub struct Parse {
     pub type_oids: Vec<u32>,
 }
 
+/// Message type byte for Parse
 pub const MESSAGE_TYPE_BYTE_PARSE: u8 = b'P';
 
 impl Message for Parse {
@@ -70,6 +71,7 @@ impl Message for Parse {
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct ParseComplete;
 
+/// Message type byte for ParseComplete
 pub const MESSAGE_TYPE_BYTE_PARSE_COMPLETE: u8 = b'1';
 
 impl Message for ParseComplete {
@@ -111,9 +113,12 @@ pub struct Close {
     pub name: Option<String>,
 }
 
+/// Target type byte for prepared statement
 pub const TARGET_TYPE_BYTE_STATEMENT: u8 = b'S';
+/// Target type byte for portal
 pub const TARGET_TYPE_BYTE_PORTAL: u8 = b'P';
 
+/// Message type byte for Close
 pub const MESSAGE_TYPE_BYTE_CLOSE: u8 = b'C';
 
 impl Message for Close {
@@ -149,6 +154,7 @@ impl Message for Close {
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct CloseComplete;
 
+/// Message type byte for CloseComplete
 pub const MESSAGE_TYPE_BYTE_CLOSE_COMPLETE: u8 = b'3';
 
 impl Message for CloseComplete {
@@ -196,6 +202,7 @@ pub struct Bind {
     pub result_column_format_codes: Vec<i16>,
 }
 
+/// Message type byte for Bind
 pub const MESSAGE_TYPE_BYTE_BIND: u8 = b'B';
 
 impl Message for Bind {
@@ -297,6 +304,7 @@ impl Message for Bind {
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct BindComplete;
 
+/// Message type byte for BindComplete
 pub const MESSAGE_TYPE_BYTE_BIND_COMPLETE: u8 = b'2';
 
 impl Message for BindComplete {
@@ -339,6 +347,7 @@ pub struct Describe {
     pub name: Option<String>,
 }
 
+/// Message type byte for Describe
 pub const MESSAGE_TYPE_BYTE_DESCRIBE: u8 = b'D';
 
 impl Message for Describe {
@@ -377,6 +386,7 @@ pub struct Execute {
     pub max_rows: i32,
 }
 
+/// Message type byte for Execute
 pub const MESSAGE_TYPE_BYTE_EXECUTE: u8 = b'E';
 
 impl Message for Execute {
@@ -407,10 +417,12 @@ impl Message for Execute {
     }
 }
 
+/// Flush message to force backend to deliver any pending output
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct Flush;
 
+/// Message type byte for Flush
 pub const MESSAGE_TYPE_BYTE_FLUSH: u8 = b'H';
 
 impl Message for Flush {
@@ -442,6 +454,7 @@ impl Message for Flush {
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct Sync;
 
+/// Message type byte for Sync
 pub const MESSAGE_TYPE_BYTE_SYNC: u8 = b'S';
 
 impl Message for Sync {
@@ -468,10 +481,12 @@ impl Message for Sync {
     }
 }
 
+/// Indicates a portal execution has been suspended due to reaching max rows
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct PortalSuspended;
 
+/// Message type byte for PortalSuspended
 pub const MESSAGE_TYPE_BYTE_PORTAL_SUSPENDED: u8 = b's';
 
 impl Message for PortalSuspended {

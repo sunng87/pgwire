@@ -25,9 +25,12 @@ use crate::types::format::bytea_output::ByteaOutput;
 use crate::types::format::float_digits::ExtraFloatDigits;
 use crate::types::format::interval_style::IntervalStyle;
 
+/// Regex to check if an array element needs quoting.
 pub static QUOTE_CHECK: Lazy<Regex> = lazy_regex!(r#"^$|["{},\\\s]|^null$"#i);
+/// Regex to escape special characters in quoted array elements.
 pub static QUOTE_ESCAPE: Lazy<Regex> = lazy_regex!(r#"(["\\])"#);
 
+/// Trait for serializing Rust types to PostgreSQL text format.
 pub trait ToSqlText: fmt::Debug {
     /// Converts value to text format of Postgres type.
     ///

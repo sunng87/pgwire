@@ -8,9 +8,11 @@ use crate::messages::cancel::CancelRequest;
 /// Handler for Cancel Request
 #[async_trait]
 pub trait CancelHandler: Send + Sync {
+    /// Called when a cancel request is received.
     async fn on_cancel_request(&self, cancel_request: CancelRequest);
 }
 
+/// Default cancel handler that delegates to the connection manager.
 #[derive(Debug, derive_new::new)]
 pub struct DefaultCancelHandler {
     manager: Arc<ConnectionManager>,

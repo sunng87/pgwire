@@ -1,15 +1,23 @@
 use crate::error::PgWireError;
 use smol_str::{SmolStr, format_smolstr};
 
+/// Day-Month-Year date order constant.
 pub const DATE_STYLE_ORDER_DMY: &str = "dmy";
+/// Month-Day-Year date order constant.
 pub const DATE_STYLE_ORDER_MDY: &str = "mdy";
+/// Year-Month-Day date order constant.
 pub const DATE_STYLE_ORDER_YMD: &str = "ymd";
 
+/// ISO date display style constant.
 pub const DATE_STYLE_DISPLAY_ISO: &str = "iso";
+/// SQL date display style constant.
 pub const DATE_STYLE_DISPLAY_SQL: &str = "sql";
+/// German date display style constant.
 pub const DATE_STYLE_DISPLAY_GERMAN: &str = "german";
+/// PostgreSQL date display style constant.
 pub const DATE_STYLE_DISPLAY_POSTGRES: &str = "postgres";
 
+/// Date component order (DMY, MDY, YMD).
 #[derive(Debug, Default, Copy, Clone)]
 pub enum DateStyleOrder {
     DMY,
@@ -31,6 +39,7 @@ impl TryFrom<&str> for DateStyleOrder {
     }
 }
 
+/// Date display format style.
 #[derive(Debug, Default, Copy, Clone)]
 pub enum DateStyleDisplayStyle {
     #[default]
@@ -54,6 +63,7 @@ impl TryFrom<&str> for DateStyleDisplayStyle {
     }
 }
 
+/// Parsed date style configuration for datetime formatting.
 #[derive(Debug)]
 pub struct DateStyle {
     style: DateStyleDisplayStyle,

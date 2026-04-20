@@ -14,6 +14,7 @@ use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::Authentication;
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
+/// Startup handler for MD5 password authentication.
 pub struct Md5PasswordAuthStartupHandler<A, P> {
     auth_source: Arc<A>,
     parameter_provider: Arc<P>,
@@ -23,6 +24,7 @@ pub struct Md5PasswordAuthStartupHandler<A, P> {
 }
 
 impl<A, P> Md5PasswordAuthStartupHandler<A, P> {
+    /// Creates a new MD5 password auth handler.
     pub fn new(auth_source: Arc<A>, parameter_provider: Arc<P>) -> Self {
         Md5PasswordAuthStartupHandler {
             auth_source,
@@ -33,6 +35,7 @@ impl<A, P> Md5PasswordAuthStartupHandler<A, P> {
         }
     }
 
+    /// Sets a custom PID/secret key generator.
     pub fn with_pid_secret_key_generator(
         mut self,
         generator: Arc<dyn PidSecretKeyGenerator>,
@@ -41,6 +44,7 @@ impl<A, P> Md5PasswordAuthStartupHandler<A, P> {
         self
     }
 
+    /// Sets a connection manager.
     pub fn with_connection_manager(mut self, manager: Arc<ConnectionManager>) -> Self {
         self.connection_manager = Some(manager);
         self

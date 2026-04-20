@@ -30,10 +30,14 @@ impl Default for Startup {
 }
 
 impl Startup {
+    /// Protocol version 3.0
     pub const PROTOCOL_VERSION_3_0: i32 = 196608;
+    /// Protocol version 3.2
     pub const PROTOCOL_VERSION_3_2: i32 = 196610;
 
+    /// Earliest supported major protocol version
     pub const PG_PROTOCOL_EARLIEST: u16 = 3;
+    /// Latest supported major protocol version
     pub const PG_PROTOCOL_LATEST: u16 = 3;
 }
 
@@ -131,6 +135,7 @@ pub enum Authentication {
                          // AuthenticationSSPI
 }
 
+/// Message type byte for Authentication
 pub const MESSAGE_TYPE_BYTE_AUTHENTICATION: u8 = b'R';
 
 impl Message for Authentication {
@@ -217,6 +222,7 @@ impl Message for Authentication {
     }
 }
 
+/// Message type byte for password message family
 pub const MESSAGE_TYPE_BYTE_PASSWORD_MESSAGE_FAMILY: u8 = b'p';
 
 /// In postgres wire protocol, there are several message types share the same
@@ -358,6 +364,7 @@ pub struct ParameterStatus {
     pub value: String,
 }
 
+/// Message type byte for ParameterStatus
 pub const MESSAGE_TYPE_BYTE_PARAMETER_STATUS: u8 = b'S';
 
 impl Message for ParameterStatus {
@@ -481,6 +488,7 @@ impl SecretKey {
         }
     }
 
+    /// Encode the secret key into the buffer
     pub fn encode(&self, buf: &mut BytesMut) -> PgWireResult<()> {
         match self {
             SecretKey::I32(key) => buf.put_i32(*key),
@@ -492,6 +500,7 @@ impl SecretKey {
         Ok(())
     }
 
+    /// Decode a secret key from the buffer
     pub fn decode(buf: &mut BytesMut, data_len: usize, ctx: &DecodeContext) -> PgWireResult<Self> {
         Self::validate_bytes_len(data_len)?;
 
@@ -511,6 +520,7 @@ pub struct BackendKeyData {
     pub secret_key: SecretKey,
 }
 
+/// Message type byte for BackendKeyData
 pub const MESSAGE_TYPE_BYTE_BACKEND_KEY_DATA: u8 = b'K';
 
 impl Message for BackendKeyData {
@@ -556,9 +566,12 @@ impl Message for BackendKeyData {
 pub struct SslRequest;
 
 impl SslRequest {
+    /// Magic number identifying an SSL request
     pub const BODY_MAGIC_NUMBER: i32 = 80877103;
+    /// Total body size of an SSL request
     pub const BODY_SIZE: usize = MINIMUM_STARTUP_MESSAGE_LEN;
 
+    /// Check if the buffer contains an SSL request packet
     pub fn is_ssl_request_packet(buf: &[u8]) -> bool {
         if buf.remaining() >= Self::BODY_SIZE {
             let magic_code = (&buf[4..8]).get_i32();
@@ -621,9 +634,12 @@ impl Message for SslRequest {
 pub struct GssEncRequest;
 
 impl GssEncRequest {
+    /// Magic number identifying a GSS encryption request
     pub const BODY_MAGIC_NUMBER: i32 = 80877104;
+    /// Total body size of a GSS encryption request
     pub const BODY_SIZE: usize = 8;
 
+    /// Check if the buffer contains a GSS encryption request packet
     pub fn is_gss_enc_request_packet(buf: &[u8]) -> bool {
         if buf.remaining() >= Self::BODY_SIZE {
             let magic_code = (&buf[4..8]).get_i32();
@@ -676,6 +692,7 @@ impl Message for GssEncRequest {
     }
 }
 
+/// SASL initial response sent from frontend during authentication
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct SASLInitialResponse {
@@ -722,6 +739,7 @@ impl Message for SASLInitialResponse {
     }
 }
 
+/// SASL response sent from frontend during authentication
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct SASLResponse {
@@ -754,6 +772,7 @@ impl Message for SASLResponse {
     }
 }
 
+/// Negotiate protocol version message sent from backend
 #[non_exhaustive]
 #[derive(PartialEq, Eq, Debug, new)]
 pub struct NegotiateProtocolVersion {
@@ -761,6 +780,7 @@ pub struct NegotiateProtocolVersion {
     pub unsupported_options: Vec<String>,
 }
 
+/// Message type byte for NegotiateProtocolVersion
 pub const MESSAGE_TYPE_BYTE_NEGOTIATE_PROTOCOL_VERSION: u8 = b'v';
 
 impl Message for NegotiateProtocolVersion {

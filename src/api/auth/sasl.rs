@@ -19,10 +19,14 @@ use super::{ServerParameterProvider, StartupHandler};
 pub mod oauth;
 pub mod scram;
 
+/// SASL mechanism name for SCRAM-SHA-256.
 pub const SCRAM_SHA_256_METHOD: &str = "SCRAM-SHA-256";
+/// SASL mechanism name for SCRAM-SHA-256-PLUS with channel binding.
 pub const SCRAM_SHA_256_PLUS_METHOD: &str = "SCRAM-SHA-256-PLUS";
+/// SASL mechanism name for OAUTHBEARER.
 pub const OAUTHBEARER_METHOD: &str = "OAUTHBEARER";
 
+/// States of the SASL authentication state machine.
 #[derive(Debug)]
 pub enum SASLState {
     Initial,
@@ -51,6 +55,7 @@ impl SASLState {
     }
 }
 
+/// Startup handler for SASL-based authentication (SCRAM and OAUTHBEARER).
 pub struct SASLAuthStartupHandler<P> {
     parameter_provider: Arc<P>,
     pid_secret_key_generator: Arc<dyn PidSecretKeyGenerator>,
@@ -64,6 +69,7 @@ pub struct SASLAuthStartupHandler<P> {
 }
 
 impl<P> SASLAuthStartupHandler<P> {
+    /// Creates a new SASL auth handler.
     pub fn new(parameter_provider: Arc<P>) -> Self {
         SASLAuthStartupHandler {
             parameter_provider,
@@ -75,16 +81,19 @@ impl<P> SASLAuthStartupHandler<P> {
         }
     }
 
+    /// Configures SCRAM authentication.
     pub fn with_scram(mut self, scram_auth: scram::ScramAuth) -> Self {
         self.scram = Some(scram_auth);
         self
     }
 
+    /// Configures OAuth authentication.
     pub fn with_oauth(mut self, oauth: oauth::Oauth) -> Self {
         self.oauth = Some(oauth);
         self
     }
 
+    /// Sets a custom PID/secret key generator.
     pub fn with_pid_secret_key_generator(
         mut self,
         generator: Arc<dyn PidSecretKeyGenerator>,
@@ -93,6 +102,7 @@ impl<P> SASLAuthStartupHandler<P> {
         self
     }
 
+    /// Sets a connection manager.
     pub fn with_connection_manager(mut self, manager: Arc<ConnectionManager>) -> Self {
         self.connection_manager = Some(manager);
         self

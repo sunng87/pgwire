@@ -30,6 +30,7 @@ use crate::messages::{
     SslNegotiationMetaMessage,
 };
 
+/// Codec for encoding and decoding PostgreSQL wire protocol messages on the client side.
 #[non_exhaustive]
 #[derive(Debug, Default)]
 pub struct PgWireMessageClientCodec {
@@ -71,6 +72,7 @@ impl Encoder<PgWireFrontendMessage> for PgWireMessageClientCodec {
     }
 }
 
+/// A PostgreSQL client connection using the wire protocol.
 #[pin_project]
 pub struct PgWireClient {
     socket: Framed<ClientSocket, PgWireMessageClientCodec>,
@@ -215,6 +217,7 @@ impl Stream for PgWireClient {
     }
 }
 
+/// Abstraction over plain TCP, TLS, or Unix domain socket connections.
 #[pin_project(project = ClientSocketProj)]
 pub enum ClientSocket {
     Plain(#[pin] TcpStream),
