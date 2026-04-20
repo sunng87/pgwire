@@ -8,13 +8,13 @@ use tokio::net::TcpListener;
 
 use pgwire::api::auth::md5pass::{Md5PasswordAuthStartupHandler, hash_md5_password};
 use pgwire::api::auth::{
-    AuthSource, DefaultServerParameterProvider, LoginInfo, Password, ServerParameterProvider,
-    StartupHandler,
+    AuthSource, DefaultServerParameterProvider, LoginInfo, Password, StartupHandler,
 };
 use pgwire::api::portal::{Format, Portal};
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
-    DataRowEncoder, FieldFormat, FieldInfo, IntoDataRowEncoder, QueryResponse, Response, Tag,
+    DataRowEncoder, DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse,
+    Response, Tag,
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
