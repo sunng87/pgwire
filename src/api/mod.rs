@@ -5,6 +5,9 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 
+use bytes::Bytes;
+use futures::channel::oneshot;
+use futures::lock::Mutex;
 pub use postgres_types::Type;
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use rustls_pki_types::CertificateDer;
@@ -255,6 +258,200 @@ impl<S> ClientPortalStore for DefaultClient<S> {
     }
 }
 
+/// Generator for process ID and secret key pairs used to identify connections
+/// for cancel requests.
+///
+/// Implement this trait to customize how PID and secret key values are
+/// produced. The default implementation [`RandomPidSecretKeyGenerator`]
+/// generates random values.
+pub trait PidSecretKeyGenerator: Send + Sync {
+    fn generate(&self, client: &dyn ClientInfo) -> (i32, SecretKey);
+}
+
+/// Default implementation of [`PidSecretKeyGenerator`] that produces random
+/// values using the `rand` crate.
+///
+/// For protocol 3.0, generates a 4-byte `SecretKey::I32`. For protocol 3.2,
+/// generates a 32-byte `SecretKey::Bytes`.
+#[derive(Debug, Default)]
+pub struct RandomPidSecretKeyGenerator;
+
+impl PidSecretKeyGenerator for RandomPidSecretKeyGenerator {
+    fn generate(&self, client: &dyn ClientInfo) -> (i32, SecretKey) {
+        let pid = rand::random::<u32>() as i32;
+        let secret_key = match client.protocol_version() {
+            ProtocolVersion::PROTOCOL3_0 => SecretKey::I32(rand::random::<i32>()),
+            ProtocolVersion::PROTOCOL3_2 => {
+                let mut bytes = vec![0u8; 32];
+                rand::fill(&mut bytes);
+                SecretKey::Bytes(bytes.into())
+            }
+        };
+        (pid, secret_key)
+    }
+}
+
+/// Per-connection cancel handle.
+///
+/// Stores a replaceable `oneshot::Sender` that is swapped out before each
+/// query via [`ConnectionHandle::start_query`]. When a cancel request arrives,
+/// [`ConnectionHandle::cancel`] fires the current sender.
+pub struct ConnectionHandle {
+    cancel_tx: Mutex<Option<oneshot::Sender<()>>>,
+}
+
+impl std::fmt::Debug for ConnectionHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConnectionHandle").finish()
+    }
+}
+
+impl ConnectionHandle {
+    pub fn new() -> Self {
+        Self {
+            cancel_tx: Mutex::new(None),
+        }
+    }
+
+    /// Install a fresh cancel sender and return the receiver.
+    ///
+    /// Call this before each query. The previous sender (if any) is dropped,
+    /// causing its paired receiver to resolve with `Err(Canceled)`.
+    pub async fn start_query(&self) -> oneshot::Receiver<()> {
+        let (tx, rx) = oneshot::channel();
+        *self.cancel_tx.lock().await = Some(tx);
+        rx
+    }
+
+    /// Fire the current cancel sender.
+    ///
+    /// Returns `true` if there was an active query to cancel, `false` if no
+    /// query was in progress.
+    pub async fn cancel(&self) -> bool {
+        if let Some(tx) = self.cancel_tx.lock().await.take() {
+            let _ = tx.send(());
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl Default for ConnectionHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// RAII guard that unregisters a connection from the [`ConnectionManager`] on
+/// drop.
+pub struct ConnectionGuard {
+    pid: i32,
+    secret_key: Bytes,
+    manager: Arc<ConnectionManager>,
+}
+
+impl std::fmt::Debug for ConnectionGuard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConnectionGuard")
+            .field("pid", &self.pid)
+            .finish()
+    }
+}
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        self.manager
+            .inner
+            .write()
+            .unwrap()
+            .remove(&(self.pid, self.secret_key.clone()));
+    }
+}
+
+/// A registry mapping `(pid, secret_key)` to per-connection cancel handles.
+///
+/// Create one `ConnectionManager` at server startup, share it as
+/// `Arc<ConnectionManager>` across all handler implementations.
+///
+/// ## Lifecycle
+///
+/// 1. In your `StartupHandler`, call [`register`](ConnectionManager::register)
+///    to obtain an [`Arc<ConnectionHandle>`] and a [`ConnectionGuard`].
+/// 2. Store both in [`SessionExtensions`] so they live as long as the
+///    connection.
+/// 3. Before each query, call
+///    [`handle.start_query()`](ConnectionHandle::start_query) to get a
+///    `oneshot::Receiver`. `select!` on it alongside your query.
+/// 4. A cancel request fires the receiver, interrupting the current query.
+/// 5. When the connection ends (task dropped), the `ConnectionGuard` drops and
+///    unregisters from this manager.
+#[derive(Debug)]
+pub struct ConnectionManager {
+    inner: RwLock<HashMap<(i32, Bytes), Arc<ConnectionHandle>>>,
+}
+
+impl ConnectionManager {
+    pub fn new() -> Self {
+        Self {
+            inner: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Register a new connection.
+    ///
+    /// Returns a shared [`ConnectionHandle`] for query-time cancel signaling
+    /// and a [`ConnectionGuard`] that unregisters on drop.
+    ///
+    /// If the `(pid, secret_key)` pair is already registered, returns the
+    /// existing handle and a new guard.
+    pub fn register(
+        self: &Arc<Self>,
+        pid: i32,
+        secret_key: SecretKey,
+    ) -> (Arc<ConnectionHandle>, ConnectionGuard) {
+        let key = (pid, secret_key.to_bytes());
+        let mut map = self.inner.write().unwrap();
+        let handle = if let Some(existing) = map.get(&key) {
+            existing.clone()
+        } else {
+            let handle = Arc::new(ConnectionHandle::new());
+            map.insert(key.clone(), handle.clone());
+            handle
+        };
+        (
+            handle,
+            ConnectionGuard {
+                pid,
+                secret_key: key.1,
+                manager: Arc::clone(self),
+            },
+        )
+    }
+
+    /// Cancel the current query on a connection identified by `(pid,
+    /// secret_key)`.
+    ///
+    /// Returns `true` if the connection was found (regardless of whether a
+    /// query was active), `false` if the connection was not registered.
+    pub async fn cancel(&self, pid: i32, secret_key: &SecretKey) -> bool {
+        let key = (pid, secret_key.to_bytes());
+        let handle = self.inner.read().unwrap().get(&key).cloned();
+        if let Some(handle) = handle {
+            handle.cancel().await;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl Default for ConnectionManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// A centralized handler for all errors
 ///
 /// This handler captures all errors produces by authentication, query and
@@ -369,5 +566,53 @@ mod tests {
         let old = ext.insert(2u32);
         assert_eq!(*old.unwrap(), 1);
         assert_eq!(*ext.get::<u32>().unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn connection_manager_register_and_cancel() {
+        let manager = Arc::new(ConnectionManager::new());
+        let key = SecretKey::I32(12345);
+
+        let (handle, _guard) = manager.register(1, key.clone());
+
+        let mut rx = handle.start_query().await;
+        assert!(manager.cancel(1, &key).await);
+        assert_eq!(rx.try_recv(), Ok(Some(())));
+    }
+
+    #[tokio::test]
+    async fn connection_manager_cancel_unknown_connection() {
+        let manager = Arc::new(ConnectionManager::new());
+        assert!(!manager.cancel(999, &SecretKey::I32(0)).await);
+    }
+
+    #[tokio::test]
+    async fn connection_manager_guard_unregisters() {
+        let manager = Arc::new(ConnectionManager::new());
+        let key = SecretKey::I32(99);
+
+        {
+            let (_handle, _guard) = manager.register(42, key.clone());
+        }
+
+        assert!(!manager.cancel(42, &key).await);
+    }
+
+    #[tokio::test]
+    async fn connection_handle_start_query_replaces_previous() {
+        let handle = ConnectionHandle::new();
+
+        let mut rx1 = handle.start_query().await;
+        let mut rx2 = handle.start_query().await;
+
+        assert!(rx1.try_recv().is_err());
+        assert!(handle.cancel().await);
+        assert_eq!(rx2.try_recv(), Ok(Some(())));
+    }
+
+    #[tokio::test]
+    async fn connection_handle_cancel_no_active_query() {
+        let handle = ConnectionHandle::new();
+        assert!(!handle.cancel().await);
     }
 }

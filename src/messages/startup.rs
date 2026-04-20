@@ -408,6 +408,39 @@ impl Default for SecretKey {
 }
 
 impl SecretKey {
+    /// Compare two secret keys by value, treating 4-byte `Bytes` as equivalent
+    /// to `I32`.
+    ///
+    /// This is needed because cancel requests arrive on a separate connection
+    /// that may use a different protocol version, causing the same 4-byte key
+    /// to be decoded as `Bytes` on one connection and `I32` on another.
+    pub fn eq_value(&self, other: &SecretKey) -> bool {
+        match (self, other) {
+            (SecretKey::I32(a), SecretKey::I32(b)) => a == b,
+            (SecretKey::Bytes(a), SecretKey::Bytes(b)) => a == b,
+            (SecretKey::I32(a), SecretKey::Bytes(b)) if b.len() == 4 => *a == (&b[..]).get_i32(),
+            (SecretKey::Bytes(a), SecretKey::I32(b)) if a.len() == 4 => (&a[..]).get_i32() == *b,
+            _ => false,
+        }
+    }
+
+    /// Return a normalized `Bytes` representation.
+    ///
+    /// `I32` variants are converted to a 4-byte big-endian `Bytes`.
+    /// `Bytes` variants are returned as-is. This is useful for use as a
+    /// HashMap key where `I32(x)` and `Bytes(x)` should be treated as
+    /// equivalent.
+    pub fn to_bytes(&self) -> Bytes {
+        match self {
+            SecretKey::I32(v) => {
+                let mut buf = BytesMut::with_capacity(4);
+                buf.put_i32(*v);
+                buf.freeze()
+            }
+            SecretKey::Bytes(b) => b.clone(),
+        }
+    }
+
     /// Try to coerce the key as a i32 value
     ///
     /// Return None if the bytes is longer than 32 bits.

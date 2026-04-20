@@ -197,5 +197,9 @@ name = "transaction"
 required-features = ["server-api-aws-lc-rs"]
 
 [[example]]
+name = "cancel"
+required-features = ["server-api-aws-lc-rs"]
+
+[[example]]
 name = "client"
 required-features = ["client-api"]
