@@ -26,10 +26,15 @@ pub const OAUTHBEARER_METHOD: &str = "OAUTHBEARER";
 #[derive(Debug)]
 pub enum SASLState {
     Initial,
+    // scram authentication method selected
     ScramClientFirstReceived,
+    // cached password, channel_binding and partial auth-message
     ScramServerFirstSent(Box<ScramServerAuthWaitingForClientFinal>),
+    // oauth authentication method selected
     OauthStateInit,
+    // failure during authentication
     OauthStateError,
+    // finished
     Finished,
 }
 
@@ -50,8 +55,11 @@ pub struct SASLAuthStartupHandler<P> {
     parameter_provider: Arc<P>,
     pid_secret_key_generator: Arc<dyn PidSecretKeyGenerator>,
     connection_manager: Option<Arc<ConnectionManager>>,
+    /// state of the SASL auth
     state: Mutex<SASLState>,
+    /// scram configuration
     scram: Option<scram::ScramAuth>,
+    /// oauth configuration
     oauth: Option<oauth::Oauth>,
 }
 

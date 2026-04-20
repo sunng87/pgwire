@@ -537,6 +537,7 @@ mod tests {
         let val: Arc<RwLock<Vec<i32>>> = ext.get_or_insert_with(|| RwLock::new(vec![1, 2, 3]));
         assert_eq!(*val.read().unwrap(), vec![1, 2, 3]);
 
+        // Second call returns same instance, ignores closure
         let val2: Arc<RwLock<Vec<i32>>> = ext.get_or_insert_with(|| RwLock::new(vec![99]));
         assert_eq!(*val2.read().unwrap(), vec![1, 2, 3]);
         assert!(Arc::ptr_eq(&val, &val2));

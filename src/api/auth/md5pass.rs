@@ -110,6 +110,13 @@ impl<A: AuthSource, P: ServerParameterProvider> StartupHandler
     }
 }
 
+/// This function is to compute postgres standard md5 hashed password
+///
+/// concat('md5', md5(concat(md5(concat(password, username)), random-salt)))
+///
+/// the input parameter `md5hashed_username_password` represents
+/// `md5(concat(password, username))` so that your can store hashed password in
+/// storage.
 pub fn hash_md5_password(username: &str, password: &str, salt: &[u8]) -> String {
     let hashed_bytes = format!("{:x}", md5::compute(format!("{password}{username}")));
     let mut bytes = Vec::with_capacity(hashed_bytes.len() + 4);
