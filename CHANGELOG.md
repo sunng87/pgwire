@@ -6,7 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2026-03-25] - 0.38.2
+## [Unreleased] - ReleaseDate
+
+### Added
+
+- New `ConnectionManager`, `PidSecretKeyGenerator` and new
+  `DefaultCancelHandler` for our high-level query cancellation support. By
+  configuring `ConnectionManager` and `DefaultCancelHandler`, we will provide
+  default implementation for query cancel. See `examples/cancel.rs` for
+  instance. [#427]
+- Add `Any` trait to `PortalStore` trait to allow downcast and usage in
+  `SimpleQueryHandler` [#421]
+- Add more error fields [#423]
+- Add `session_extension` mechanism for extending `ClientInfo` [#409]
+- Experimental client API for extended query [#250]
+
+### Changed
+
+- Make `StoredStatement::parse` public for writing custom `ExtendedQueryHandler`
+  [#425]
+
+## [0.38.3] - 2026-04-08
+
+### Fixed
+
+- Cleanup portals on SYNC message [#424]
+
+## [0.38.2] - 2026-03-25
 
 ### Changed
 
