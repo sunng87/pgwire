@@ -90,7 +90,15 @@ pub trait SimpleQueryHandler: Send + Sync {
                 .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
                 .await?;
         } else {
-            let resp = run_query_with_cancel(self, client, &query_string).await?;
+            let cancel_rx = get_cancel_receiver(client).await;
+            let resp = if let Some(cancel_rx) = cancel_rx {
+                match select(self.do_query(client, &query_string), cancel_rx).await {
+                    Either::Left((result, _)) => result,
+                    Either::Right(_) => Err(PgWireError::QueryCanceled),
+                }
+            } else {
+                self.do_query(client, &query_string).await
+            }?;
             for r in resp {
                 match r {
                     Response::EmptyQuery => {
@@ -159,29 +167,6 @@ pub trait SimpleQueryHandler: Send + Sync {
         C::PortalStore: PortalStore,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>;
-}
-
-async fn run_query_with_cancel<H, C>(
-    handler: &H,
-    client: &mut C,
-    query: &str,
-) -> PgWireResult<Vec<Response>>
-where
-    H: SimpleQueryHandler + ?Sized,
-    C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
-    C::PortalStore: PortalStore,
-    C::Error: Debug,
-    PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
-{
-    let cancel_rx = get_cancel_receiver(client).await;
-    if let Some(cancel_rx) = cancel_rx {
-        match select(handler.do_query(client, query), cancel_rx).await {
-            Either::Left((result, _)) => result,
-            Either::Right(_) => Err(PgWireError::QueryCanceled),
-        }
-    } else {
-        handler.do_query(client, query).await
-    }
 }
 
 #[async_trait]
@@ -283,24 +268,17 @@ pub trait ExtendedQueryHandler: Send + Sync {
             let mut portal_state = portal_state_lock.lock().await;
             match portal_state.deref_mut() {
                 PortalExecutionState::Initial => {
-                    let resp = {
-                        let cancel_rx = get_cancel_receiver(client).await;
-                        if let Some(cancel_rx) = cancel_rx {
-                            match select(
-                                self.do_query(client, portal.as_ref(), max_rows),
-                                cancel_rx,
-                            )
+                    let cancel_rx = get_cancel_receiver(client).await;
+                    let resp = if let Some(cancel_rx) = cancel_rx {
+                        match select(self.do_query(client, portal.as_ref(), max_rows), cancel_rx)
                             .await
-                            {
-                                Either::Left((result, _)) => result?,
-                                Either::Right(_) => {
-                                    return Err(PgWireError::QueryCanceled);
-                                }
-                            }
-                        } else {
-                            self.do_query(client, portal.as_ref(), max_rows).await?
+                        {
+                            Either::Left((result, _)) => result,
+                            Either::Right(_) => Err(PgWireError::QueryCanceled),
                         }
-                    };
+                    } else {
+                        self.do_query(client, portal.as_ref(), max_rows).await
+                    }?;
                     match resp {
                         Response::EmptyQuery => {
                             client
