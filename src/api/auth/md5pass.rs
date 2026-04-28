@@ -29,7 +29,7 @@ impl<A, P> Md5PasswordAuthStartupHandler<A, P> {
         Md5PasswordAuthStartupHandler {
             auth_source,
             parameter_provider,
-            pid_secret_key_generator: Arc::new(RandomPidSecretKeyGenerator),
+            pid_secret_key_generator: Arc::new(RandomPidSecretKeyGenerator::default()),
             connection_manager: None,
             cached_password: Mutex::new(vec![]),
         }
