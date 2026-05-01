@@ -5,6 +5,7 @@ mod from_sql_text;
 #[cfg(feature = "pg-type-postgis")]
 pub mod postgis;
 mod to_sql_text;
+pub mod unquote;
 
 /// Re-export of the text-to-Rust parsing trait.
 pub use from_sql_text::FromSqlText;
