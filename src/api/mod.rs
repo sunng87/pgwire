@@ -3,6 +3,7 @@
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, RwLock};
 
 use bytes::Bytes;
@@ -321,17 +322,29 @@ pub trait PidSecretKeyGenerator: Send + Sync {
     fn generate(&self, client: &dyn ClientInfo) -> (i32, SecretKey);
 }
 
-/// Default implementation of [`PidSecretKeyGenerator`] that produces random
-/// values using the `rand` crate.
+/// Default implementation of [`PidSecretKeyGenerator`] that uses an atomic
+/// counter for PIDs and random values for secret keys via the `rand` crate.
 ///
 /// For protocol 3.0, generates a 4-byte `SecretKey::I32`. For protocol 3.2,
 /// generates a 32-byte `SecretKey::Bytes`.
-#[derive(Debug, Default)]
-pub struct RandomPidSecretKeyGenerator;
+const PID_INIT: i32 = 100_000;
+
+#[derive(Debug)]
+pub struct RandomPidSecretKeyGenerator {
+    next_pid: AtomicI32,
+}
+
+impl Default for RandomPidSecretKeyGenerator {
+    fn default() -> Self {
+        Self {
+            next_pid: AtomicI32::new(PID_INIT),
+        }
+    }
+}
 
 impl PidSecretKeyGenerator for RandomPidSecretKeyGenerator {
     fn generate(&self, client: &dyn ClientInfo) -> (i32, SecretKey) {
-        let pid = (rand::random::<u32>() >> 1) as i32;
+        let pid = self.next_pid.fetch_add(1, Ordering::Relaxed);
         let secret_key = match client.protocol_version() {
             ProtocolVersion::PROTOCOL3_0 => SecretKey::I32(rand::random::<i32>()),
             ProtocolVersion::PROTOCOL3_2 => {
