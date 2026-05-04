@@ -160,6 +160,24 @@ impl<S: Clone> Portal<S> {
     }
 }
 
+impl<S: Default> Portal<S> {
+    /// Create a cursor-oriented portal directly from a query response.
+    ///
+    /// The portal starts in `Suspended` state, ready for `Execute` with
+    /// `max_rows` to fetch batches. No `StoredStatement` is needed — a
+    /// default placeholder is used internally.
+    pub fn new_cursor(name: String, response: QueryResponse) -> Self {
+        Portal {
+            name,
+            statement: Arc::new(StoredStatement::default()),
+            parameter_format: Format::UnifiedText,
+            parameters: vec![],
+            result_column_format: Format::UnifiedText,
+            state: Arc::new(Mutex::new(PortalExecutionState::Suspended(response))),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use postgres_types::FromSql;
