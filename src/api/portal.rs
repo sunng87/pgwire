@@ -1,14 +1,16 @@
 use std::fmt::Debug;
+use std::ops::DerefMut;
 use std::sync::Arc;
 
 use bytes::Bytes;
+use futures::stream::StreamExt;
 use postgres_types::FromSqlOwned;
 use tokio::sync::Mutex;
 
 use crate::api::Type;
-use crate::api::results::QueryResponse;
+use crate::api::results::{FieldInfo, QueryResponse};
 use crate::error::{PgWireError, PgWireResult};
-use crate::messages::data::FORMAT_CODE_BINARY;
+use crate::messages::data::{DataRow, FORMAT_CODE_BINARY};
 use crate::messages::extendedquery::Bind;
 use crate::types::FromSqlText;
 use crate::types::format::FormatOptions;
@@ -38,6 +40,15 @@ pub enum PortalExecutionState {
     // tag and data stream
     Suspended(QueryResponse),
     Finished,
+}
+
+/// Result of fetching rows from a portal in `Suspended` state.
+#[derive(Debug)]
+pub struct FetchResult {
+    pub command_tag: String,
+    pub rows: Vec<DataRow>,
+    pub row_schema: Arc<Vec<FieldInfo>>,
+    pub suspended: bool,
 }
 
 /// Column format specification for parameters or result columns.
@@ -157,6 +168,65 @@ impl<S: Clone> Portal<S> {
     /// Get a handle to the portal's execution state.
     pub fn state(&self) -> Arc<Mutex<PortalExecutionState>> {
         self.state.clone()
+    }
+
+    /// Fetch up to `max_rows` from a portal's suspended state.
+    ///
+    /// Returns a [`FetchResult`] containing the rows, the row schema, and
+    /// whether the portal is still suspended (has more rows). When the
+    /// underlying stream is exhausted, the portal transitions to `Finished`.
+    /// When `max_rows` is 0, all remaining rows are fetched.
+    ///
+    /// Returns an error if the portal is in `Initial` state or if the stream
+    /// yields an error.
+    pub async fn fetch(&self, max_rows: usize) -> PgWireResult<FetchResult> {
+        let mut state = self.state.lock().await;
+
+        match state.deref_mut() {
+            PortalExecutionState::Initial => Err(PgWireError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Cannot fetch from portal in Initial state",
+            ))),
+            PortalExecutionState::Finished => Ok(FetchResult {
+                command_tag: String::new(),
+                rows: vec![],
+                row_schema: Arc::new(vec![]),
+                suspended: false,
+            }),
+            PortalExecutionState::Suspended(response) => {
+                let command_tag = response.command_tag().to_owned();
+                let row_schema = response.row_schema();
+                let data_rows = response.data_rows();
+
+                let mut rows = Vec::with_capacity(if max_rows == 0 { 256 } else { max_rows });
+                let mut suspended = true;
+                while max_rows == 0 || rows.len() < max_rows {
+                    if let Some(row) = data_rows.next().await {
+                        rows.push(row?);
+                    } else {
+                        suspended = false;
+                        break;
+                    }
+                }
+
+                if suspended {
+                    Ok(FetchResult {
+                        command_tag,
+                        rows,
+                        row_schema,
+                        suspended: true,
+                    })
+                } else {
+                    *state = PortalExecutionState::Finished;
+                    Ok(FetchResult {
+                        command_tag,
+                        rows,
+                        row_schema,
+                        suspended: false,
+                    })
+                }
+            }
+        }
     }
 }
 
