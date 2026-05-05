@@ -209,9 +209,7 @@ impl<S: Clone> Portal<S> {
         let mut state = self.state.lock().await;
 
         match state.deref_mut() {
-            PortalExecutionState::Initial => Err(PgWireError::IoError(std::io::Error::other(
-                "Cannot fetch from portal in Initial state, call start() first",
-            ))),
+            PortalExecutionState::Initial => Err(PgWireError::PortalNotStarted),
             PortalExecutionState::Finished => Ok(FetchResult {
                 command_tag: String::new(),
                 rows: vec![],

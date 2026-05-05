@@ -39,6 +39,8 @@ pub enum PgWireError {
     IoError(#[from] std::io::Error),
     #[error("Portal not found for name: {0}")]
     PortalNotFound(String),
+    #[error("Cannot fetch portal in its Initial state, call start() first")]
+    PortalNotStarted,
     #[error("Statement not found for name: {0}")]
     StatementNotFound(String),
     #[error("Parameter index out of bound: {0}")]
@@ -354,6 +356,9 @@ impl From<PgWireError> for ErrorInfo {
             }
             PgWireError::PortalNotFound(_) => {
                 ErrorInfo::new("ERROR".to_owned(), "26000".to_owned(), error.to_string())
+            }
+            PgWireError::PortalNotStarted => {
+                ErrorInfo::new("ERROR".to_owned(), "XX000".to_owned(), error.to_string())
             }
             PgWireError::StatementNotFound(_) => {
                 ErrorInfo::new("ERROR".to_owned(), "26000".to_owned(), error.to_string())
