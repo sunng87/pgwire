@@ -125,6 +125,22 @@ impl<S: Clone> Portal<S> {
         })
     }
 
+    /// Create a cursor-oriented portal with a stored statement.
+    ///
+    /// The portal starts in `Initial` state. The first call to [`fetch()`](Self::fetch)
+    /// after [`start()`](Self::start) will begin returning rows.
+    /// Use [`start()`](Self::start) to provide a `QueryResponse` before fetching.
+    pub fn new_cursor(name: String, statement: Arc<StoredStatement<S>>) -> Self {
+        Portal {
+            name,
+            statement,
+            parameter_format: Format::UnifiedText,
+            parameters: vec![],
+            result_column_format: Format::UnifiedText,
+            state: Arc::new(Mutex::new(PortalExecutionState::Initial)),
+        }
+    }
+
     /// Get number of parameters
     pub fn parameter_len(&self) -> usize {
         self.parameters.len()
@@ -170,6 +186,16 @@ impl<S: Clone> Portal<S> {
         self.state.clone()
     }
 
+    /// Transition the portal from `Initial` to `Suspended` with the given
+    /// query response.
+    ///
+    /// This is called by the query handler after executing the portal's
+    /// statement, before calling [`fetch()`](Self::fetch) to retrieve rows.
+    pub async fn start(&self, response: QueryResponse) {
+        let mut state = self.state.lock().await;
+        *state = PortalExecutionState::Suspended(response);
+    }
+
     /// Fetch up to `max_rows` from a portal's suspended state.
     ///
     /// Returns a [`FetchResult`] containing the rows, the row schema, and
@@ -177,15 +203,14 @@ impl<S: Clone> Portal<S> {
     /// underlying stream is exhausted, the portal transitions to `Finished`.
     /// When `max_rows` is 0, all remaining rows are fetched.
     ///
-    /// Returns an error if the portal is in `Initial` state or if the stream
-    /// yields an error.
+    /// Returns an error if the portal is in `Initial` state (call
+    /// [`start()`](Self::start) first) or if the stream yields an error.
     pub async fn fetch(&self, max_rows: usize) -> PgWireResult<FetchResult> {
         let mut state = self.state.lock().await;
 
         match state.deref_mut() {
-            PortalExecutionState::Initial => Err(PgWireError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Cannot fetch from portal in Initial state",
+            PortalExecutionState::Initial => Err(PgWireError::IoError(std::io::Error::other(
+                "Cannot fetch from portal in Initial state, call start() first",
             ))),
             PortalExecutionState::Finished => Ok(FetchResult {
                 command_tag: String::new(),
@@ -226,24 +251,6 @@ impl<S: Clone> Portal<S> {
                     })
                 }
             }
-        }
-    }
-}
-
-impl<S: Default> Portal<S> {
-    /// Create a cursor-oriented portal directly from a query response.
-    ///
-    /// The portal starts in `Suspended` state, ready for `Execute` with
-    /// `max_rows` to fetch batches. No `StoredStatement` is needed — a
-    /// default placeholder is used internally.
-    pub fn new_cursor(name: String, response: QueryResponse) -> Self {
-        Portal {
-            name,
-            statement: Arc::new(StoredStatement::default()),
-            parameter_format: Format::UnifiedText,
-            parameters: vec![],
-            result_column_format: Format::UnifiedText,
-            state: Arc::new(Mutex::new(PortalExecutionState::Suspended(response))),
         }
     }
 }

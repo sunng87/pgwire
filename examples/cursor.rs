@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -9,6 +10,7 @@ use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::portal::Portal;
 use pgwire::api::query::SimpleQueryHandler;
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
+use pgwire::api::stmt::StoredStatement;
 use pgwire::api::store::{MemPortalStore, PortalStore};
 use pgwire::api::{ClientInfo, ClientPortalStore, PgWireServerHandlers, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
@@ -92,6 +94,22 @@ fn encode_row_data(
         encoder.encode_field(&name)?;
         Ok(encoder.take_row())
     })
+}
+
+/// Demo stub: validates that the query starts with SELECT, then returns
+/// hardcoded data. A real implementation would parse and execute the query.
+fn execute_inner_query(inner_query: &str) -> PgWireResult<QueryResponse> {
+    if !inner_query.to_uppercase().starts_with("SELECT") {
+        return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+            "ERROR".to_owned(),
+            "42809".to_owned(),
+            "DECLARE CURSOR can only be used with SELECT queries".to_string(),
+        ))));
+    }
+
+    let (schema, data) = make_row_data();
+    let row_stream = encode_row_data(data, schema.clone());
+    Ok(QueryResponse::new(schema, row_stream))
 }
 
 #[async_trait]
@@ -178,11 +196,8 @@ fn handle_declare(
         ))));
     }
 
-    let (schema, data) = make_row_data();
-    let row_stream = encode_row_data(data, schema.clone());
-
-    let response = QueryResponse::new(schema, row_stream);
-    let portal = Portal::new_cursor(cursor_name.to_string(), response);
+    let statement = StoredStatement::new(cursor_name.to_string(), inner_query.to_string(), vec![]);
+    let portal = Portal::new_cursor(cursor_name.to_string(), Arc::new(statement));
     portal_store.put_portal(Arc::new(portal));
 
     Ok(vec![Response::Execution(Tag::new("DECLARE CURSOR"))])
@@ -202,6 +217,18 @@ async fn handle_fetch(
             format!("cursor \"{}\" does not exist", cursor_name),
         ))));
     };
+
+    // Lazy execution: if the cursor hasn't been started yet, execute the
+    // stored statement now and transition to Suspended.
+    if matches!(
+        portal.state().lock().await.deref(),
+        pgwire::api::portal::PortalExecutionState::Initial
+    ) {
+        let inner_query = &portal.statement.statement;
+        println!("  -> Lazy execution of: {}", inner_query);
+        let response = execute_inner_query(inner_query)?;
+        portal.start(response).await;
+    }
 
     let fetch_result = portal.fetch(count).await?;
     println!(

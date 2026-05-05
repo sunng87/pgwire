@@ -1,6 +1,6 @@
 use std::cmp::max;
 use std::fmt::Debug;
-use std::ops::DerefMut;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -264,96 +264,105 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let portal_name = message.name.as_deref().unwrap_or(DEFAULT_NAME);
         let max_rows = message.max_rows as usize;
 
-        if let Some(portal) = client.portal_store().get_portal(portal_name) {
-            let portal_state_lock = portal.state();
-            let mut portal_state = portal_state_lock.lock().await;
-            match portal_state.deref_mut() {
-                PortalExecutionState::Initial => {
-                    let cancel_rx = get_cancel_receiver(client).await;
-                    let resp = if let Some(cancel_rx) = cancel_rx {
-                        match select(self.do_query(client, portal.as_ref(), max_rows), cancel_rx)
-                            .await
-                        {
-                            Either::Left((result, _)) => result,
-                            Either::Right(_) => Err(PgWireError::QueryCanceled),
-                        }
-                    } else {
-                        self.do_query(client, portal.as_ref(), max_rows).await
-                    }?;
-                    match resp {
-                        Response::EmptyQuery => {
-                            client
-                                .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
-                                .await?;
-                        }
-                        Response::Query(mut results) => {
-                            if max_rows > 0 {
-                                if send_partial_query_response(client, &mut results, max_rows)
-                                    .await?
-                                {
-                                    *portal_state = PortalExecutionState::Suspended(results);
-                                } else {
-                                    *portal_state = PortalExecutionState::Finished;
-                                }
-                            } else {
-                                send_query_response(client, results, false).await?;
-                            }
-                        }
-                        Response::Execution(tag) => {
-                            send_execution_response(client, tag).await?;
-                        }
-                        Response::TransactionStart(tag) => {
-                            send_execution_response(client, tag).await?;
-                            transaction_status = transaction_status.to_in_transaction_state();
-                        }
-                        Response::TransactionEnd(tag) => {
-                            send_execution_response(client, tag).await?;
-                            transaction_status = transaction_status.to_idle_state();
-                        }
-                        Response::Error(err) => {
-                            client
-                                .send(PgWireBackendMessage::ErrorResponse((*err).into()))
-                                .await?;
-                            transaction_status = transaction_status.to_error_state();
-                        }
-                        Response::CopyIn(result) => {
-                            client.set_state(PgWireConnectionState::CopyInProgress(true));
-                            copy::send_copy_in_response(client, result).await?;
-                        }
-                        Response::CopyOut(result) => {
-                            copy::send_copy_out_response(client, result).await?;
-                        }
-                        Response::CopyBoth(result) => {
-                            client.set_state(PgWireConnectionState::CopyInProgress(true));
-                            copy::send_copy_both_response(client, result).await?;
-                        }
-                    }
+        let Some(portal) = client.portal_store().get_portal(portal_name) else {
+            return Err(PgWireError::PortalNotFound(portal_name.to_owned()));
+        };
+        // Execute query if the portal hasn't been started yet
+        let needs_fetch = if matches!(
+            portal.state().lock().await.deref(),
+            PortalExecutionState::Initial
+        ) {
+            let cancel_rx = get_cancel_receiver(client).await;
+            let resp = if let Some(cancel_rx) = cancel_rx {
+                match select(self.do_query(client, portal.as_ref(), max_rows), cancel_rx).await {
+                    Either::Left((result, _)) => result,
+                    Either::Right(_) => Err(PgWireError::QueryCanceled),
                 }
-                PortalExecutionState::Suspended(results) => {
-                    let has_more = send_partial_query_response(client, results, max_rows).await?;
-                    if !has_more {
-                        *portal_state = PortalExecutionState::Finished;
-                    }
+            } else {
+                self.do_query(client, portal.as_ref(), max_rows).await
+            }?;
+
+            match resp {
+                Response::Query(results) => {
+                    portal.start(results).await;
+                    true
                 }
-                PortalExecutionState::Finished => {
-                    // no data
-                    client.send(PgWireBackendMessage::NoData(NoData)).await?;
+                Response::EmptyQuery => {
+                    client
+                        .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
+                        .await?;
+                    false
+                }
+                Response::Execution(tag) => {
+                    send_execution_response(client, tag).await?;
+                    false
+                }
+                Response::TransactionStart(tag) => {
+                    send_execution_response(client, tag).await?;
+                    transaction_status = transaction_status.to_in_transaction_state();
+                    false
+                }
+                Response::TransactionEnd(tag) => {
+                    send_execution_response(client, tag).await?;
+                    transaction_status = transaction_status.to_idle_state();
+                    false
+                }
+                Response::Error(err) => {
+                    client
+                        .send(PgWireBackendMessage::ErrorResponse((*err).into()))
+                        .await?;
+                    transaction_status = transaction_status.to_error_state();
+                    false
+                }
+                Response::CopyIn(result) => {
+                    client.set_state(PgWireConnectionState::CopyInProgress(true));
+                    copy::send_copy_in_response(client, result).await?;
+                    false
+                }
+                Response::CopyOut(result) => {
+                    copy::send_copy_out_response(client, result).await?;
+                    false
+                }
+                Response::CopyBoth(result) => {
+                    client.set_state(PgWireConnectionState::CopyInProgress(true));
+                    copy::send_copy_both_response(client, result).await?;
+                    false
                 }
             }
-
-            if !matches!(client.state(), PgWireConnectionState::CopyInProgress(_)) {
-                client.set_state(super::PgWireConnectionState::ReadyForQuery);
-                client.set_transaction_status(transaction_status);
-            };
-
-            if portal_name == DEFAULT_NAME {
-                client.portal_store().rm_portal(portal_name);
-            }
-
-            Ok(())
         } else {
-            Err(PgWireError::PortalNotFound(portal_name.to_owned()))
+            // Suspended or Finished — fetch remaining rows
+            true
+        };
+
+        // Fetch rows from the portal and send to client
+        if needs_fetch {
+            let fetch_result = portal.fetch(max_rows).await?;
+            let row_count = fetch_result.rows.len();
+            for row in fetch_result.rows {
+                client.feed(PgWireBackendMessage::DataRow(row)).await?;
+            }
+            if fetch_result.suspended {
+                client
+                    .send(PgWireBackendMessage::PortalSuspended(PortalSuspended))
+                    .await?;
+            } else {
+                let tag = Tag::new(&fetch_result.command_tag).with_rows(row_count);
+                client
+                    .send(PgWireBackendMessage::CommandComplete(tag.into()))
+                    .await?;
+            }
         }
+
+        if !matches!(client.state(), PgWireConnectionState::CopyInProgress(_)) {
+            client.set_state(super::PgWireConnectionState::ReadyForQuery);
+            client.set_transaction_status(transaction_status);
+        };
+
+        if portal_name == DEFAULT_NAME {
+            client.portal_store().rm_portal(portal_name);
+        }
+
+        Ok(())
     }
 
     /// Called when client sends `describe` command.
