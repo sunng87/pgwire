@@ -15,6 +15,7 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - Changed default PID generate use sequential number [#431]
+- Switch pg_interval crate to original [#432]
 
 ### Fixed
 
