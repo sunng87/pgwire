@@ -231,17 +231,9 @@ async fn handle_fetch(
     }
 
     let fetch_result = portal.fetch(count).await?;
-    println!(
-        "  -> Fetched {} rows, has_more: {}",
-        fetch_result.rows.len(),
-        fetch_result.suspended
-    );
+    println!("  -> Fetched rows, has_more: {}", fetch_result.suspended);
 
-    let schema = fetch_result.row_schema;
-    let row_stream = stream::iter(fetch_result.rows.into_iter().map(Ok));
-    Ok(vec![Response::Query(QueryResponse::new(
-        schema, row_stream,
-    ))])
+    Ok(vec![Response::Query(fetch_result.response)])
 }
 
 fn handle_close(

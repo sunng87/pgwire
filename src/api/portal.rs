@@ -8,9 +8,9 @@ use postgres_types::FromSqlOwned;
 use tokio::sync::Mutex;
 
 use crate::api::Type;
-use crate::api::results::{FieldInfo, QueryResponse};
+use crate::api::results::QueryResponse;
 use crate::error::{PgWireError, PgWireResult};
-use crate::messages::data::{DataRow, FORMAT_CODE_BINARY};
+use crate::messages::data::FORMAT_CODE_BINARY;
 use crate::messages::extendedquery::Bind;
 use crate::types::FromSqlText;
 use crate::types::format::FormatOptions;
@@ -45,9 +45,7 @@ pub enum PortalExecutionState {
 /// Result of fetching rows from a portal in `Suspended` state.
 #[derive(Debug)]
 pub struct FetchResult {
-    pub command_tag: String,
-    pub rows: Vec<DataRow>,
-    pub row_schema: Arc<Vec<FieldInfo>>,
+    pub response: QueryResponse,
     pub suspended: bool,
 }
 
@@ -211,9 +209,7 @@ impl<S: Clone> Portal<S> {
         match state.deref_mut() {
             PortalExecutionState::Initial => Err(PgWireError::PortalNotStarted),
             PortalExecutionState::Finished => Ok(FetchResult {
-                command_tag: String::new(),
-                rows: vec![],
-                row_schema: Arc::new(vec![]),
+                response: QueryResponse::new(Arc::new(vec![]), futures::stream::empty()),
                 suspended: false,
             }),
             PortalExecutionState::Suspended(response) => {
@@ -232,22 +228,20 @@ impl<S: Clone> Portal<S> {
                     }
                 }
 
-                if suspended {
-                    Ok(FetchResult {
-                        command_tag,
-                        rows,
-                        row_schema,
-                        suspended: true,
-                    })
-                } else {
+                if !suspended {
                     *state = PortalExecutionState::Finished;
-                    Ok(FetchResult {
-                        command_tag,
-                        rows,
-                        row_schema,
-                        suspended: false,
-                    })
                 }
+
+                let result_response = QueryResponse {
+                    command_tag,
+                    row_schema,
+                    data_rows: Box::pin(futures::stream::iter(rows.into_iter().map(Ok))),
+                };
+
+                Ok(FetchResult {
+                    response: result_response,
+                    suspended,
+                })
             }
         }
     }
