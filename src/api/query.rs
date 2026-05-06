@@ -439,6 +439,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
     {
         // cleanup all portals
         client.portal_store().rm_portal(DEFAULT_NAME);
+        client.portal_store().rm_statement(DEFAULT_NAME);
 
         client
             .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
