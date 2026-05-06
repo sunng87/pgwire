@@ -1,5 +1,6 @@
 use std::fmt::Debug;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use async_trait::async_trait;
 use futures::sink::{Sink, SinkExt};
@@ -12,6 +13,9 @@ use crate::error::{PgWireError, PgWireResult};
 use crate::messages::response::{ReadyForQuery, TransactionStatus};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
+static DEFAULT_PID_GENERATOR: LazyLock<RandomPidSecretKeyGenerator> =
+    LazyLock::new(RandomPidSecretKeyGenerator::default);
+
 #[async_trait]
 /// A startup handler that performs no authentication.
 pub trait NoopStartupHandler: StartupHandler {
@@ -20,7 +24,7 @@ pub trait NoopStartupHandler: StartupHandler {
     }
 
     fn pid_secret_key_generator(&self) -> &dyn PidSecretKeyGenerator {
-        &RandomPidSecretKeyGenerator
+        &*DEFAULT_PID_GENERATOR
     }
 
     async fn post_startup<C>(

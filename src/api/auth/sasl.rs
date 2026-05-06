@@ -73,7 +73,7 @@ impl<P> SASLAuthStartupHandler<P> {
     pub fn new(parameter_provider: Arc<P>) -> Self {
         SASLAuthStartupHandler {
             parameter_provider,
-            pid_secret_key_generator: Arc::new(RandomPidSecretKeyGenerator),
+            pid_secret_key_generator: Arc::new(RandomPidSecretKeyGenerator::default()),
             connection_manager: None,
             state: Mutex::new(SASLState::Initial),
             scram: None,

@@ -27,7 +27,7 @@ impl<A, P> CleartextPasswordAuthStartupHandler<A, P> {
         Self {
             auth_source,
             parameter_provider,
-            pid_secret_key_generator: Arc::new(RandomPidSecretKeyGenerator),
+            pid_secret_key_generator: Arc::new(RandomPidSecretKeyGenerator::default()),
             connection_manager: None,
         }
     }
