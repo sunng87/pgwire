@@ -438,7 +438,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         // cleanup all portals
-        client.portal_store().clear_portals();
+        client.portal_store().rm_portal(DEFAULT_NAME);
 
         client
             .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
