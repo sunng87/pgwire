@@ -341,16 +341,19 @@ pub trait ExtendedQueryHandler: Send + Sync {
         // Fetch rows from the portal and send to client
         if needs_fetch {
             let fetch_result = portal.fetch(max_rows).await?;
-            let row_count = fetch_result.rows.len();
-            for row in fetch_result.rows {
-                client.feed(PgWireBackendMessage::DataRow(row)).await?;
+            let mut response = fetch_result.response;
+            let command_tag = response.command_tag().to_owned();
+            let mut row_count = 0;
+            while let Some(row) = response.data_rows().next().await {
+                client.feed(PgWireBackendMessage::DataRow(row?)).await?;
+                row_count += 1;
             }
             if fetch_result.suspended {
                 client
                     .send(PgWireBackendMessage::PortalSuspended(PortalSuspended))
                     .await?;
             } else {
-                let tag = Tag::new(&fetch_result.command_tag).with_rows(row_count);
+                let tag = Tag::new(&command_tag).with_rows(row_count);
                 client
                     .send(PgWireBackendMessage::CommandComplete(tag.into()))
                     .await?;
