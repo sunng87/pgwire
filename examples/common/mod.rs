@@ -82,10 +82,12 @@ impl SimpleQueryHandler for DummyProcessor {
     }
 }
 
+#[allow(dead_code)]
 pub struct DummyProcessorFactory {
     pub handler: Arc<DummyProcessor>,
 }
 
+#[allow(dead_code)]
 impl DummyProcessorFactory {
     pub fn new() -> DummyProcessorFactory {
         Self {
