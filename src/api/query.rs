@@ -305,6 +305,10 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 Response::TransactionEnd(tag) => {
                     send_execution_response(client, tag).await?;
                     transaction_status = transaction_status.to_idle_state();
+
+                    // remove unnamed portal when transaction ends
+                    client.portal_store().rm_portal(DEFAULT_NAME);
+
                     false
                 }
                 Response::Error(err) => {
@@ -357,10 +361,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
             client.set_state(super::PgWireConnectionState::ReadyForQuery);
             client.set_transaction_status(transaction_status);
         };
-
-        if portal_name == DEFAULT_NAME {
-            client.portal_store().rm_portal(portal_name);
-        }
 
         Ok(())
     }
