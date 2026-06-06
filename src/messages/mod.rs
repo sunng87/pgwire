@@ -1017,8 +1017,10 @@ mod test {
         ctx.awaiting_frontend_ssl = false;
         ctx.awaiting_frontend_startup = false;
 
-        let negotiate_protocol_version =
-            NegotiateProtocolVersion::new(2, vec!["database".to_owned(), "user".to_owned()]);
+        let negotiate_protocol_version = NegotiateProtocolVersion::new(
+            ProtocolVersion::PROTOCOL3_2.into(),
+            vec!["database".to_owned(), "user".to_owned()],
+        );
         roundtrip!(negotiate_protocol_version, NegotiateProtocolVersion, &ctx);
     }
 
