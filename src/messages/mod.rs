@@ -40,6 +40,13 @@ impl ProtocolVersion {
     }
 }
 
+impl From<ProtocolVersion> for i32 {
+    fn from(protocol_version: ProtocolVersion) -> i32 {
+        let (major, minor) = protocol_version.version_number();
+        (major as i32) << 16 | (minor as i32)
+    }
+}
+
 // 1 gigabyte - 1
 pub(crate) const LARGE_PACKET_SIZE_LIMIT: usize = 0x3fffffff - 1;
 pub(crate) const SMALL_PACKET_SIZE_LIMIT: usize = 10000;
@@ -1010,8 +1017,16 @@ mod test {
         ctx.awaiting_frontend_ssl = false;
         ctx.awaiting_frontend_startup = false;
 
-        let negotiate_protocol_version =
-            NegotiateProtocolVersion::new(2, vec!["database".to_owned(), "user".to_owned()]);
+        let negotiate_protocol_version = NegotiateProtocolVersion::new(
+            ProtocolVersion::PROTOCOL3_2.into(),
+            vec!["database".to_owned(), "user".to_owned()],
+        );
         roundtrip!(negotiate_protocol_version, NegotiateProtocolVersion, &ctx);
+    }
+
+    #[test]
+    fn test_protocol_version() {
+        assert_eq!(196608i32, i32::from(ProtocolVersion::PROTOCOL3_0));
+        assert_eq!(196610i32, i32::from(ProtocolVersion::PROTOCOL3_2));
     }
 }
