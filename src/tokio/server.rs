@@ -567,6 +567,13 @@ macro_rules! process_socket_messages {
             };
 
             if let Some(Ok(msg)) = msg {
+                // A Terminate ('X') means the client is disconnecting: the backend
+                // must close the connection. Some clients (asyncpg) send Terminate
+                // and then block waiting for the server to drop the socket, so
+                // ignoring it deadlocks the client's close(); break to drop `socket`.
+                if matches!(msg, PgWireFrontendMessage::Terminate(_)) {
+                    break;
+                }
                 let is_extended_query = match socket.state() {
                     PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
                     _ => msg.is_extended_query(),
