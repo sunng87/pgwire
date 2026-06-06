@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Fixed
+
+- Use full version number in protocol negotiation. [#439]
+- Close socket when client sends Termination [#438]
+
 ## [0.40.0] - 2026-05-06
 
 ### Added
