@@ -272,11 +272,11 @@ where
         Ok(())
     } else {
         let newest_server_version = ProtocolVersion::default();
-        let (newest_major_version, newest_minor_version) = newest_server_version.version_number();
+        let (newest_major_version, _newest_minor_version) = newest_server_version.version_number();
         if newest_major_version == startup_message.protocol_number_major {
             client
                 .send(PgWireBackendMessage::NegotiateProtocolVersion(
-                    NegotiateProtocolVersion::new(newest_minor_version as i32, vec![]),
+                    NegotiateProtocolVersion::new(newest_server_version.into(), vec![]),
                 ))
                 .await?;
             client.set_protocol_version(newest_server_version);
