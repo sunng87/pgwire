@@ -79,7 +79,7 @@ pub struct CopyFail {
 impl Message for CopyFail {
     #[inline]
     fn message_type() -> Option<u8> {
-        Some(MESSAGE_TYPE_BYTE_COPY_DONE)
+        Some(MESSAGE_TYPE_BYTE_COPY_FAIL)
     }
 
     fn message_length(&self) -> usize {
