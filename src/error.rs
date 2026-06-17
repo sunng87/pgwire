@@ -173,6 +173,9 @@ impl ErrorInfo {
         let mut fields = Vec::with_capacity(18);
 
         fields.push((b'S', self.severity));
+        if let Some(value) = self.severity_nonlocalized {
+            fields.push((b'V', value));
+        }
         fields.push((b'C', self.code));
         fields.push((b'M', self.message));
         if let Some(value) = self.detail {
@@ -201,9 +204,6 @@ impl ErrorInfo {
         }
         if let Some(value) = self.routine {
             fields.push((b'R', value));
-        }
-        if let Some(value) = self.severity_nonlocalized {
-            fields.push((b'V', value));
         }
         if let Some(value) = self.schema {
             fields.push((b's', value));
