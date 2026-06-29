@@ -147,13 +147,17 @@ impl<T: 'static, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
 
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     fn client_certificates<'a>(&self) -> Option<&[CertificateDer<'a>]> {
-        if !self.is_secure() {
-            None
-        } else {
-            let socket =
-                <dyn std::any::Any>::downcast_ref::<TlsStream<TcpStream>>(self.get_ref()).unwrap();
-            let (_, tls_session) = socket.get_ref();
-            tls_session.peer_certificates()
+        // `process_socket` wraps the negotiated stream in `MaybeTls`, so the
+        // connection is a `MaybeTls`, not a bare `TlsStream<TcpStream>`.
+        // Downcasting to the latter (as we used to) always failed and panicked
+        // on the `unwrap()`. The `MaybeTls::Tls` arm is the only secure one.
+        let any = self.get_ref() as &dyn std::any::Any;
+        match any.downcast_ref::<MaybeTls>() {
+            Some(MaybeTls::Tls(tls)) => {
+                let (_, tls_session) = tls.get_ref();
+                tls_session.peer_certificates()
+            }
+            _ => None,
         }
     }
 }
@@ -798,11 +802,15 @@ mod tests {
     async fn server_name_metadata_is_set_from_tls_sni_in_memory() {
         use std::net::SocketAddr;
 
+        // The default provider is process-global and install-once; another TLS
+        // test in this binary may have installed it already, so tolerate `Err`.
         #[cfg(feature = "_aws-lc-rs")]
-        CryptoProvider::install_default(tokio_rustls::rustls::crypto::aws_lc_rs::default_provider()).unwrap();
+        let _ = CryptoProvider::install_default(
+            tokio_rustls::rustls::crypto::aws_lc_rs::default_provider(),
+        );
         #[cfg(feature = "_ring")]
-        CryptoProvider::install_default(tokio_rustls::rustls::crypto::ring::default_provider())
-            .unwrap();
+        let _ =
+            CryptoProvider::install_default(tokio_rustls::rustls::crypto::ring::default_provider());
 
         // server and client rustls configs
         let server_cfg = Arc::new(load_test_server_config().expect("server config"));
@@ -905,5 +913,57 @@ mod tests {
             ci.sni_server_name = Some(s);
         }
         assert_eq!(ci.sni_server_name(), Some("localhost"));
+    }
+
+    #[tokio::test]
+    async fn client_certificates_does_not_panic_under_maybe_tls() {
+        use std::net::SocketAddr;
+        use tokio::net::{TcpListener, TcpStream};
+
+        #[cfg(feature = "_aws-lc-rs")]
+        let _ = CryptoProvider::install_default(
+            tokio_rustls::rustls::crypto::aws_lc_rs::default_provider(),
+        );
+        #[cfg(feature = "_ring")]
+        let _ =
+            CryptoProvider::install_default(tokio_rustls::rustls::crypto::ring::default_provider());
+
+        let server_cfg = Arc::new(load_test_server_config().expect("server config"));
+        let acceptor = TlsAcceptor::from(server_cfg);
+        let connector = make_test_client_connector().expect("client connector");
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("local addr");
+
+        // Client drives a real TLS handshake over TCP, presenting no certificate.
+        let client = tokio::spawn(async move {
+            let tcp = TcpStream::connect(addr).await.expect("connect");
+            let server_name = rustls_pki_types::ServerName::try_from("localhost").unwrap();
+            let _tls = connector
+                .connect(server_name, tcp)
+                .await
+                .expect("client tls");
+            // Hold the connection open until the server has inspected certificates.
+            sleep(Duration::from_millis(200)).await;
+        });
+
+        let (tcp, _peer) = listener.accept().await.expect("accept");
+        let tls = acceptor.accept(tcp).await.expect("server tls");
+
+        // Mirror `process_socket`/`negotiate_tls`: the negotiated stream is wrapped
+        // in `MaybeTls`, NOT a bare `TlsStream<TcpStream>`.
+        let peer: SocketAddr = "127.0.0.1:0".parse().unwrap();
+        let ci: DefaultClient<()> = DefaultClient::new(peer, true);
+        let framed = Framed::new(
+            MaybeTls::Tls(Box::new(tls)),
+            PgWireMessageServerCodec::new(ci),
+        );
+
+        // The client sent no certificate, so this must return `None`. Before the fix
+        // it instead downcast the `MaybeTls` to `TlsStream<TcpStream>`, got `None`,
+        // and panicked on the `unwrap()`.
+        assert!(framed.client_certificates().is_none());
+
+        client.await.unwrap();
     }
 }
