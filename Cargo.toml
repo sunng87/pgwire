@@ -39,7 +39,7 @@ rand = { version = "0.10", optional = true }
 md5 = { version = "0.8", optional = true }
 hex = { version = "0.4", optional = true }
 ## scram libraries
-base64 = { version = "0.22", optional = true }
+base64 = { version = "0.23", optional = true }
 ring = { version = "0.17", optional = true }
 aws-lc-rs = { version = "1.7", optional = true }
 stringprep = { version = "0.1.2", optional = true }
