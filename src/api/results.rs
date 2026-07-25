@@ -153,6 +153,21 @@ pub struct FieldInfo {
     format: FieldFormat,
     #[new(value = "DEFAULT_FORMAT_OPTIONS.with(|opts| Arc::clone(&*opts))")]
     format_options: Arc<FormatOptions>,
+    /// `pg_type.typlen`: the type's fixed byte width, or a negative value for a
+    /// variable-width type. Defaults to 0 ("unspecified"); set it with
+    /// [`FieldInfo::with_type_size`] to describe the value bytes precisely.
+    #[new(value = "0")]
+    type_size: i16,
+    /// `pg_attribute.atttypmod`: the type-specific modifier, such as the
+    /// precision and scale packed into a `numeric(p, s)` or the declared length
+    /// of a `varchar(n)`.
+    ///
+    /// Defaults to `-1`, PostgreSQL's encoding for "no modifier". This matters:
+    /// clients derive display scale from it, and a `0` here is not "unset" but a
+    /// valid-looking modifier that decodes to a nonsense scale — a `numeric`
+    /// then renders with a long tail of spurious zeros in JDBC-based clients.
+    #[new(value = "-1")]
+    type_modifier: i32,
 }
 
 impl FieldInfo {
@@ -191,6 +206,28 @@ impl FieldInfo {
         self.format_options = format_options;
         self
     }
+
+    /// Get the type size (`pg_type.typlen`).
+    pub fn type_size(&self) -> i16 {
+        self.type_size
+    }
+
+    /// Set the type size (`pg_type.typlen`).
+    pub fn with_type_size(mut self, type_size: i16) -> Self {
+        self.type_size = type_size;
+        self
+    }
+
+    /// Get the type modifier (`pg_attribute.atttypmod`).
+    pub fn type_modifier(&self) -> i32 {
+        self.type_modifier
+    }
+
+    /// Set the type modifier (`pg_attribute.atttypmod`); `-1` means none.
+    pub fn with_type_modifier(mut self, type_modifier: i32) -> Self {
+        self.type_modifier = type_modifier;
+        self
+    }
 }
 
 impl From<&FieldInfo> for FieldDescription {
@@ -200,9 +237,8 @@ impl From<&FieldInfo> for FieldDescription {
             fi.table_id.unwrap_or(0),  // table_id
             fi.column_id.unwrap_or(0), // column_id
             fi.datatype.oid(),         // type_id
-            // TODO: type size and modifier
-            0,
-            0,
+            fi.type_size,              // type_size
+            fi.type_modifier,          // type_modifier
             fi.format.value(),
         )
     }
@@ -217,6 +253,8 @@ impl From<FieldDescription> for FieldInfo {
             Type::from_oid(value.type_id).unwrap_or(Type::UNKNOWN),
             FieldFormat::from(value.format_code),
         )
+        .with_type_size(value.type_size)
+        .with_type_modifier(value.type_modifier)
     }
 }
 
@@ -823,6 +861,32 @@ pub enum Response {
 mod test {
 
     use super::*;
+
+    #[test]
+    fn field_info_defaults_to_no_type_modifier() {
+        // `0` is not "unset" on the wire — it decodes to a nonsense scale and
+        // makes JDBC clients render numerics with spurious trailing zeros.
+        let fi = FieldInfo::new("c".into(), None, None, Type::NUMERIC, FieldFormat::Text);
+        assert_eq!(fi.type_modifier(), -1);
+        assert_eq!(FieldDescription::from(&fi).type_modifier, -1);
+    }
+
+    #[test]
+    fn field_info_type_size_and_modifier_reach_the_field_description() {
+        // numeric(18, 4) packs as ((18 << 16) | 4) + 4.
+        let typmod = ((18 << 16) | 4) + 4;
+        let fi = FieldInfo::new("amount".into(), None, None, Type::NUMERIC, FieldFormat::Text)
+            .with_type_size(-1)
+            .with_type_modifier(typmod);
+        let fd = FieldDescription::from(&fi);
+        assert_eq!(fd.type_size, -1);
+        assert_eq!(fd.type_modifier, typmod);
+
+        // And they survive the round trip back into a `FieldInfo`.
+        let back = FieldInfo::from(fd);
+        assert_eq!(back.type_size(), -1);
+        assert_eq!(back.type_modifier(), typmod);
+    }
 
     #[test]
     fn test_command_complete() {
