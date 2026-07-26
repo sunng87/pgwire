@@ -875,9 +875,15 @@ mod test {
     fn field_info_type_size_and_modifier_reach_the_field_description() {
         // numeric(18, 4) packs as ((18 << 16) | 4) + 4.
         let typmod = ((18 << 16) | 4) + 4;
-        let fi = FieldInfo::new("amount".into(), None, None, Type::NUMERIC, FieldFormat::Text)
-            .with_type_size(-1)
-            .with_type_modifier(typmod);
+        let fi = FieldInfo::new(
+            "amount".into(),
+            None,
+            None,
+            Type::NUMERIC,
+            FieldFormat::Text,
+        )
+        .with_type_size(-1)
+        .with_type_modifier(typmod);
         let fd = FieldDescription::from(&fi);
         assert_eq!(fd.type_size, -1);
         assert_eq!(fd.type_modifier, typmod);
