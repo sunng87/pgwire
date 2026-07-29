@@ -178,6 +178,7 @@ application development, you can use
 * [corrosion](https://github.com/superfly/corrosion) from fly.io: Gossip-based
   service discovery (and more) for large distributed systems.
 * [db9.ai](https://db9.ai/): Postgres but for agents.
+* [basin.run](https://basin.run/): Multi-tenant Postgres on object storage..
 
 
 Submit a pull request if your project isn't listed here.
