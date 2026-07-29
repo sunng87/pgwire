@@ -17,6 +17,8 @@ pub enum PgWireError {
     InvalidMessageType(u8),
     #[error("Invalid message length, expected max {0}, actual: {1}")]
     MessageTooLarge(usize, usize),
+    #[error("Invalid element count {0}, exceeds {1} remaining bytes")]
+    InvalidElementCount(usize, usize),
     #[error("Invalid target type, received {0}")]
     InvalidTargetType(u8),
     #[error("Invalid transaction status, received {0}")]
@@ -325,6 +327,9 @@ impl From<PgWireError> for ErrorInfo {
                 ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
             }
             PgWireError::MessageTooLarge(..) => {
+                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
+            }
+            PgWireError::InvalidElementCount(..) => {
                 ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
             }
             PgWireError::InvalidTransactionStatus(_) => {

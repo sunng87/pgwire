@@ -58,6 +58,19 @@ pub(crate) fn get_length(buf: &BytesMut, offset: usize) -> Option<usize> {
     }
 }
 
+/// Validate an on-wire element count before it is used to pre-allocate a
+/// collection. Counts are unsigned; a value larger than the bytes left in the
+/// buffer cannot describe a real message (each element takes at least one byte),
+/// so it is rejected instead of driving an oversized `Vec::with_capacity`.
+pub(crate) fn read_count(count: usize, buf: &BytesMut) -> PgWireResult<usize> {
+    let remaining = buf.remaining();
+    if count > remaining {
+        Err(PgWireError::InvalidElementCount(count, remaining))
+    } else {
+        Ok(count)
+    }
+}
+
 /// Check if message_length matches and move the cursor to right position then
 /// call the `decode_fn` for the body
 pub(crate) fn decode_packet<T, F>(

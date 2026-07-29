@@ -1029,4 +1029,49 @@ mod test {
         assert_eq!(196608i32, i32::from(ProtocolVersion::PROTOCOL3_0));
         assert_eq!(196610i32, i32::from(ProtocolVersion::PROTOCOL3_2));
     }
+
+    // A count read as signed (0xffff -> -1 -> usize::MAX) must become a decode
+    // error, not a `capacity overflow` panic. Completes #192 for the decoders it
+    // did not reach.
+    #[test]
+    fn test_element_count_capacity_overflow_rejected() {
+        let ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+
+        // Backend messages decoded by the client/proxy from an untrusted server.
+        for bytes in [
+            &b"T\0\0\0\x06\xff\xff"[..],                 // RowDescription
+            &b"G\0\0\0\x07\0\xff\xff"[..],               // CopyInResponse
+            &b"H\0\0\0\x07\0\xff\xff"[..],               // CopyOutResponse
+            &b"W\0\0\0\x07\0\xff\xff"[..],               // CopyBothResponse
+            &b"v\0\0\0\x0c\0\0\0\0\xff\xff\xff\xff"[..], // NegotiateProtocolVersion
+        ] {
+            let mut buf = BytesMut::from(bytes);
+            assert!(super::PgWireBackendMessage::decode(&mut buf, &ctx).is_err());
+        }
+
+        // Bind decoded by the server from an untrusted client. #192 widened the
+        // first two of Bind's three counts; this covers the third.
+        let mut fctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+        fctx.awaiting_frontend_ssl = false;
+        fctx.awaiting_frontend_startup = false;
+        let mut buf = BytesMut::from(&b"B\0\0\0\x0c\0\0\0\0\0\0\xff\xff"[..]);
+        assert!(super::PgWireFrontendMessage::decode(&mut buf, &fctx).is_err());
+    }
+
+    #[test]
+    fn test_valid_element_count_still_decodes() {
+        let ctx = DecodeContext::new(ProtocolVersion::PROTOCOL3_0);
+
+        // Zero count decodes to an empty collection.
+        let mut buf = BytesMut::from(&b"T\0\0\0\x06\0\0"[..]);
+        let row = RowDescription::decode(&mut buf, &ctx).unwrap().unwrap();
+        assert!(row.fields.is_empty());
+
+        // A well-formed positive count round-trips.
+        let row = RowDescription::new(vec![
+            FieldDescription::new("id".to_owned(), 0, 0, 23, 4, -1, 0),
+            FieldDescription::new("name".to_owned(), 0, 0, 25, -1, -1, 0),
+        ]);
+        roundtrip!(row, RowDescription, &ctx);
+    }
 }
