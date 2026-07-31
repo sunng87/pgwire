@@ -280,8 +280,10 @@ impl Message for Bind {
             }
         }
 
-        let result_column_format_code_len = codec::read_count(buf.get_u16() as usize, buf)?;
-        let mut result_column_format_codes = Vec::with_capacity(result_column_format_code_len);
+        let result_column_format_code_len = buf.get_u16();
+        codec::ensure_count(result_column_format_code_len as usize, buf)?;
+        let mut result_column_format_codes =
+            Vec::with_capacity(result_column_format_code_len as usize);
         for _ in 0..result_column_format_code_len {
             result_column_format_codes.push(buf.get_i16());
         }

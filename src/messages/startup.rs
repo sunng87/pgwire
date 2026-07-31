@@ -820,8 +820,9 @@ impl Message for NegotiateProtocolVersion {
         _ctx: &DecodeContext,
     ) -> PgWireResult<Self> {
         let version = buf.get_i32();
-        let option_count = codec::read_count(buf.get_u32() as usize, buf)?;
-        let mut options = Vec::with_capacity(option_count);
+        let option_count = buf.get_u32();
+        codec::ensure_count(option_count as usize, buf)?;
+        let mut options = Vec::with_capacity(option_count as usize);
 
         for _ in 0..option_count {
             options.push(codec::get_cstring(buf).unwrap_or_else(|| "".to_owned()))

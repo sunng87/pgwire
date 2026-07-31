@@ -135,8 +135,9 @@ impl Message for CopyInResponse {
 
     fn decode_body(buf: &mut BytesMut, _len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let format = buf.get_i8();
-        let columns = codec::read_count(buf.get_u16() as usize, buf)?;
-        let mut column_formats = Vec::with_capacity(columns);
+        let columns = buf.get_u16();
+        codec::ensure_count(columns as usize, buf)?;
+        let mut column_formats = Vec::with_capacity(columns as usize);
         for _ in 0..columns {
             column_formats.push(buf.get_i16());
         }
@@ -183,8 +184,9 @@ impl Message for CopyOutResponse {
 
     fn decode_body(buf: &mut BytesMut, _len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let format = buf.get_i8();
-        let columns = codec::read_count(buf.get_u16() as usize, buf)?;
-        let mut column_formats = Vec::with_capacity(columns);
+        let columns = buf.get_u16();
+        codec::ensure_count(columns as usize, buf)?;
+        let mut column_formats = Vec::with_capacity(columns as usize);
         for _ in 0..columns {
             column_formats.push(buf.get_i16());
         }
@@ -231,8 +233,9 @@ impl Message for CopyBothResponse {
 
     fn decode_body(buf: &mut BytesMut, _len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let format = buf.get_i8();
-        let columns = codec::read_count(buf.get_u16() as usize, buf)?;
-        let mut column_formats = Vec::with_capacity(columns);
+        let columns = buf.get_u16();
+        codec::ensure_count(columns as usize, buf)?;
+        let mut column_formats = Vec::with_capacity(columns as usize);
         for _ in 0..columns {
             column_formats.push(buf.get_i16());
         }

@@ -62,12 +62,12 @@ pub(crate) fn get_length(buf: &BytesMut, offset: usize) -> Option<usize> {
 /// collection. Counts are unsigned; a value larger than the bytes left in the
 /// buffer cannot describe a real message (each element takes at least one byte),
 /// so it is rejected instead of driving an oversized `Vec::with_capacity`.
-pub(crate) fn read_count(count: usize, buf: &BytesMut) -> PgWireResult<usize> {
+pub(crate) fn ensure_count(count: usize, buf: &BytesMut) -> PgWireResult<()> {
     let remaining = buf.remaining();
     if count > remaining {
         Err(PgWireError::InvalidElementCount(count, remaining))
     } else {
-        Ok(count)
+        Ok(())
     }
 }
 
