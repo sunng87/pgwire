@@ -17,8 +17,8 @@ pub enum PgWireError {
     InvalidMessageType(u8),
     #[error("Invalid message length, expected max {0}, actual: {1}")]
     MessageTooLarge(usize, usize),
-    #[error("Invalid element count {0}, exceeds {1} remaining bytes")]
-    InvalidElementCount(usize, usize),
+    #[error("Invalid element count {0}: {1} bytes required, {2} remaining")]
+    InvalidElementCount(usize, usize, usize),
     #[error("Invalid target type, received {0}")]
     InvalidTargetType(u8),
     #[error("Invalid transaction status, received {0}")]

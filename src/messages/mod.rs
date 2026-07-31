@@ -1056,6 +1056,12 @@ mod test {
         fctx.awaiting_frontend_startup = false;
         let mut buf = BytesMut::from(&b"B\0\0\0\x0c\0\0\0\0\0\0\xff\xff"[..]);
         assert!(super::PgWireFrontendMessage::decode(&mut buf, &fctx).is_err());
+
+        // Bind with 5 result format codes but only 6 bytes left: the codes are
+        // Int16s, so the element-aware bound must reject (5 * 2 > 6) instead of
+        // passing a byte-count check and panicking on the truncated read.
+        let mut buf = BytesMut::from(&b"B\0\0\0\x0e\0\0\0\0\0\0\0\x05\0\0\0\0\0\0"[..]);
+        assert!(super::PgWireFrontendMessage::decode(&mut buf, &fctx).is_err());
     }
 
     #[test]

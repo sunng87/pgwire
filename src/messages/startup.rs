@@ -821,7 +821,7 @@ impl Message for NegotiateProtocolVersion {
     ) -> PgWireResult<Self> {
         let version = buf.get_i32();
         let option_count = buf.get_u32();
-        codec::ensure_count(option_count as usize, buf)?;
+        codec::ensure_count(option_count as usize, 1, buf)?;
         let mut options = Vec::with_capacity(option_count as usize);
 
         for _ in 0..option_count {
