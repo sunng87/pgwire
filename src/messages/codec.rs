@@ -58,6 +58,19 @@ pub(crate) fn get_length(buf: &BytesMut, offset: usize) -> Option<usize> {
     }
 }
 
+/// Validate an on-wire element count before it is used to pre-allocate a
+/// collection. Counts are unsigned; `count` elements of `elem_size` bytes each
+/// must fit in the remaining buffer, or the message cannot be real.
+pub(crate) fn ensure_count(count: usize, elem_size: usize, buf: &BytesMut) -> PgWireResult<()> {
+    let remaining = buf.remaining();
+    let needed = count.saturating_mul(elem_size);
+    if needed > remaining {
+        Err(PgWireError::InvalidElementCount(count, needed, remaining))
+    } else {
+        Ok(())
+    }
+}
+
 /// Check if message_length matches and move the cursor to right position then
 /// call the `decode_fn` for the body
 pub(crate) fn decode_packet<T, F>(
