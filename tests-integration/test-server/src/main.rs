@@ -181,7 +181,7 @@ impl ExtendedQueryHandler for DummyDatabase {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        let query = &portal.statement.statement;
+        let query = portal.statement.statement.as_ref().unwrap();
         println!("extended query: {:?}", query);
         if query.starts_with("SELECT") {
             // try to parse all parameters
@@ -306,7 +306,13 @@ impl ExtendedQueryHandler for DummyDatabase {
         C: ClientInfo + Unpin + Send + Sync,
     {
         println!("describe: {:?}", portal);
-        if portal.statement.statement.starts_with("SELECT") {
+        if portal
+            .statement
+            .statement
+            .as_ref()
+            .unwrap()
+            .starts_with("SELECT")
+        {
             let schema = self.schema(&portal.result_column_format);
             Ok(DescribePortalResponse::new(schema))
         } else {
