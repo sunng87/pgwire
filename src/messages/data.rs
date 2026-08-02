@@ -75,7 +75,7 @@ impl Message for RowDescription {
     }
 
     fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
-        let fields_len = buf.get_u16();
+        let fields_len = buf.get_i16();
         // Each field: C-string name (>= 1 byte) + 18 fixed bytes.
         codec::ensure_count(fields_len as usize, 19, buf)?;
         let mut fields = Vec::with_capacity(fields_len as usize);

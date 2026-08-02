@@ -184,14 +184,14 @@ impl Message for CopyOutResponse {
 
     fn decode_body(buf: &mut BytesMut, _len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let format = buf.get_i8();
-        let columns = buf.get_u16();
+        let columns = buf.get_i16();
         codec::ensure_count(columns as usize, 2, buf)?;
         let mut column_formats = Vec::with_capacity(columns as usize);
         for _ in 0..columns {
             column_formats.push(buf.get_i16());
         }
 
-        Ok(Self::new(format, columns as i16, column_formats))
+        Ok(Self::new(format, columns, column_formats))
     }
 }
 
@@ -233,13 +233,13 @@ impl Message for CopyBothResponse {
 
     fn decode_body(buf: &mut BytesMut, _len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let format = buf.get_i8();
-        let columns = buf.get_u16();
+        let columns = buf.get_i16();
         codec::ensure_count(columns as usize, 2, buf)?;
         let mut column_formats = Vec::with_capacity(columns as usize);
         for _ in 0..columns {
             column_formats.push(buf.get_i16());
         }
 
-        Ok(Self::new(format, columns as i16, column_formats))
+        Ok(Self::new(format, columns, column_formats))
     }
 }
