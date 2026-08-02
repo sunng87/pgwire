@@ -573,10 +573,15 @@ where
 
     // Simple query has row_schema in query response. For extended query,
     // row_schema is returned as response of `Describe`.
+    //
+    // Use `feed` rather than `send` so the whole response coalesces into the one
+    // terminal flush the connection loop already performs (`send_ready_for_query`
+    // for simple queries, `on_sync`/`on_flush` for extended). With TCP_NODELAY on,
+    // each `send` flush is its own `sendto`/segment.
     if send_describe {
         let row_desc = into_row_description(&row_schema);
         client
-            .send(PgWireBackendMessage::RowDescription(row_desc))
+            .feed(PgWireBackendMessage::RowDescription(row_desc))
             .await?;
     }
 
@@ -589,7 +594,7 @@ where
 
     let tag = Tag::new(&command_tag).with_rows(rows);
     client
-        .send(PgWireBackendMessage::CommandComplete(tag.into()))
+        .feed(PgWireBackendMessage::CommandComplete(tag.into()))
         .await?;
 
     Ok(())
@@ -661,8 +666,10 @@ where
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
+    // Use `feed` rather than `send` so the CommandComplete coalesces with the
+    // trailing ReadyForQuery into one socket write (see `send_query_response`).
     client
-        .send(PgWireBackendMessage::CommandComplete(tag.into()))
+        .feed(PgWireBackendMessage::CommandComplete(tag.into()))
         .await?;
 
     Ok(())
