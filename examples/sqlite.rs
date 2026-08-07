@@ -210,7 +210,9 @@ impl ExtendedQueryHandler for SqliteBackend {
         C: ClientInfo + Unpin + Send + Sync,
     {
         let conn = self.conn.lock().unwrap();
-        let query = &portal.statement.statement;
+        let Some(query) = portal.statement.statement.as_ref() else {
+            return Ok(Response::EmptyQuery);
+        };
         let mut stmt = conn
             .prepare_cached(query)
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
@@ -249,8 +251,11 @@ impl ExtendedQueryHandler for SqliteBackend {
             .iter()
             .map(|t| t.clone().unwrap_or(Type::UNKNOWN))
             .collect();
+        let Some(statement) = stmt.statement.as_ref() else {
+            return Ok(DescribeStatementResponse::no_data());
+        };
         let stmt = conn
-            .prepare_cached(&stmt.statement)
+            .prepare_cached(statement)
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         row_desc_from_stmt(&stmt, &Format::UnifiedBinary)
             .map(|fields| DescribeStatementResponse::new(param_types, fields))
@@ -265,8 +270,11 @@ impl ExtendedQueryHandler for SqliteBackend {
         C: ClientInfo + Unpin + Send + Sync,
     {
         let conn = self.conn.lock().unwrap();
+        let Some(statement) = portal.statement.statement.as_ref() else {
+            return Ok(DescribePortalResponse::no_data());
+        };
         let stmt = conn
-            .prepare_cached(&portal.statement.statement)
+            .prepare_cached(statement)
             .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         row_desc_from_stmt(&stmt, &portal.result_column_format).map(DescribePortalResponse::new)
     }

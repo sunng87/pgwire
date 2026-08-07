@@ -156,6 +156,10 @@ members = [
   "tests-integration/test-server",
 ]
 
+[[test]]
+name = "empty_extended_query"
+required-features = ["server-api"]
+
 [[example]]
 name = "server"
 required-features = ["server-api-aws-lc-rs"]
