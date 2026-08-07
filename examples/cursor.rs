@@ -228,7 +228,9 @@ async fn handle_fetch(
         portal.state().lock().await.deref(),
         pgwire::api::portal::PortalExecutionState::Initial
     ) {
-        let inner_query = portal.statement.statement.as_ref().unwrap();
+        let Some(inner_query) = portal.statement.statement.as_ref() else {
+            return Ok(vec![Response::EmptyQuery]);
+        };
         println!("  -> Lazy execution of: {}", inner_query);
         let response = execute_inner_query(inner_query)?;
         portal.start(response).await;
