@@ -12,14 +12,19 @@ use super::portal::Format;
 use super::results::FieldInfo;
 use super::{ClientInfo, DEFAULT_NAME};
 
+pub(crate) fn is_empty_query(query: &str) -> bool {
+    let query = query.trim();
+    query.is_empty() || query == ";"
+}
+
 /// A parsed SQL statement stored in the portal store.
 #[non_exhaustive]
 #[derive(Debug, Default, new)]
 pub struct StoredStatement<S> {
     /// name of the statement
     pub id: String,
-    /// parsed query statement
-    pub statement: S,
+    /// parsed query statement, or none for an empty query
+    pub statement: Option<S>,
     /// type ids of query parameters, can be empty if frontend asks backend for
     /// type inference
     pub parameter_types: Vec<Option<Type>>,
@@ -41,7 +46,11 @@ impl<S> StoredStatement<S> {
             .iter()
             .map(|oid| Type::from_oid(*oid))
             .collect::<Vec<_>>();
-        let statement = parser.parse_sql(client, &parse.query, &types).await?;
+        let statement = if is_empty_query(&parse.query) {
+            None
+        } else {
+            Some(parser.parse_sql(client, &parse.query, &types).await?)
+        };
         Ok(StoredStatement {
             id: parse
                 .name

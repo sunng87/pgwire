@@ -196,7 +196,11 @@ fn handle_declare(
         ))));
     }
 
-    let statement = StoredStatement::new(cursor_name.to_string(), inner_query.to_string(), vec![]);
+    let statement = StoredStatement::new(
+        cursor_name.to_string(),
+        Some(inner_query.to_string()),
+        vec![],
+    );
     let portal = Portal::new_cursor(cursor_name.to_string(), Arc::new(statement));
     portal_store.put_portal(Arc::new(portal));
 
@@ -224,7 +228,9 @@ async fn handle_fetch(
         portal.state().lock().await.deref(),
         pgwire::api::portal::PortalExecutionState::Initial
     ) {
-        let inner_query = &portal.statement.statement;
+        let Some(inner_query) = portal.statement.statement.as_ref() else {
+            return Ok(vec![Response::EmptyQuery]);
+        };
         println!("  -> Lazy execution of: {}", inner_query);
         let response = execute_inner_query(inner_query)?;
         portal.start(response).await;

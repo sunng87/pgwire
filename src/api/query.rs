@@ -11,7 +11,7 @@ use futures::stream::StreamExt;
 
 use super::portal::Portal;
 use super::results::{Tag, into_row_description};
-use super::stmt::{NoopQueryParser, QueryParser, StoredStatement};
+use super::stmt::{NoopQueryParser, QueryParser, StoredStatement, is_empty_query};
 use super::store::PortalStore;
 use super::{ClientInfo, ClientPortalStore, ConnectionHandle, DEFAULT_NAME, copy};
 use crate::api::PgWireConnectionState;
@@ -29,11 +29,6 @@ use crate::messages::extendedquery::{
 };
 use crate::messages::response::{EmptyQueryResponse, ReadyForQuery, TransactionStatus};
 use crate::messages::simplequery::Query;
-
-fn is_empty_query(q: &str) -> bool {
-    let trimmed_query = q.trim();
-    trimmed_query == ";" || trimmed_query.is_empty()
-}
 
 async fn get_cancel_receiver<C>(client: &mut C) -> Option<oneshot::Receiver<()>>
 where
@@ -268,7 +263,12 @@ pub trait ExtendedQueryHandler: Send + Sync {
             return Err(PgWireError::PortalNotFound(portal_name.to_owned()));
         };
         // Execute query if the portal hasn't been started yet
-        let needs_fetch = if matches!(
+        let needs_fetch = if portal.statement.statement.is_none() {
+            client
+                .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
+                .await?;
+            false
+        } else if matches!(
             portal.state().lock().await.deref(),
             PortalExecutionState::Initial
         ) {
@@ -396,7 +396,11 @@ pub trait ExtendedQueryHandler: Send + Sync {
         match message.target_type {
             TARGET_TYPE_BYTE_STATEMENT => {
                 if let Some(stmt) = client.portal_store().get_statement(name) {
-                    let describe_response = self.do_describe_statement(client, &stmt).await?;
+                    let describe_response = if stmt.statement.is_none() {
+                        DescribeStatementResponse::no_data()
+                    } else {
+                        self.do_describe_statement(client, &stmt).await?
+                    };
                     send_describe_response(client, &describe_response).await?;
                 } else {
                     return Err(PgWireError::StatementNotFound(name.to_owned()));
@@ -404,7 +408,11 @@ pub trait ExtendedQueryHandler: Send + Sync {
             }
             TARGET_TYPE_BYTE_PORTAL => {
                 if let Some(portal) = client.portal_store().get_portal(name) {
-                    let describe_response = self.do_describe_portal(client, &portal).await?;
+                    let describe_response = if portal.statement.statement.is_none() {
+                        DescribePortalResponse::no_data()
+                    } else {
+                        self.do_describe_portal(client, &portal).await?
+                    };
                     send_describe_response(client, &describe_response).await?;
                 } else {
                     return Err(PgWireError::PortalNotFound(name.to_owned()));
@@ -489,7 +497,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let stmt = &target.statement;
+        let Some(stmt) = target.statement.as_ref() else {
+            return Ok(DescribeStatementResponse::no_data());
+        };
         let query_parser = self.query_parser();
 
         let server_param_types = query_parser.get_parameter_types(stmt)?;
@@ -523,7 +533,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let stmt = &target.statement.statement;
+        let Some(stmt) = target.statement.statement.as_ref() else {
+            return Ok(DescribePortalResponse::no_data());
+        };
         let query_parser = self.query_parser();
 
         let result_schema =
