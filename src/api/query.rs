@@ -31,8 +31,13 @@ use crate::messages::response::{EmptyQueryResponse, ReadyForQuery, TransactionSt
 use crate::messages::simplequery::Query;
 
 fn is_empty_query(q: &str) -> bool {
-    let trimmed_query = q.trim();
-    trimmed_query == ";" || trimmed_query.is_empty()
+    // A query string that contains only semicolons and whitespace parses to no
+    // statements, which PostgreSQL treats as an empty query and answers with
+    // `EmptyQueryResponse` instead of dispatching to the executor. This covers
+    // `""`, `" "`, `";"`, `";;"`, `";;;"`, `"; ;"`, etc. — matching the
+    // behavior of PostgreSQL's simple query protocol, where consecutive or
+    // stray semicolons do not constitute a real statement.
+    q.chars().all(|c| c == ';' || c.is_whitespace())
 }
 
 async fn get_cancel_receiver<C>(client: &mut C) -> Option<oneshot::Receiver<()>>
@@ -51,7 +56,8 @@ pub trait SimpleQueryHandler: Send + Sync {
     /// incoming query string.
     ///
     /// This handle checks empty query by default, if the query string is empty
-    /// or `;`, it returns `EmptyQueryResponse` and does not call `self.do_query`.
+    /// or contains only semicolons and whitespace (e.g. `;`, `;;`, `;;;`), it
+    /// returns `EmptyQueryResponse` and does not call `self.do_query`.
     async fn on_query<C>(&self, client: &mut C, query: Query) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -769,5 +775,48 @@ impl SimpleQueryHandler for super::NoopHandler {
             "08P01".to_owned(),
             "This feature is not implemented.".to_string(),
         ))))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_empty_query;
+
+    #[test]
+    fn empty_and_whitespace_are_empty() {
+        assert!(is_empty_query(""));
+        assert!(is_empty_query(" "));
+        assert!(is_empty_query("\t"));
+        assert!(is_empty_query("\n\r\t \n"));
+    }
+
+    #[test]
+    fn single_semicolon_is_empty() {
+        assert!(is_empty_query(";"));
+        // whitespace around the semicolon must not change the verdict
+        assert!(is_empty_query(" ; "));
+        assert!(is_empty_query("\n;\n"));
+    }
+
+    #[test]
+    fn multiple_semicolons_are_empty() {
+        // Reported in https://github.com/GreptimeTeam/greptimedb/issues/8855:
+        // PostgreSQL treats `;;;` (and any sequence of only semicolons and
+        // whitespace) as an empty query, answering with EmptyQueryResponse.
+        assert!(is_empty_query(";;"));
+        assert!(is_empty_query(";;;"));
+        assert!(is_empty_query(";;;;;;"));
+        assert!(is_empty_query("; ; ;"));
+        assert!(is_empty_query("\n;\t;\r; "));
+    }
+
+    #[test]
+    fn real_queries_are_not_empty() {
+        assert!(!is_empty_query("select 1"));
+        assert!(!is_empty_query("select 1;"));
+        assert!(!is_empty_query("select 1;;;"));
+        assert!(!is_empty_query("select 1; select 2;"));
+        // a string literal containing only a semicolon is a real query
+        assert!(!is_empty_query("';'"));
     }
 }

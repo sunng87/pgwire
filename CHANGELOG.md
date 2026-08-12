@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Treat semicolons-only query strings (e.g. `;;`, `;;;`, `; ;`) as empty queries
+  in the simple query protocol, returning `EmptyQueryResponse` like PostgreSQL.
+  Previously only the empty string and a single `;` were recognized as empty.
+
 ## [0.40.6] - 2026-08-09
 
 ### Changed
