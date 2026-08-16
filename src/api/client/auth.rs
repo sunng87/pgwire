@@ -406,25 +406,39 @@ mod tests {
 
     #[test]
     fn test_negotiated_version() {
-        // Full 32-bit version number form (PostgreSQL 18+, pgwire)
-        assert_eq!(
-            negotiated_version(&NegotiateProtocolVersion::new(196610, vec![])),
-            Some(ProtocolVersion::PROTOCOL3_2)
-        );
-        assert_eq!(
-            negotiated_version(&NegotiateProtocolVersion::new(196608, vec![])),
-            Some(ProtocolVersion::PROTOCOL3_0)
-        );
-
-        // Historical minor-only form
-        assert_eq!(
-            negotiated_version(&NegotiateProtocolVersion::new(2, vec![])),
-            Some(ProtocolVersion::PROTOCOL3_2)
-        );
-        assert_eq!(
-            negotiated_version(&NegotiateProtocolVersion::new(0, vec![])),
-            Some(ProtocolVersion::PROTOCOL3_0)
-        );
+        // The same version can arrive in two wire dialects, and both forms
+        // must negotiate to the same version:
+        //
+        // - the full 32-bit protocol version number (`i32::from(version)`),
+        //   used by PostgreSQL 18+ and current pgwire,
+        // - the minor version alone, used by older servers, which leaves the
+        //   major version unchanged from the client's request.
+        //
+        // Realistic on the wire: full 3.2 (PostgreSQL 18+), bare 0 (older
+        // PostgreSQL, which only supports 3.0) and bare 2 (pgwire before the
+        // #439 fix sent the minor alone). Full-form 3.0 never occurs, but is
+        // unambiguous.
+        for (full_form, minor_form, expected) in [
+            (
+                i32::from(ProtocolVersion::PROTOCOL3_2),
+                2,
+                ProtocolVersion::PROTOCOL3_2,
+            ),
+            (
+                i32::from(ProtocolVersion::PROTOCOL3_0),
+                0,
+                ProtocolVersion::PROTOCOL3_0,
+            ),
+        ] {
+            assert_eq!(
+                negotiated_version(&NegotiateProtocolVersion::new(full_form, vec![])),
+                Some(expected)
+            );
+            assert_eq!(
+                negotiated_version(&NegotiateProtocolVersion::new(minor_form, vec![])),
+                Some(expected)
+            );
+        }
 
         // Unknown minors: below 2 behaves like 3.0, at or above 2 falls back
         // to our newest 3.x
