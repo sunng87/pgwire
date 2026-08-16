@@ -782,52 +782,11 @@ pub struct NegotiateProtocolVersion {
     ///
     /// PostgreSQL 18+ (protocol 3.2) and pgwire send the **full 32-bit
     /// protocol version number** here (e.g. `196610` for 3.2), while older
-    /// servers send only the **minor version** (e.g. `2`). Use
-    /// [`NegotiateProtocolVersion::negotiated_version`] to interpret both
+    /// servers send only the **minor version** (e.g. `2`). The client-side
+    /// negotiation logic in `pgwire::api::client::auth` understands both
     /// forms.
     pub newest_minor_protocol: i32,
     pub unsupported_options: Vec<String>,
-}
-
-impl NegotiateProtocolVersion {
-    /// Interpret the version field of this message as a
-    /// [`ProtocolVersion`](crate::messages::ProtocolVersion) to use for the
-    /// rest of the connection.
-    ///
-    /// Two wire dialects exist:
-    ///
-    /// - PostgreSQL 18+ and pgwire send the full 32-bit version number
-    ///   (major `3` implies a value `> 65535`, e.g. `196610`),
-    /// - older servers send only the minor version (`<= 65535`, e.g. `2`),
-    ///   leaving the major version unchanged from the client's request.
-    ///
-    /// Returns `None` if the reported version cannot be mapped to a version
-    /// this crate supports (e.g. a newer major version).
-    pub fn negotiated_version(&self) -> Option<ProtocolVersion> {
-        let value = self.newest_minor_protocol;
-        if value < 0 {
-            return None;
-        }
-
-        let (major, minor) = if value > i32::from(u16::MAX) {
-            // full 32-bit protocol version number
-            (((value >> 16) & 0xFFFF) as u16, (value & 0xFFFF) as u16)
-        } else {
-            // historical minor-only form, major version is unchanged
-            (3, value as u16)
-        };
-
-        match ProtocolVersion::from_version_number(major, minor) {
-            Some(version) => Some(version),
-            // A minor version we don't have a variant for: protocol 3.2 is
-            // what changed the wire formats we care about (secret keys), so
-            // an unknown minor below 2 behaves like 3.0, and one at or above
-            // 2 falls back to our newest 3.x.
-            None if major == 3 && minor >= 2 => Some(ProtocolVersion::PROTOCOL3_2),
-            None if major == 3 => Some(ProtocolVersion::PROTOCOL3_0),
-            None => None,
-        }
-    }
 }
 
 /// Message type byte for NegotiateProtocolVersion

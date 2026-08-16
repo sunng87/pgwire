@@ -1039,53 +1039,6 @@ mod test {
     }
 
     #[test]
-    fn test_negotiated_version() {
-        // Full 32-bit version number form (PostgreSQL 18+, pgwire)
-        let full_32 = NegotiateProtocolVersion::new(196610, vec![]);
-        assert_eq!(
-            full_32.negotiated_version(),
-            Some(ProtocolVersion::PROTOCOL3_2)
-        );
-        let full_30 = NegotiateProtocolVersion::new(196608, vec![]);
-        assert_eq!(
-            full_30.negotiated_version(),
-            Some(ProtocolVersion::PROTOCOL3_0)
-        );
-
-        // Historical minor-only form
-        let minor_2 = NegotiateProtocolVersion::new(2, vec![]);
-        assert_eq!(
-            minor_2.negotiated_version(),
-            Some(ProtocolVersion::PROTOCOL3_2)
-        );
-        let minor_0 = NegotiateProtocolVersion::new(0, vec![]);
-        assert_eq!(
-            minor_0.negotiated_version(),
-            Some(ProtocolVersion::PROTOCOL3_0)
-        );
-
-        // Unknown minors: below 2 behaves like 3.0, at or above 2 falls back
-        // to our newest 3.x
-        let minor_1 = NegotiateProtocolVersion::new(1, vec![]);
-        assert_eq!(
-            minor_1.negotiated_version(),
-            Some(ProtocolVersion::PROTOCOL3_0)
-        );
-        let newer_minor = NegotiateProtocolVersion::new(5, vec![]);
-        assert_eq!(
-            newer_minor.negotiated_version(),
-            Some(ProtocolVersion::PROTOCOL3_2)
-        );
-
-        // An unknown major version cannot be mapped
-        let major_4 = NegotiateProtocolVersion::new((4 << 16) | 2, vec![]);
-        assert_eq!(major_4.negotiated_version(), None);
-        // A negative value is invalid
-        let negative = NegotiateProtocolVersion::new(-1, vec![]);
-        assert_eq!(negative.negotiated_version(), None);
-    }
-
-    #[test]
     fn test_protocol_version() {
         assert_eq!(196608i32, i32::from(ProtocolVersion::PROTOCOL3_0));
         assert_eq!(196610i32, i32::from(ProtocolVersion::PROTOCOL3_2));

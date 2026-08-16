@@ -12,7 +12,7 @@ use crate::messages::startup::{
     Authentication, BackendKeyData, NegotiateProtocolVersion, ParameterStatus, Password,
     PasswordMessageFamily, SASLInitialResponse, SASLResponse, SecretKey, Startup,
 };
-use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
+use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion};
 
 use super::{ClientInfo, ReadyState, ServerInformation};
 
@@ -99,7 +99,7 @@ pub trait StartupHandler: Send {
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
-        match message.negotiated_version() {
+        match negotiated_version(&message) {
             Some(version) => {
                 client.set_protocol_version(version);
                 Ok(())
@@ -358,4 +358,94 @@ where
         message => return Err(PgWireClientError::UnexpectedMessage(Box::new(message))),
     };
     auth_client.verify_server_final(&message)
+}
+
+/// Interpret the version number reported by a `NegotiateProtocolVersion`
+/// message and return the protocol version to use for the rest of the
+/// connection.
+///
+/// This is the client-side counterpart of the server's
+/// `api::auth::protocol_negotiation`. Two wire dialects exist:
+///
+/// - PostgreSQL 18+ and pgwire report the **full 32-bit protocol version
+///   number** (e.g. `196610` for 3.2), which is always greater than `65535`,
+/// - older servers report only the **minor version** (e.g. `2`), leaving the
+///   major version unchanged from the client's request.
+///
+/// Returns `None` if the reported version cannot be mapped to a version this
+/// crate supports (e.g. a newer major version).
+fn negotiated_version(message: &NegotiateProtocolVersion) -> Option<ProtocolVersion> {
+    let value = message.newest_minor_protocol;
+    if value < 0 {
+        return None;
+    }
+
+    let (major, minor) = if value > i32::from(u16::MAX) {
+        // full 32-bit protocol version number
+        (((value >> 16) & 0xFFFF) as u16, (value & 0xFFFF) as u16)
+    } else {
+        // minor-only form, the major version is unchanged
+        (3, value as u16)
+    };
+
+    match ProtocolVersion::from_version_number(major, minor) {
+        Some(version) => Some(version),
+        // A minor version we don't have a variant for: protocol 3.2 is what
+        // changed the wire formats we care about (secret keys), so an unknown
+        // minor below 2 behaves like 3.0, and one at or above 2 falls back to
+        // our newest 3.x.
+        None if major == 3 && minor >= 2 => Some(ProtocolVersion::PROTOCOL3_2),
+        None if major == 3 => Some(ProtocolVersion::PROTOCOL3_0),
+        None => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_negotiated_version() {
+        // Full 32-bit version number form (PostgreSQL 18+, pgwire)
+        assert_eq!(
+            negotiated_version(&NegotiateProtocolVersion::new(196610, vec![])),
+            Some(ProtocolVersion::PROTOCOL3_2)
+        );
+        assert_eq!(
+            negotiated_version(&NegotiateProtocolVersion::new(196608, vec![])),
+            Some(ProtocolVersion::PROTOCOL3_0)
+        );
+
+        // Historical minor-only form
+        assert_eq!(
+            negotiated_version(&NegotiateProtocolVersion::new(2, vec![])),
+            Some(ProtocolVersion::PROTOCOL3_2)
+        );
+        assert_eq!(
+            negotiated_version(&NegotiateProtocolVersion::new(0, vec![])),
+            Some(ProtocolVersion::PROTOCOL3_0)
+        );
+
+        // Unknown minors: below 2 behaves like 3.0, at or above 2 falls back
+        // to our newest 3.x
+        assert_eq!(
+            negotiated_version(&NegotiateProtocolVersion::new(1, vec![])),
+            Some(ProtocolVersion::PROTOCOL3_0)
+        );
+        assert_eq!(
+            negotiated_version(&NegotiateProtocolVersion::new(5, vec![])),
+            Some(ProtocolVersion::PROTOCOL3_2)
+        );
+
+        // An unknown major version cannot be mapped
+        assert_eq!(
+            negotiated_version(&NegotiateProtocolVersion::new((4 << 16) | 2, vec![])),
+            None
+        );
+        // A negative value is invalid
+        assert_eq!(
+            negotiated_version(&NegotiateProtocolVersion::new(-1, vec![])),
+            None
+        );
+    }
 }
