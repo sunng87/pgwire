@@ -31,6 +31,15 @@ pub trait ClientInfo {
     /// Returns client protocol version
     fn protocol_version(&self) -> ProtocolVersion;
 
+    /// Sets the protocol version in effect for this connection.
+    ///
+    /// Custom [`StartupHandler`](auth::StartupHandler) implementations should
+    /// call this with the version they advertise in the `Startup` message, so
+    /// that subsequent backend messages are decoded with the rules of that
+    /// version. The default startup handler and the negotiation flow handle
+    /// this automatically.
+    fn set_protocol_version(&mut self, version: ProtocolVersion);
+
     // TODO: transaction state
 }
 

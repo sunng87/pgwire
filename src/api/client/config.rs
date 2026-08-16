@@ -17,6 +17,7 @@ use std::time::Duration;
 use std::{fmt, iter, mem, str};
 
 use crate::error::PgWireClientError;
+use crate::messages::ProtocolVersion;
 
 /// Properties required of a session.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -222,6 +223,7 @@ pub struct Config {
     pub(crate) target_session_attrs: TargetSessionAttrs,
     pub(crate) channel_binding: ChannelBinding,
     pub(crate) load_balance_hosts: LoadBalanceHosts,
+    pub(crate) protocol_version: ProtocolVersion,
 }
 
 impl Default for Config {
@@ -256,6 +258,7 @@ impl Config {
             target_session_attrs: TargetSessionAttrs::Any,
             channel_binding: ChannelBinding::Prefer,
             load_balance_hosts: LoadBalanceHosts::Disable,
+            protocol_version: ProtocolVersion::PROTOCOL3_0,
         }
     }
 
@@ -551,6 +554,25 @@ impl Config {
         self.load_balance_hosts
     }
 
+    /// Sets the protocol version to advertise in the startup message.
+    ///
+    /// Defaults to `PROTOCOL3_0`.
+    ///
+    /// Following libpq, you can set [`ProtocolVersion::PROTOCOL3_9999`] to
+    /// request the newest minor version the server supports: the server
+    /// replies with `NegotiateProtocolVersion` and the connection proceeds at
+    /// the negotiated version. This is useful for exercising the negotiation
+    /// path against any server.
+    pub fn protocol_version(&mut self, protocol_version: ProtocolVersion) -> &mut Config {
+        self.protocol_version = protocol_version;
+        self
+    }
+
+    /// Gets the protocol version to advertise in the startup message.
+    pub fn get_protocol_version(&self) -> ProtocolVersion {
+        self.protocol_version
+    }
+
     fn param(&mut self, key: &str, value: &str) -> Result<(), PgWireClientError> {
         match key {
             "user" => {
@@ -749,6 +771,7 @@ impl fmt::Debug for Config {
         config_dbg
             .field("target_session_attrs", &self.target_session_attrs)
             .field("channel_binding", &self.channel_binding)
+            .field("protocol_version", &self.protocol_version)
             .finish()
     }
 }

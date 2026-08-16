@@ -106,6 +106,10 @@ impl ClientInfo for PgWireClient {
     fn protocol_version(&self) -> ProtocolVersion {
         self.socket.codec().decode_context.protocol_version
     }
+
+    fn set_protocol_version(&mut self, version: ProtocolVersion) {
+        self.socket.codec_mut().decode_context.protocol_version = version;
+    }
 }
 
 impl Sink<PgWireFrontendMessage> for PgWireClient {
@@ -154,6 +158,10 @@ impl PgWireClient {
             #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             tls_connector: tls_connector_for_cancel,
         };
+
+        // Decode backend messages with the rules of the protocol version we
+        // are about to advertise, until the server negotiates it down.
+        client.set_protocol_version(config.get_protocol_version());
 
         startup_handler.startup(&mut client).await?;
         // loop until finished
@@ -452,4 +460,78 @@ fn get_addr(config: &Config) -> Result<PgSocketAddr, PgWireClientError> {
     }
 
     Err(PgWireClientError::InvalidConfig("host".to_string()))
+}
+
+#[cfg(all(test, feature = "server-api"))]
+mod tests {
+    use std::sync::Arc;
+
+    use tokio::net::TcpListener;
+
+    use super::PgWireClient;
+    use crate::api::PgWireServerHandlers;
+    use crate::api::client::ClientInfo;
+    use crate::api::client::auth::DefaultStartupHandler;
+    use crate::api::client::config::Config;
+    use crate::messages::ProtocolVersion;
+    use crate::messages::startup::SecretKey;
+    use crate::tokio::server::process_socket;
+
+    struct TestHandlers;
+
+    impl PgWireServerHandlers for TestHandlers {}
+
+    async fn spawn_test_server() -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            loop {
+                let (socket, _) = listener.accept().await.unwrap();
+                let handlers = Arc::new(TestHandlers);
+                tokio::spawn(async move {
+                    let _ = process_socket(socket, None, handlers).await;
+                });
+            }
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn client_negotiates_3_9999_down_to_3_2() {
+        let port = spawn_test_server().await;
+
+        let mut config = Config::new();
+        config.host("127.0.0.1");
+        config.port(port);
+        config.user("pgwire");
+        config.protocol_version(ProtocolVersion::PROTOCOL3_9999);
+
+        let client = PgWireClient::connect(Arc::new(config), DefaultStartupHandler::new(), None)
+            .await
+            .unwrap();
+
+        // The server did not accept 3.9999 as-is; it negotiated down to its
+        // newest supported version.
+        assert_eq!(client.protocol_version(), ProtocolVersion::PROTOCOL3_2);
+        // Protocol 3.2 backend keys are 32 bytes long.
+        assert!(matches!(client.secret_key(), SecretKey::Bytes(key) if key.len() == 32));
+    }
+
+    #[tokio::test]
+    async fn client_default_3_0_keeps_i32_secret_key() {
+        let port = spawn_test_server().await;
+
+        let mut config = Config::new();
+        config.host("127.0.0.1");
+        config.port(port);
+        config.user("pgwire");
+
+        let client = PgWireClient::connect(Arc::new(config), DefaultStartupHandler::new(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(client.protocol_version(), ProtocolVersion::PROTOCOL3_0);
+        // A protocol 3.0 cancel key is decoded as a 4-byte i32, not as bytes.
+        assert!(matches!(client.secret_key(), SecretKey::I32(_)));
+    }
 }

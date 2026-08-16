@@ -9,8 +9,8 @@ use crate::api::auth::sasl::scram::ScramClientAuth;
 use crate::error::{ErrorInfo, PgWireClientError, PgWireClientResult, PgWireResult};
 use crate::messages::response::ReadyForQuery;
 use crate::messages::startup::{
-    Authentication, BackendKeyData, ParameterStatus, Password, PasswordMessageFamily,
-    SASLInitialResponse, SASLResponse, SecretKey, Startup,
+    Authentication, BackendKeyData, NegotiateProtocolVersion, ParameterStatus, Password,
+    PasswordMessageFamily, SASLInitialResponse, SASLResponse, SecretKey, Startup,
 };
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
@@ -42,6 +42,10 @@ pub trait StartupHandler: Send {
         match message {
             PgWireBackendMessage::Authentication(authentication) => {
                 self.on_authentication(client, authentication).await?;
+            }
+            PgWireBackendMessage::NegotiateProtocolVersion(negotiation) => {
+                self.on_negotiate_protocol_version(client, negotiation)
+                    .await?;
             }
             PgWireBackendMessage::ParameterStatus(parameter_status) => {
                 self.on_parameter_status(client, parameter_status).await?;
@@ -77,6 +81,34 @@ pub trait StartupHandler: Send {
             + Unpin
             + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+
+    /// Handle a `NegotiateProtocolVersion` message from the server.
+    ///
+    /// The default implementation adopts the negotiated version for the rest
+    /// of the connection. Both the full 32-bit version number used by
+    /// PostgreSQL 18+ and pgwire, and the minor-only form used by older
+    /// servers, are understood. Startup parameters reported as unrecognized
+    /// by the server are ignored, matching libpq's behavior for non-`_pq_`
+    /// options.
+    async fn on_negotiate_protocol_version<C>(
+        &mut self,
+        client: &mut C,
+        message: NegotiateProtocolVersion,
+    ) -> PgWireClientResult<()>
+    where
+        C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
+    {
+        match message.negotiated_version() {
+            Some(version) => {
+                client.set_protocol_version(version);
+                Ok(())
+            }
+            None => Err(PgWireClientError::UnexpectedMessage(Box::new(
+                PgWireBackendMessage::NegotiateProtocolVersion(message),
+            ))),
+        }
+    }
 
     /// Handle a parameter status message from the server.
     async fn on_parameter_status<C>(
@@ -127,10 +159,16 @@ impl StartupHandler for DefaultStartupHandler {
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
-        // TODO: customize protocol version
         let mut startup = Startup::new();
 
         let config = client.config();
+
+        // Advertise the configured protocol version. The connection decodes
+        // with the rules of the advertised version until the server lowers it
+        // via NegotiateProtocolVersion.
+        let (major, minor) = config.get_protocol_version().version_number();
+        startup.protocol_number_major = major;
+        startup.protocol_number_minor = minor;
 
         if let Some(application_name) = &config.application_name {
             startup
