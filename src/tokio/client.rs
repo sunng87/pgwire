@@ -25,6 +25,8 @@ use crate::api::client::config::Host;
 use crate::api::client::query::{ExtendedQueryClient, ExtendedQueryHandler, SimpleQueryHandler};
 use crate::api::client::{ClientInfo, Config, ReadyState, ServerInformation};
 use crate::error::{PgWireClientError, PgWireClientResult, PgWireError};
+use crate::messages::cancel::CancelRequest;
+use crate::messages::startup::SecretKey;
 use crate::messages::{
     DecodeContext, PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion,
     SslNegotiationMetaMessage,
@@ -78,6 +80,10 @@ pub struct PgWireClient {
     socket: Framed<ClientSocket, PgWireMessageClientCodec>,
     config: Arc<Config>,
     server_information: ServerInformation,
+    /// TLS connector retained so [`PgWireClient::cancel`] can open a second
+    /// secured connection to the same server.
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    tls_connector: Option<TlsConnector>,
 }
 
 impl ClientInfo for PgWireClient {
@@ -91,6 +97,10 @@ impl ClientInfo for PgWireClient {
 
     fn process_id(&self) -> i32 {
         self.server_information.process_id
+    }
+
+    fn secret_key(&self) -> &SecretKey {
+        &self.server_information.secret_key
     }
 
     fn protocol_version(&self) -> ProtocolVersion {
@@ -130,31 +140,19 @@ impl PgWireClient {
     where
         S: StartupHandler,
     {
-        // tcp connect
-        let mut socket = match get_addr(&config)? {
-            PgSocketAddr::Ip(socket_addr) => {
-                ClientSocket::Plain(TcpStream::connect(socket_addr).await?)
-            }
-            PgSocketAddr::Host(socket_addr) => {
-                ClientSocket::Plain(TcpStream::connect(socket_addr).await?)
-            }
-            #[cfg(unix)]
-            PgSocketAddr::Unix(socket_addr) => {
-                ClientSocket::Unix(UnixStream::connect(socket_addr).await?)
-            }
-        };
-        if let ClientSocket::Plain(tcp_socket) = socket {
-            // perform ssl handshake based on postgres configuration
-            // if tls is not enabled, just return the socket and perform startup
-            // directly
-            socket = ssl_handshake(tcp_socket, &config, tls_connector).await?;
-        };
-        let socket = Framed::new(socket, PgWireMessageClientCodec::default());
+        // The TLS connector is retained so `cancel` can open a second secured
+        // connection later. When TLS is disabled there is no field to store.
+        #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+        let tls_connector_for_cancel = tls_connector.clone();
+
+        let socket = connect_socket(&config, tls_connector).await?;
 
         let mut client = PgWireClient {
             socket,
             config: config.clone(),
             server_information: ServerInformation::default(),
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+            tls_connector: tls_connector_for_cancel,
         };
 
         startup_handler.startup(&mut client).await?;
@@ -171,6 +169,41 @@ impl PgWireClient {
         }
 
         Err(PgWireClientError::UnexpectedEOF)
+    }
+
+    /// Cancel the currently running query on this connection.
+    ///
+    /// Per the PostgreSQL wire protocol, a cancel request must be sent on a
+    /// **separate** connection to the same server — it carries the `pid` and
+    /// `secret_key` from the original connection's `BackendKeyData`. This
+    /// method opens that second connection (reusing this client's [`Config`]
+    /// and TLS connector), sends the `CancelRequest`, and closes it.
+    ///
+    /// The server sends no reply on the cancel connection. Whether the cancel
+    /// succeeded is observed on the original connection: the interrupted query
+    /// returns an error (typically `57014` / `query_canceled`).
+    ///
+    /// Returns an error only if the second connection itself could not be
+    /// established or the cancel message could not be written.
+    pub async fn cancel(&self) -> PgWireClientResult<()> {
+        // TLS connector is only stored when a TLS backend is enabled; without
+        // TLS the cancel connection is always plaintext.
+        #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+        let tls_connector = self.tls_connector.clone();
+        #[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]
+        let tls_connector: Option<TlsConnector> = None;
+
+        let mut socket = connect_socket(&self.config, tls_connector).await?;
+
+        socket
+            .send(PgWireFrontendMessage::CancelRequest(CancelRequest::new(
+                self.server_information.process_id,
+                self.server_information.secret_key.clone(),
+            )))
+            .await?;
+        socket.close().await?;
+
+        Ok(())
     }
 
     /// Start a query with simple query subprotocol
@@ -368,6 +401,34 @@ pub(crate) async fn ssl_handshake(
     _tls_connector: Option<TlsConnector>,
 ) -> PgWireClientResult<ClientSocket> {
     Ok(socket)
+}
+
+/// Establish a framed connection to the server: TCP (optionually upgraded to
+/// TLS) or Unix domain socket. Shared by [`PgWireClient::connect`] (which then
+/// runs startup) and [`PgWireClient::cancel`] (which sends a `CancelRequest`
+/// instead of a `Startup`).
+async fn connect_socket(
+    config: &Config,
+    tls_connector: Option<TlsConnector>,
+) -> PgWireClientResult<Framed<ClientSocket, PgWireMessageClientCodec>> {
+    let mut socket = match get_addr(config)? {
+        PgSocketAddr::Ip(socket_addr) => {
+            ClientSocket::Plain(TcpStream::connect(socket_addr).await?)
+        }
+        PgSocketAddr::Host(socket_addr) => {
+            ClientSocket::Plain(TcpStream::connect(socket_addr).await?)
+        }
+        #[cfg(unix)]
+        PgSocketAddr::Unix(socket_addr) => {
+            ClientSocket::Unix(UnixStream::connect(socket_addr).await?)
+        }
+    };
+    if let ClientSocket::Plain(tcp_socket) = socket {
+        // Perform the ssl handshake based on postgres configuration; when TLS
+        // is disabled `ssl_handshake` returns the plain socket unchanged.
+        socket = ssl_handshake(tcp_socket, config, tls_connector).await?;
+    }
+    Ok(Framed::new(socket, PgWireMessageClientCodec::default()))
 }
 
 enum PgSocketAddr {
