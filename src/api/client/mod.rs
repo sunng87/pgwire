@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 pub use config::Config;
 
 use crate::messages::ProtocolVersion;
+use crate::messages::startup::SecretKey;
 
 /// A trait for fetching necessary information from Client
 pub trait ClientInfo {
@@ -21,6 +22,12 @@ pub trait ClientInfo {
     /// Returns process id received from server
     fn process_id(&self) -> i32;
 
+    /// Returns the secret key received from the server's `BackendKeyData`.
+    ///
+    /// Together with [`ClientInfo::process_id`], this identifies the backend
+    /// session so a `CancelRequest` can be issued against a running query.
+    fn secret_key(&self) -> &SecretKey;
+
     /// Returns client protocol version
     fn protocol_version(&self) -> ProtocolVersion;
 
@@ -32,6 +39,7 @@ pub trait ClientInfo {
 pub struct ServerInformation {
     pub parameters: BTreeMap<String, String>,
     pub process_id: i32,
+    pub secret_key: SecretKey,
 }
 
 /// Indicate the result of current request

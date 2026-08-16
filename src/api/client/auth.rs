@@ -10,7 +10,7 @@ use crate::error::{ErrorInfo, PgWireClientError, PgWireClientResult, PgWireResul
 use crate::messages::response::ReadyForQuery;
 use crate::messages::startup::{
     Authentication, BackendKeyData, ParameterStatus, Password, PasswordMessageFamily,
-    SASLInitialResponse, SASLResponse, Startup,
+    SASLInitialResponse, SASLResponse, SecretKey, Startup,
 };
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
@@ -116,6 +116,8 @@ pub struct DefaultStartupHandler {
     server_parameters: BTreeMap<String, String>,
     #[new(default)]
     process_id: Option<i32>,
+    #[new(default)]
+    secret_key: Option<SecretKey>,
 }
 
 #[async_trait]
@@ -237,6 +239,7 @@ impl StartupHandler for DefaultStartupHandler {
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
     {
         self.process_id = Some(message.pid);
+        self.secret_key = Some(message.secret_key);
         Ok(())
     }
 
@@ -251,6 +254,7 @@ impl StartupHandler for DefaultStartupHandler {
         Ok(ServerInformation {
             parameters: self.server_parameters.clone(),
             process_id: self.process_id.unwrap_or(-1),
+            secret_key: self.secret_key.clone().unwrap_or_default(),
         })
     }
 }
