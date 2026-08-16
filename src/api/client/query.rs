@@ -81,6 +81,11 @@ pub trait SimpleQueryHandler: Send {
             PgWireBackendMessage::EmptyQueryResponse(empty_query) => {
                 self.on_empty_query(client, empty_query).await?;
             }
+            PgWireBackendMessage::ParameterStatus(_) => {
+                // The server may report parameter changes (for example after
+                // `SET`) in the middle of a query response; they are not part
+                // of the query result.
+            }
             PgWireBackendMessage::ReadyForQuery(ready_for_query) => {
                 let response = self.on_ready_for_query(client, ready_for_query).await?;
                 return Ok(ReadyState::Ready(response));
@@ -240,22 +245,22 @@ impl FromStr for Tag {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let segs = s.split_whitespace().collect::<Vec<&str>>();
-        if segs.len() == 2 {
-            let rows = segs[1]
-                .parse::<usize>()
-                .map_err(|e| PgWireClientError::InvalidTag(Box::new(e)))?;
-            Ok(Tag::new(segs[0]).with_rows(rows))
-        } else if segs.len() == 3 {
-            let rows = segs[1]
-                .parse::<usize>()
-                .map_err(|e| PgWireClientError::InvalidTag(Box::new(e)))?;
-            let oid = segs[2]
-                .parse::<Oid>()
-                .map_err(|e| PgWireClientError::InvalidTag(Box::new(e)))?;
-            Ok(Tag::new(segs[0]).with_rows(rows).with_oid(oid))
-        } else {
-            Ok(Tag::new(s))
+        // Command tags have the shape `COMMAND`, `COMMAND ROWS` or
+        // `COMMAND OID ROWS` (INSERT). Some commands contain spaces
+        // themselves (`CREATE TABLE`, `ALTER TABLE`, ...), so trailing
+        // segments are only treated as counts when they are numeric.
+        if segs.len() >= 2
+            && let Ok(rows) = segs[segs.len() - 1].parse::<usize>()
+        {
+            if segs.len() == 2 {
+                return Ok(Tag::new(segs[0]).with_rows(rows));
+            } else if segs.len() == 3
+                && let Ok(oid) = segs[1].parse::<Oid>()
+            {
+                return Ok(Tag::new(segs[0]).with_oid(oid).with_rows(rows));
+            }
         }
+        Ok(Tag::new(s))
     }
 }
 
@@ -392,7 +397,47 @@ where
         Self { client, handler }
     }
 
+    /// Discard messages until `ReadyForQuery` without sending anything.
+    ///
+    /// Used on error paths where the current extended-query cycle has
+    /// already been terminated with `Sync`: the server sends a trailing
+    /// `ReadyForQuery` (and nothing else responds to the already-sent
+    /// `Sync`), so draining is enough — sending another `Sync` would make
+    /// the server emit an extra `ReadyForQuery` and desynchronize the next
+    /// query.
+    async fn drain_to_ready(&mut self) {
+        while let Some(message_result) = self.client.next().await {
+            match message_result {
+                Ok(PgWireBackendMessage::ReadyForQuery(_)) => break,
+                Ok(_) => continue,
+                Err(_) => break,
+            }
+        }
+    }
+
+    /// Send `Sync` and discard messages until `ReadyForQuery`.
+    ///
+    /// This closes the extended-query cycle. It is used after a query
+    /// completes, and to recover a clean connection state after an
+    /// `ErrorResponse` when the cycle is still open (only `Flush` has been
+    /// sent): after an error the backend discards messages until it
+    /// receives `Sync`.
+    async fn finish(&mut self) -> PgWireClientResult<()> {
+        self.handler.sync(self.client, Sync::new()).await?;
+        while let Some(message_result) = self.client.next().await {
+            let message = message_result?;
+            if let PgWireBackendMessage::ReadyForQuery(_) = message {
+                return Ok(());
+            }
+        }
+        Err(PgWireClientError::UnexpectedEOF)
+    }
+
     /// Prepare a statement for later execution.
+    ///
+    /// The statement is parsed and immediately described, so the returned
+    /// [`PrepareResponse`] carries the parameter types the server inferred
+    /// (or confirmed).
     pub async fn prepare(
         &mut self,
         name: Option<&str>,
@@ -404,10 +449,14 @@ where
             query.to_owned(),
             param_types.to_vec(),
         );
+        // ParameterDescription and RowDescription are only sent in response
+        // to a Describe message, so one has to follow Parse for the server
+        // to report the statement's parameter and result types.
+        let describe = Describe::new(TARGET_TYPE_BYTE_STATEMENT, name.map(|n| n.to_owned()));
         self.handler.parse(self.client, parse).await?;
+        self.handler.describe(self.client, describe).await?;
         self.handler.sync(self.client, Sync::new()).await?;
 
-        let mut param_type_result = Vec::new();
         let mut response = PrepareResponse {
             name: name.map(|n| n.to_owned()),
             param_types: Vec::new(),
@@ -418,20 +467,24 @@ where
             match message {
                 PgWireBackendMessage::ParseComplete(_) => {}
                 PgWireBackendMessage::ParameterDescription(param_desc) => {
-                    param_type_result = self.handler.on_parameter_description(param_desc).await?;
+                    response.param_types =
+                        self.handler.on_parameter_description(param_desc).await?;
                 }
                 PgWireBackendMessage::RowDescription(row_desc) => {
+                    // result metadata of the statement; `describe` returns it
                     let _ = self.handler.on_row_description(row_desc).await?;
                 }
                 PgWireBackendMessage::NoData(_) => {}
                 PgWireBackendMessage::ReadyForQuery(_) => {
-                    response.param_types = param_type_result;
                     return Ok(response);
                 }
                 PgWireBackendMessage::ErrorResponse(error) => {
+                    // Sync has already been sent above; drain only
+                    self.drain_to_ready().await;
                     return Err(ErrorInfo::from(error).into());
                 }
                 PgWireBackendMessage::NoticeResponse(_) => {}
+                PgWireBackendMessage::ParameterStatus(_) => {}
                 _ => {
                     return Err(PgWireClientError::UnexpectedMessage(Box::new(message)));
                 }
@@ -442,6 +495,11 @@ where
     }
 
     /// Bind parameters to a prepared statement, creating a portal.
+    ///
+    /// The extended-query cycle is kept open (the messages are flushed with
+    /// `Flush` instead of terminated with `Sync`): portals are destroyed
+    /// when the cycle ends, so a later [`Self::execute`] or
+    /// [`Self::describe`] on the portal requires the cycle to still be open.
     pub async fn bind(
         &mut self,
         portal: Option<&str>,
@@ -457,19 +515,20 @@ where
             result_formats,
         );
         self.handler.bind(self.client, bind).await?;
-        self.handler.sync(self.client, Sync::new()).await?;
+        self.handler.flush(self.client, Flush::new()).await?;
 
         while let Some(message_result) = self.client.next().await {
             let message = message_result?;
             match message {
-                PgWireBackendMessage::BindComplete(_) => {}
-                PgWireBackendMessage::ReadyForQuery(_) => {
+                PgWireBackendMessage::BindComplete(_) => {
                     return Ok(());
                 }
                 PgWireBackendMessage::ErrorResponse(error) => {
+                    self.finish().await?;
                     return Err(ErrorInfo::from(error).into());
                 }
                 PgWireBackendMessage::NoticeResponse(_) => {}
+                PgWireBackendMessage::ParameterStatus(_) => {}
                 _ => {
                     return Err(PgWireClientError::UnexpectedMessage(Box::new(message)));
                 }
@@ -480,6 +539,12 @@ where
     }
 
     /// Execute a portal and return the result rows.
+    ///
+    /// On [`ExecuteResult::Complete`] the extended-query cycle is closed
+    /// with `Sync`. On [`ExecuteResult::Suspended`] the cycle is left open
+    /// so that the portal can be executed again; callers must eventually
+    /// run the portal to completion (or [`Self::close`] it) before using
+    /// other APIs on the connection.
     pub async fn execute(
         &mut self,
         portal: Option<&str>,
@@ -487,10 +552,9 @@ where
     ) -> PgWireClientResult<ExecuteResult<Vec<H::QueryResponse>>> {
         let execute = Execute::new(portal.map(|p| p.to_owned()), max_rows);
         self.handler.execute(self.client, execute).await?;
-        self.handler.sync(self.client, Sync::new()).await?;
+        self.handler.flush(self.client, Flush::new()).await?;
 
         let mut rows = Vec::new();
-        let mut is_suspended = false;
 
         while let Some(message_result) = self.client.next().await {
             let message = message_result?;
@@ -501,22 +565,21 @@ where
                 }
                 PgWireBackendMessage::CommandComplete(command_complete) => {
                     self.handler.on_command_complete(command_complete).await?;
+                    self.finish().await?;
+                    return Ok(ExecuteResult::Complete(rows));
                 }
                 PgWireBackendMessage::PortalSuspended(_) => {
                     self.handler.on_portal_suspended().await?;
-                    is_suspended = true;
-                }
-                PgWireBackendMessage::ReadyForQuery(_) => {
-                    if is_suspended {
-                        return Ok(ExecuteResult::Suspended(rows));
-                    } else {
-                        return Ok(ExecuteResult::Complete(rows));
-                    }
+                    // keep the extended-query cycle open: a Sync here would
+                    // destroy the suspended portal
+                    return Ok(ExecuteResult::Suspended(rows));
                 }
                 PgWireBackendMessage::ErrorResponse(error) => {
+                    self.finish().await?;
                     return Err(ErrorInfo::from(error).into());
                 }
                 PgWireBackendMessage::NoticeResponse(_) => {}
+                PgWireBackendMessage::ParameterStatus(_) => {}
                 _ => {
                     return Err(PgWireClientError::UnexpectedMessage(Box::new(message)));
                 }
@@ -527,6 +590,11 @@ where
     }
 
     /// Describe a prepared statement or portal.
+    ///
+    /// Statements persist across extended-query cycles, so describing a
+    /// statement is its own (terminated) cycle. Portals only exist inside
+    /// the open cycle created by [`Self::bind`], so describing a portal uses
+    /// `Flush` and leaves that cycle open.
     pub async fn describe(
         &mut self,
         target: DescribeTarget<'_>,
@@ -537,11 +605,28 @@ where
         };
         let describe = Describe::new(target_type, name.map(|n| n.to_owned()));
         self.handler.describe(self.client, describe).await?;
-        self.handler.sync(self.client, Sync::new()).await?;
+
+        let is_statement = matches!(target, DescribeTarget::Statement(_));
+        match target {
+            DescribeTarget::Statement(_) => {
+                self.handler.sync(self.client, Sync::new()).await?;
+            }
+            DescribeTarget::Portal(_) => {
+                self.handler.flush(self.client, Flush::new()).await?;
+            }
+        }
 
         let mut response = DescribeResponse::default();
+        // for portals the cycle stays open, so the loop ends on the metadata
+        // message itself; for statements it ends on ReadyForQuery
+        let mut done = false;
 
-        while let Some(message_result) = self.client.next().await {
+        while !done {
+            let message_result = self
+                .client
+                .next()
+                .await
+                .ok_or(PgWireClientError::UnexpectedEOF)?;
             let message = message_result?;
             match message {
                 PgWireBackendMessage::ParameterDescription(param_desc) => {
@@ -550,22 +635,37 @@ where
                 }
                 PgWireBackendMessage::RowDescription(row_desc) => {
                     response.fields = self.handler.on_row_description(row_desc).await?;
+                    if matches!(target, DescribeTarget::Portal(_)) {
+                        done = true;
+                    }
                 }
-                PgWireBackendMessage::NoData(_) => {}
+                PgWireBackendMessage::NoData(_) => {
+                    if matches!(target, DescribeTarget::Portal(_)) {
+                        done = true;
+                    }
+                }
                 PgWireBackendMessage::ReadyForQuery(_) => {
-                    return Ok(response);
+                    done = true;
                 }
                 PgWireBackendMessage::ErrorResponse(error) => {
+                    if is_statement {
+                        // Sync has already been sent; drain only
+                        self.drain_to_ready().await;
+                    } else {
+                        // the cycle is still open; close it
+                        self.finish().await?;
+                    }
                     return Err(ErrorInfo::from(error).into());
                 }
                 PgWireBackendMessage::NoticeResponse(_) => {}
+                PgWireBackendMessage::ParameterStatus(_) => {}
                 _ => {
                     return Err(PgWireClientError::UnexpectedMessage(Box::new(message)));
                 }
             }
         }
 
-        Err(PgWireClientError::UnexpectedEOF)
+        Ok(response)
     }
 
     /// Close a prepared statement or portal.
@@ -586,9 +686,12 @@ where
                     return Ok(());
                 }
                 PgWireBackendMessage::ErrorResponse(error) => {
+                    // Sync has already been sent; drain only
+                    self.drain_to_ready().await;
                     return Err(ErrorInfo::from(error).into());
                 }
                 PgWireBackendMessage::NoticeResponse(_) => {}
+                PgWireBackendMessage::ParameterStatus(_) => {}
                 _ => {
                     return Err(PgWireClientError::UnexpectedMessage(Box::new(message)));
                 }
@@ -598,24 +701,55 @@ where
         Err(PgWireClientError::UnexpectedEOF)
     }
 
-    /// Execute a one-shot extended query (prepare, bind, execute, close).
+    /// Execute a one-shot extended query (parse, bind, execute in a single
+    /// extended-query cycle).
     pub async fn query(
         &mut self,
         sql: &str,
         param_types: &[Oid],
         params: Vec<Option<Bytes>>,
     ) -> PgWireClientResult<Vec<H::QueryResponse>> {
-        self.prepare(None, sql, param_types).await?;
-        self.bind(None, None, params, vec![]).await?;
-        let result = self.execute(None, 0).await?;
+        let parse = Parse::new(None, sql.to_owned(), param_types.to_vec());
+        let bind = Bind::new(None, None, vec![], params, vec![]);
+        let execute = Execute::new(None, 0);
 
-        match result {
-            ExecuteResult::Complete(rows) => Ok(rows),
-            ExecuteResult::Suspended(rows) => {
-                self.close(DescribeTarget::Portal(None)).await?;
-                Ok(rows)
+        self.handler.parse(self.client, parse).await?;
+        self.handler.bind(self.client, bind).await?;
+        self.handler.execute(self.client, execute).await?;
+        self.handler.sync(self.client, Sync::new()).await?;
+
+        let mut rows = Vec::new();
+
+        while let Some(message_result) = self.client.next().await {
+            let message = message_result?;
+            match message {
+                PgWireBackendMessage::ParseComplete(_) => {}
+                PgWireBackendMessage::BindComplete(_) => {}
+                PgWireBackendMessage::DataRow(data_row) => {
+                    let row = self.handler.on_data_row(data_row).await?;
+                    rows.push(row);
+                }
+                PgWireBackendMessage::CommandComplete(command_complete) => {
+                    self.handler.on_command_complete(command_complete).await?;
+                }
+                PgWireBackendMessage::EmptyQueryResponse(_) => {}
+                PgWireBackendMessage::ErrorResponse(error) => {
+                    // Sync has already been sent; drain only
+                    self.drain_to_ready().await;
+                    return Err(ErrorInfo::from(error).into());
+                }
+                PgWireBackendMessage::NoticeResponse(_) => {}
+                PgWireBackendMessage::ParameterStatus(_) => {}
+                PgWireBackendMessage::ReadyForQuery(_) => {
+                    return Ok(rows);
+                }
+                _ => {
+                    return Err(PgWireClientError::UnexpectedMessage(Box::new(message)));
+                }
             }
         }
+
+        Err(PgWireClientError::UnexpectedEOF)
     }
 }
 
@@ -723,5 +857,49 @@ impl ExtendedQueryHandler for DefaultExtendedQueryHandler {
 
     async fn on_portal_suspended(&mut self) -> PgWireClientResult<()> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tag_from_str() {
+        // plain commands without counts
+        assert_eq!("BEGIN".parse::<Tag>().unwrap(), Tag::new("BEGIN"));
+        // commands whose name contains a space must not be parsed as counts
+        assert_eq!(
+            "CREATE TABLE".parse::<Tag>().unwrap(),
+            Tag::new("CREATE TABLE")
+        );
+        assert_eq!("DROP TABLE".parse::<Tag>().unwrap(), Tag::new("DROP TABLE"));
+        // command with a row count
+        assert_eq!(
+            "SELECT 5".parse::<Tag>().unwrap(),
+            Tag::new("SELECT").with_rows(5)
+        );
+        assert_eq!(
+            "UPDATE 2".parse::<Tag>().unwrap(),
+            Tag::new("UPDATE").with_rows(2)
+        );
+        // INSERT reports `oid rows`, in that order
+        assert_eq!(
+            "INSERT 0 2".parse::<Tag>().unwrap(),
+            Tag::new("INSERT").with_oid(0).with_rows(2)
+        );
+    }
+
+    #[test]
+    fn test_tag_round_trip_with_command_complete() {
+        for tag in [
+            Tag::new("BEGIN"),
+            Tag::new("CREATE TABLE"),
+            Tag::new("SELECT").with_rows(1),
+            Tag::new("INSERT").with_oid(0).with_rows(2),
+        ] {
+            let command_complete: CommandComplete = tag.clone().into();
+            assert_eq!(command_complete.tag.parse::<Tag>().unwrap(), tag);
+        }
     }
 }

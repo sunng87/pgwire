@@ -215,6 +215,10 @@ impl PgWireClient {
     }
 
     /// Start a query with simple query subprotocol
+    ///
+    /// If the query fails, the trailing `ReadyForQuery` of the failed query
+    /// is consumed before the error is returned, so the connection remains
+    /// usable for further queries.
     pub async fn simple_query<H>(
         &mut self,
         mut simple_query_handler: H,
@@ -228,10 +232,21 @@ impl PgWireClient {
         while let Some(message_result) = self.next().await {
             let message = message_result?;
 
-            if let ReadyState::Ready(responses) =
-                simple_query_handler.on_message(self, message).await?
-            {
-                return Ok(responses);
+            match simple_query_handler.on_message(self, message).await {
+                Ok(ReadyState::Ready(responses)) => return Ok(responses),
+                Ok(ReadyState::Pending) => {}
+                Err(error) => {
+                    // drain until ReadyForQuery so the connection is left in
+                    // a reusable state; the server always sends it as the
+                    // last message of a simple query
+                    while let Some(message_result) = self.next().await {
+                        match message_result? {
+                            PgWireBackendMessage::ReadyForQuery(_) => break,
+                            _ => continue,
+                        }
+                    }
+                    return Err(error);
+                }
             }
         }
 
