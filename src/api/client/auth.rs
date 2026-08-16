@@ -9,10 +9,10 @@ use crate::api::auth::sasl::scram::ScramClientAuth;
 use crate::error::{ErrorInfo, PgWireClientError, PgWireClientResult, PgWireResult};
 use crate::messages::response::ReadyForQuery;
 use crate::messages::startup::{
-    Authentication, BackendKeyData, ParameterStatus, Password, PasswordMessageFamily,
-    SASLInitialResponse, SASLResponse, SecretKey, Startup,
+    Authentication, BackendKeyData, NegotiateProtocolVersion, ParameterStatus, Password,
+    PasswordMessageFamily, SASLInitialResponse, SASLResponse, SecretKey, Startup,
 };
-use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
+use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion};
 
 use super::{ClientInfo, ReadyState, ServerInformation};
 
@@ -42,6 +42,10 @@ pub trait StartupHandler: Send {
         match message {
             PgWireBackendMessage::Authentication(authentication) => {
                 self.on_authentication(client, authentication).await?;
+            }
+            PgWireBackendMessage::NegotiateProtocolVersion(negotiation) => {
+                self.on_negotiate_protocol_version(client, negotiation)
+                    .await?;
             }
             PgWireBackendMessage::ParameterStatus(parameter_status) => {
                 self.on_parameter_status(client, parameter_status).await?;
@@ -77,6 +81,34 @@ pub trait StartupHandler: Send {
             + Unpin
             + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+
+    /// Handle a `NegotiateProtocolVersion` message from the server.
+    ///
+    /// The default implementation adopts the negotiated version for the rest
+    /// of the connection. Both the full 32-bit version number used by
+    /// PostgreSQL 18+ and pgwire, and the minor-only form used by older
+    /// servers, are understood. Startup parameters reported as unrecognized
+    /// by the server are ignored, matching libpq's behavior for non-`_pq_`
+    /// options.
+    async fn on_negotiate_protocol_version<C>(
+        &mut self,
+        client: &mut C,
+        message: NegotiateProtocolVersion,
+    ) -> PgWireClientResult<()>
+    where
+        C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
+    {
+        match negotiated_version(&message) {
+            Some(version) => {
+                client.set_protocol_version(version);
+                Ok(())
+            }
+            None => Err(PgWireClientError::UnexpectedMessage(Box::new(
+                PgWireBackendMessage::NegotiateProtocolVersion(message),
+            ))),
+        }
+    }
 
     /// Handle a parameter status message from the server.
     async fn on_parameter_status<C>(
@@ -127,10 +159,16 @@ impl StartupHandler for DefaultStartupHandler {
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
     {
-        // TODO: customize protocol version
         let mut startup = Startup::new();
 
         let config = client.config();
+
+        // Advertise the configured protocol version. The connection decodes
+        // with the rules of the advertised version until the server lowers it
+        // via NegotiateProtocolVersion.
+        let (major, minor) = config.get_protocol_version().version_number();
+        startup.protocol_number_major = major;
+        startup.protocol_number_minor = minor;
 
         if let Some(application_name) = &config.application_name {
             startup
@@ -320,4 +358,108 @@ where
         message => return Err(PgWireClientError::UnexpectedMessage(Box::new(message))),
     };
     auth_client.verify_server_final(&message)
+}
+
+/// Interpret the version number reported by a `NegotiateProtocolVersion`
+/// message and return the protocol version to use for the rest of the
+/// connection.
+///
+/// This is the client-side counterpart of the server's
+/// `api::auth::protocol_negotiation`. Two wire dialects exist:
+///
+/// - PostgreSQL 18+ and pgwire report the **full 32-bit protocol version
+///   number** (e.g. `196610` for 3.2), which is always greater than `65535`,
+/// - older servers report only the **minor version** (e.g. `2`), leaving the
+///   major version unchanged from the client's request.
+///
+/// Returns `None` if the reported version cannot be mapped to a version this
+/// crate supports (e.g. a newer major version).
+fn negotiated_version(message: &NegotiateProtocolVersion) -> Option<ProtocolVersion> {
+    let value = message.newest_minor_protocol;
+    if value < 0 {
+        return None;
+    }
+
+    let (major, minor) = if value > i32::from(u16::MAX) {
+        // full 32-bit protocol version number
+        (((value >> 16) & 0xFFFF) as u16, (value & 0xFFFF) as u16)
+    } else {
+        // minor-only form, the major version is unchanged
+        (3, value as u16)
+    };
+
+    match ProtocolVersion::from_version_number(major, minor) {
+        Some(version) => Some(version),
+        // A minor version we don't have a variant for: protocol 3.2 is what
+        // changed the wire formats we care about (secret keys), so an unknown
+        // minor below 2 behaves like 3.0, and one at or above 2 falls back to
+        // our newest 3.x.
+        None if major == 3 && minor >= 2 => Some(ProtocolVersion::PROTOCOL3_2),
+        None if major == 3 => Some(ProtocolVersion::PROTOCOL3_0),
+        None => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_negotiated_version() {
+        // The same version can arrive in two wire dialects, and both forms
+        // must negotiate to the same version:
+        //
+        // - the full 32-bit protocol version number (`i32::from(version)`),
+        //   used by PostgreSQL 18+ and current pgwire,
+        // - the minor version alone, used by older servers, which leaves the
+        //   major version unchanged from the client's request.
+        //
+        // Realistic on the wire: full 3.2 (PostgreSQL 18+), bare 0 (older
+        // PostgreSQL, which only supports 3.0) and bare 2 (pgwire before the
+        // #439 fix sent the minor alone). Full-form 3.0 never occurs, but is
+        // unambiguous.
+        for (full_form, minor_form, expected) in [
+            (
+                i32::from(ProtocolVersion::PROTOCOL3_2),
+                2,
+                ProtocolVersion::PROTOCOL3_2,
+            ),
+            (
+                i32::from(ProtocolVersion::PROTOCOL3_0),
+                0,
+                ProtocolVersion::PROTOCOL3_0,
+            ),
+        ] {
+            assert_eq!(
+                negotiated_version(&NegotiateProtocolVersion::new(full_form, vec![])),
+                Some(expected)
+            );
+            assert_eq!(
+                negotiated_version(&NegotiateProtocolVersion::new(minor_form, vec![])),
+                Some(expected)
+            );
+        }
+
+        // Unknown minors: below 2 behaves like 3.0, at or above 2 falls back
+        // to our newest 3.x
+        assert_eq!(
+            negotiated_version(&NegotiateProtocolVersion::new(1, vec![])),
+            Some(ProtocolVersion::PROTOCOL3_0)
+        );
+        assert_eq!(
+            negotiated_version(&NegotiateProtocolVersion::new(5, vec![])),
+            Some(ProtocolVersion::PROTOCOL3_2)
+        );
+
+        // An unknown major version cannot be mapped
+        assert_eq!(
+            negotiated_version(&NegotiateProtocolVersion::new((4 << 16) | 2, vec![])),
+            None
+        );
+        // A negative value is invalid
+        assert_eq!(
+            negotiated_version(&NegotiateProtocolVersion::new(-1, vec![])),
+            None
+        );
+    }
 }

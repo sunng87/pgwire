@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Client API: protocol version negotiation. `Config::protocol_version`
+  selects the version to advertise in the startup message, defaulting to 3.0.
+  Following libpq, a test version `3.9999` is available to request the newest
+  minor version a server supports: the client handles the server's
+  `NegotiateProtocolVersion` response (both the full 32-bit version form used
+  by PostgreSQL 18+ and the minor-only form used by older servers) and adopts
+  the negotiated version for the rest of the connection.
+
+### Fixed
+
+- Client API: backend messages are now decoded with the rules of the protocol
+  version the client actually advertised, instead of always 3.2. Previously a
+  4-byte protocol 3.0 cancel key was decoded as `SecretKey::Bytes` instead of
+  `SecretKey::I32`.
+
 ## [0.40.7] - 2026-08-12
 
 ### Fixed

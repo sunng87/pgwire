@@ -347,7 +347,7 @@ impl PidSecretKeyGenerator for RandomPidSecretKeyGenerator {
         let pid = self.next_pid.fetch_add(1, Ordering::Relaxed);
         let secret_key = match client.protocol_version() {
             ProtocolVersion::PROTOCOL3_0 => SecretKey::I32(rand::random::<i32>()),
-            ProtocolVersion::PROTOCOL3_2 => {
+            ProtocolVersion::PROTOCOL3_2 | ProtocolVersion::PROTOCOL3_9999 => {
                 let mut bytes = vec![0u8; 32];
                 rand::fill(&mut bytes);
                 SecretKey::Bytes(bytes.into())

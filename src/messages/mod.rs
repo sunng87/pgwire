@@ -17,6 +17,19 @@ pub enum ProtocolVersion {
     #[default]
     /// Protocol version 3.2
     PROTOCOL3_2,
+    /// Protocol version 3.9999
+    ///
+    /// This is not a real protocol version. Following libpq, a client can
+    /// request this version in its startup message to ask for the newest
+    /// minor version the server supports: a compliant server replies with
+    /// `NegotiateProtocolVersion` and the connection proceeds at the
+    /// negotiated version. This exercises the negotiation path against any
+    /// server.
+    ///
+    /// Note that [`ProtocolVersion::from_version_number`] deliberately does
+    /// not map to this variant: a server must never accept 3.9999 as-is, it
+    /// always negotiates it down to a supported version.
+    PROTOCOL3_9999,
 }
 
 impl ProtocolVersion {
@@ -25,6 +38,7 @@ impl ProtocolVersion {
         match &self {
             Self::PROTOCOL3_0 => (3, 0),
             Self::PROTOCOL3_2 => (3, 2),
+            Self::PROTOCOL3_9999 => (3, 9999),
         }
     }
 
@@ -1028,6 +1042,16 @@ mod test {
     fn test_protocol_version() {
         assert_eq!(196608i32, i32::from(ProtocolVersion::PROTOCOL3_0));
         assert_eq!(196610i32, i32::from(ProtocolVersion::PROTOCOL3_2));
+        assert_eq!(206607i32, i32::from(ProtocolVersion::PROTOCOL3_9999));
+        // 3.9999 is encodable (a client requests it to trigger negotiation)
+        // but is never accepted as a supported version by a server.
+        assert_eq!(
+            None,
+            ProtocolVersion::from_version_number(
+                ProtocolVersion::PROTOCOL3_9999.version_number().0,
+                ProtocolVersion::PROTOCOL3_9999.version_number().1
+            )
+        );
     }
 
     // A count read as signed (0xffff -> -1 -> usize::MAX) must become a decode
