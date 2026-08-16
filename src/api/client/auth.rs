@@ -10,7 +10,7 @@ use crate::error::{ErrorInfo, PgWireClientError, PgWireClientResult, PgWireResul
 use crate::messages::response::ReadyForQuery;
 use crate::messages::startup::{
     Authentication, BackendKeyData, NegotiateProtocolVersion, ParameterStatus, Password,
-    PasswordMessageFamily, SASLInitialResponse, SASLResponse, SecretKey, Startup,
+    PasswordMessageFamily, SASLInitialResponse, SASLResponse, SecretKey, Startup
 };
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
