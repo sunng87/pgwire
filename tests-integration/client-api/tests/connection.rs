@@ -10,7 +10,7 @@ mod common;
 
 use std::sync::Arc;
 
-use common::{connect, connect_with, test_config};
+use common::{connect_with, test_config};
 use pgwire::api::client::auth::DefaultStartupHandler;
 use pgwire::api::client::{ClientInfo, Config};
 use pgwire::error::PgWireClientError;
@@ -20,14 +20,28 @@ use pgwire::tokio::client::PgWireClient;
 
 #[tokio::test]
 async fn connects_with_scram_and_reports_server_information() {
-    let client = connect().await;
+    let mut config = test_config();
+    config.application_name("startup-cache-test");
+    let client = connect_with(config).await;
 
-    // ParameterStatus messages received during startup are collected
+    // ParameterStatus messages received during startup are stored on the
+    // client; PostgreSQL reports this set of parameters via GUC_REPORT.
     let parameters = client.server_parameters();
-    assert!(
-        parameters.contains_key("server_version"),
-        "expected server_version in {parameters:?}"
-    );
+    for key in [
+        "server_version",
+        "server_encoding",
+        "client_encoding",
+        "application_name",
+        "standard_conforming_strings",
+        "integer_datetimes",
+        "DateStyle",
+        "TimeZone",
+    ] {
+        assert!(
+            parameters.contains_key(key),
+            "expected startup parameter {key:?} in {parameters:?}"
+        );
+    }
     assert_eq!(
         parameters.get("client_encoding").map(String::as_str),
         Some("UTF8")
@@ -37,6 +51,16 @@ async fn connects_with_scram_and_reports_server_information() {
             .get("standard_conforming_strings")
             .map(String::as_str),
         Some("on")
+    );
+    assert_eq!(
+        parameters.get("integer_datetimes").map(String::as_str),
+        Some("on")
+    );
+    // the application_name sent in the Startup message is echoed back by
+    // the server as a ParameterStatus at startup
+    assert_eq!(
+        parameters.get("application_name").map(String::as_str),
+        Some("startup-cache-test")
     );
 
     // BackendKeyData: a usable pid and a 3.0-style i32 secret key

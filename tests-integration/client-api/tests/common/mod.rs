@@ -41,6 +41,7 @@ pub fn test_config() -> Config {
 
 /// Connect to the test server with the default [`DefaultStartupHandler`]
 /// (cleartext/MD5/SCRAM authentication).
+#[allow(dead_code)] // not every test binary uses this helper
 pub async fn connect() -> PgWireClient {
     connect_with(test_config()).await
 }

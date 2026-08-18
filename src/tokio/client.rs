@@ -175,7 +175,19 @@ impl PgWireClient {
             if let ReadyState::Ready(server_info) =
                 startup_handler.on_message(&mut client, message).await?
             {
-                client.server_information = server_info;
+                let ServerInformation {
+                    parameters,
+                    process_id,
+                    secret_key,
+                } = server_info;
+                // Parameters reported by the handler are merged over the ones
+                // already cached as they arrived during startup (the default
+                // `on_parameter_status` stores them on the client), so the
+                // cache is complete regardless of how the handler builds its
+                // `ServerInformation`.
+                client.server_information.parameters.extend(parameters);
+                client.server_information.process_id = process_id;
+                client.server_information.secret_key = secret_key;
                 return Ok(client);
             }
         }
