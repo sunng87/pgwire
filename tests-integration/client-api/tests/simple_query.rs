@@ -4,6 +4,7 @@
 mod common;
 
 use common::connect;
+use pgwire::api::client::ClientInfo;
 use pgwire::api::client::query::{DefaultSimpleQueryHandler, Response};
 use pgwire::api::results::Tag;
 use pgwire::error::PgWireClientError;
@@ -210,7 +211,8 @@ async fn application_name_from_config_is_visible_to_the_server() {
 }
 
 // A `SET` statement makes the server send a ParameterStatus message inside
-// the query response; the handler must tolerate it.
+// the query response; the handler must tolerate it and the client's cached
+// server parameters must reflect the new value.
 #[tokio::test]
 async fn set_parameter_status_does_not_break_simple_query() {
     let mut client = connect().await;
@@ -219,7 +221,8 @@ async fn set_parameter_status_does_not_break_simple_query() {
     assert_eq!(responses.len(), 1);
     assert_eq!(execution_tag(&responses[0]), &Tag::new("SET"));
 
-    // note: updating the client-side server_parameters from mid-query
-    // ParameterStatus messages is not implemented yet; once it is, this is
-    // where a `client.server_parameters()` assertion belongs
+    assert_eq!(
+        client.server_parameters().get("application_name"),
+        Some(&"renamed".to_owned())
+    );
 }

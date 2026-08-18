@@ -14,6 +14,7 @@ use crate::messages::extendedquery::{
 };
 use crate::messages::response::{CommandComplete, EmptyQueryResponse, ReadyForQuery};
 use crate::messages::simplequery::Query;
+use crate::messages::startup::ParameterStatus;
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
 use super::result::DataRowsReader;
@@ -81,10 +82,8 @@ pub trait SimpleQueryHandler: Send {
             PgWireBackendMessage::EmptyQueryResponse(empty_query) => {
                 self.on_empty_query(client, empty_query).await?;
             }
-            PgWireBackendMessage::ParameterStatus(_) => {
-                // The server may report parameter changes (for example after
-                // `SET`) in the middle of a query response; they are not part
-                // of the query result.
+            PgWireBackendMessage::ParameterStatus(parameter_status) => {
+                self.on_parameter_status(client, parameter_status).await?;
             }
             PgWireBackendMessage::ReadyForQuery(ready_for_query) => {
                 let response = self.on_ready_for_query(client, ready_for_query).await?;
@@ -136,6 +135,25 @@ pub trait SimpleQueryHandler: Send {
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
         PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+
+    /// Called when a `ParameterStatus` message is received during query
+    /// execution.
+    ///
+    /// Servers report parameter changes this way, for example after a `SET`
+    /// statement. The default implementation updates the client's cached
+    /// server parameters via [`ClientInfo::set_server_parameter`].
+    async fn on_parameter_status<C>(
+        &mut self,
+        client: &mut C,
+        message: ParameterStatus,
+    ) -> PgWireClientResult<()>
+    where
+        C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
+    {
+        client.set_server_parameter(message.name, message.value);
+        Ok(())
+    }
 
     /// Called when a `ReadyForQuery` message is received.
     async fn on_ready_for_query<C>(
@@ -409,6 +427,10 @@ where
         while let Some(message_result) = self.client.next().await {
             match message_result {
                 Ok(PgWireBackendMessage::ReadyForQuery(_)) => break,
+                Ok(PgWireBackendMessage::ParameterStatus(parameter_status)) => {
+                    self.client
+                        .set_server_parameter(parameter_status.name, parameter_status.value);
+                }
                 Ok(_) => continue,
                 Err(_) => break,
             }
@@ -426,8 +448,13 @@ where
         self.handler.sync(self.client, Sync::new()).await?;
         while let Some(message_result) = self.client.next().await {
             let message = message_result?;
-            if let PgWireBackendMessage::ReadyForQuery(_) = message {
-                return Ok(());
+            match message {
+                PgWireBackendMessage::ReadyForQuery(_) => return Ok(()),
+                PgWireBackendMessage::ParameterStatus(parameter_status) => {
+                    self.client
+                        .set_server_parameter(parameter_status.name, parameter_status.value);
+                }
+                _ => {}
             }
         }
         Err(PgWireClientError::UnexpectedEOF)
@@ -484,7 +511,10 @@ where
                     return Err(ErrorInfo::from(error).into());
                 }
                 PgWireBackendMessage::NoticeResponse(_) => {}
-                PgWireBackendMessage::ParameterStatus(_) => {}
+                PgWireBackendMessage::ParameterStatus(parameter_status) => {
+                    self.client
+                        .set_server_parameter(parameter_status.name, parameter_status.value);
+                }
                 _ => {
                     return Err(PgWireClientError::UnexpectedMessage(Box::new(message)));
                 }
@@ -528,7 +558,10 @@ where
                     return Err(ErrorInfo::from(error).into());
                 }
                 PgWireBackendMessage::NoticeResponse(_) => {}
-                PgWireBackendMessage::ParameterStatus(_) => {}
+                PgWireBackendMessage::ParameterStatus(parameter_status) => {
+                    self.client
+                        .set_server_parameter(parameter_status.name, parameter_status.value);
+                }
                 _ => {
                     return Err(PgWireClientError::UnexpectedMessage(Box::new(message)));
                 }
@@ -579,7 +612,10 @@ where
                     return Err(ErrorInfo::from(error).into());
                 }
                 PgWireBackendMessage::NoticeResponse(_) => {}
-                PgWireBackendMessage::ParameterStatus(_) => {}
+                PgWireBackendMessage::ParameterStatus(parameter_status) => {
+                    self.client
+                        .set_server_parameter(parameter_status.name, parameter_status.value);
+                }
                 _ => {
                     return Err(PgWireClientError::UnexpectedMessage(Box::new(message)));
                 }
@@ -658,7 +694,10 @@ where
                     return Err(ErrorInfo::from(error).into());
                 }
                 PgWireBackendMessage::NoticeResponse(_) => {}
-                PgWireBackendMessage::ParameterStatus(_) => {}
+                PgWireBackendMessage::ParameterStatus(parameter_status) => {
+                    self.client
+                        .set_server_parameter(parameter_status.name, parameter_status.value);
+                }
                 _ => {
                     return Err(PgWireClientError::UnexpectedMessage(Box::new(message)));
                 }
@@ -691,7 +730,10 @@ where
                     return Err(ErrorInfo::from(error).into());
                 }
                 PgWireBackendMessage::NoticeResponse(_) => {}
-                PgWireBackendMessage::ParameterStatus(_) => {}
+                PgWireBackendMessage::ParameterStatus(parameter_status) => {
+                    self.client
+                        .set_server_parameter(parameter_status.name, parameter_status.value);
+                }
                 _ => {
                     return Err(PgWireClientError::UnexpectedMessage(Box::new(message)));
                 }
@@ -739,7 +781,10 @@ where
                     return Err(ErrorInfo::from(error).into());
                 }
                 PgWireBackendMessage::NoticeResponse(_) => {}
-                PgWireBackendMessage::ParameterStatus(_) => {}
+                PgWireBackendMessage::ParameterStatus(parameter_status) => {
+                    self.client
+                        .set_server_parameter(parameter_status.name, parameter_status.value);
+                }
                 PgWireBackendMessage::ReadyForQuery(_) => {
                     return Ok(rows);
                 }

@@ -95,6 +95,10 @@ impl ClientInfo for PgWireClient {
         &self.server_information.parameters
     }
 
+    fn set_server_parameter(&mut self, name: String, value: String) {
+        self.server_information.parameters.insert(name, value);
+    }
+
     fn process_id(&self) -> i32 {
         self.server_information.process_id
     }
@@ -242,6 +246,12 @@ impl PgWireClient {
                     while let Some(message_result) = self.next().await {
                         match message_result? {
                             PgWireBackendMessage::ReadyForQuery(_) => break,
+                            PgWireBackendMessage::ParameterStatus(parameter_status) => {
+                                self.set_server_parameter(
+                                    parameter_status.name,
+                                    parameter_status.value,
+                                );
+                            }
                             _ => continue,
                         }
                     }

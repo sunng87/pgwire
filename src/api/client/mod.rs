@@ -17,7 +17,20 @@ pub trait ClientInfo {
     fn config(&self) -> &Config;
 
     /// Returns server parameters received from server
+    ///
+    /// The cache is kept up to date as the server reports changes with
+    /// `ParameterStatus` messages, both during startup and during query
+    /// execution (for example after a `SET` statement).
     fn server_parameters(&self) -> &BTreeMap<String, String>;
+
+    /// Updates a cached server parameter.
+    ///
+    /// Called when the server reports a parameter change with a
+    /// `ParameterStatus` message outside of the startup phase, for example
+    /// when a `SET` statement takes effect during query execution.
+    /// Implementations should update the map returned by
+    /// [`ClientInfo::server_parameters`] accordingly.
+    fn set_server_parameter(&mut self, name: String, value: String);
 
     /// Returns process id received from server
     fn process_id(&self) -> i32;

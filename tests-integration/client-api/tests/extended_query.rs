@@ -7,6 +7,7 @@ mod common;
 use bytes::Bytes;
 use common::connect;
 use pgwire::api::Type;
+use pgwire::api::client::ClientInfo;
 use pgwire::api::client::query::{DefaultExtendedQueryHandler, DescribeTarget, ExecuteResult};
 use pgwire::api::client::result::DataRowDecoder;
 use pgwire::api::results::{FieldFormat, FieldInfo};
@@ -345,4 +346,21 @@ async fn server_error_is_reported_and_connection_recovers() {
     let fields = text_fields(&[("?column?", Type::INT4)]);
     let mut decoder = DataRowDecoder::new(&fields, rows.into_iter().next().unwrap());
     assert_eq!(decoder.next_value::<i32>().unwrap(), Some(7));
+}
+
+#[tokio::test]
+async fn parameter_status_during_extended_query_updates_cache() {
+    let mut client = connect().await;
+    let mut handler = DefaultExtendedQueryHandler::new();
+    let mut eqc = client.extended_query(&mut handler);
+
+    eqc.query("SET application_name = 'eq-renamed'", &[], vec![])
+        .await
+        .expect("SET via extended query failed");
+
+    drop(eqc);
+    assert_eq!(
+        client.server_parameters().get("application_name"),
+        Some(&"eq-renamed".to_owned())
+    );
 }
