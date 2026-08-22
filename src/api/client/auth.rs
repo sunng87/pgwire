@@ -1,5 +1,3 @@
-use std::collections::BTreeMap;
-
 use async_trait::async_trait;
 use futures::{Sink, SinkExt, Stream, StreamExt};
 
@@ -111,6 +109,13 @@ pub trait StartupHandler: Send {
     }
 
     /// Handle a parameter status message from the server.
+    ///
+    /// Servers report parameter values with `ParameterStatus` messages
+    /// during startup (and parameter changes during query execution). The
+    /// default implementation stores the value in the client's cached
+    /// server parameters via [`ClientInfo::set_server_parameter`], so
+    /// [`ClientInfo::server_parameters`] stays current without extra work
+    /// in most implementations.
     async fn on_parameter_status<C>(
         &mut self,
         client: &mut C,
@@ -118,7 +123,11 @@ pub trait StartupHandler: Send {
     ) -> PgWireClientResult<()>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
-        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>;
+        PgWireClientError: From<<C as Sink<PgWireFrontendMessage>>::Error>,
+    {
+        client.set_server_parameter(message.name, message.value);
+        Ok(())
+    }
 
     /// Handle a backend key data message from the server.
     async fn on_backend_key<C>(
@@ -144,8 +153,6 @@ pub trait StartupHandler: Send {
 /// Default startup handler that supports cleartext, MD5, and SCRAM-SHA-256 authentication.
 #[derive(new, Debug)]
 pub struct DefaultStartupHandler {
-    #[new(default)]
-    server_parameters: BTreeMap<String, String>,
     #[new(default)]
     process_id: Option<i32>,
     #[new(default)]
@@ -256,18 +263,6 @@ impl StartupHandler for DefaultStartupHandler {
         Ok(())
     }
 
-    async fn on_parameter_status<C>(
-        &mut self,
-        _client: &mut C,
-        message: ParameterStatus,
-    ) -> PgWireClientResult<()>
-    where
-        C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
-    {
-        self.server_parameters.insert(message.name, message.value);
-        Ok(())
-    }
-
     async fn on_backend_key<C>(
         &mut self,
         _client: &mut C,
@@ -283,14 +278,17 @@ impl StartupHandler for DefaultStartupHandler {
 
     async fn on_ready_for_query<C>(
         &mut self,
-        _client: &mut C,
+        client: &mut C,
         _message: ReadyForQuery,
     ) -> PgWireClientResult<ServerInformation>
     where
         C: ClientInfo + Sink<PgWireFrontendMessage> + Unpin + Send,
     {
+        // parameters were already cached on the client as they arrived;
+        // report them back so `ServerInformation` stays meaningful for
+        // callers that drive a startup handler themselves
         Ok(ServerInformation {
-            parameters: self.server_parameters.clone(),
+            parameters: client.server_parameters().clone(),
             process_id: self.process_id.unwrap_or(-1),
             secret_key: self.secret_key.clone().unwrap_or_default(),
         })

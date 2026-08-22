@@ -152,6 +152,7 @@ pgwire = { path = "." }
 [workspace]
 members = [
   ".",
+  "tests-integration/client-api",
   "tests-integration/rust-client",
   "tests-integration/test-server",
 ]

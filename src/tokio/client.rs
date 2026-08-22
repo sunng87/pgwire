@@ -95,6 +95,10 @@ impl ClientInfo for PgWireClient {
         &self.server_information.parameters
     }
 
+    fn set_server_parameter(&mut self, name: String, value: String) {
+        self.server_information.parameters.insert(name, value);
+    }
+
     fn process_id(&self) -> i32 {
         self.server_information.process_id
     }
@@ -171,7 +175,19 @@ impl PgWireClient {
             if let ReadyState::Ready(server_info) =
                 startup_handler.on_message(&mut client, message).await?
             {
-                client.server_information = server_info;
+                let ServerInformation {
+                    parameters,
+                    process_id,
+                    secret_key,
+                } = server_info;
+                // Parameters reported by the handler are merged over the ones
+                // already cached as they arrived during startup (the default
+                // `on_parameter_status` stores them on the client), so the
+                // cache is complete regardless of how the handler builds its
+                // `ServerInformation`.
+                client.server_information.parameters.extend(parameters);
+                client.server_information.process_id = process_id;
+                client.server_information.secret_key = secret_key;
                 return Ok(client);
             }
         }
@@ -215,6 +231,10 @@ impl PgWireClient {
     }
 
     /// Start a query with simple query subprotocol
+    ///
+    /// If the query fails, the trailing `ReadyForQuery` of the failed query
+    /// is consumed before the error is returned, so the connection remains
+    /// usable for further queries.
     pub async fn simple_query<H>(
         &mut self,
         mut simple_query_handler: H,
@@ -228,10 +248,27 @@ impl PgWireClient {
         while let Some(message_result) = self.next().await {
             let message = message_result?;
 
-            if let ReadyState::Ready(responses) =
-                simple_query_handler.on_message(self, message).await?
-            {
-                return Ok(responses);
+            match simple_query_handler.on_message(self, message).await {
+                Ok(ReadyState::Ready(responses)) => return Ok(responses),
+                Ok(ReadyState::Pending) => {}
+                Err(error) => {
+                    // drain until ReadyForQuery so the connection is left in
+                    // a reusable state; the server always sends it as the
+                    // last message of a simple query
+                    while let Some(message_result) = self.next().await {
+                        match message_result? {
+                            PgWireBackendMessage::ReadyForQuery(_) => break,
+                            PgWireBackendMessage::ParameterStatus(parameter_status) => {
+                                self.set_server_parameter(
+                                    parameter_status.name,
+                                    parameter_status.value,
+                                );
+                            }
+                            _ => continue,
+                        }
+                    }
+                    return Err(error);
+                }
             }
         }
 

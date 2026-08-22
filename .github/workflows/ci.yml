@@ -80,6 +80,37 @@ jobs:
     - uses: nicknovitski/nix-develop@v1
     - run: ./tests-integration/test.sh
 
+  client-api-integration:
+    name: Client API integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [test]
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+    - name: Run client API integration tests
+      run: cargo test -p client-api-tests
+      env:
+        PGWIRE_ITEST_HOST: 127.0.0.1
+        PGWIRE_ITEST_PORT: 5432
+
   msrv:
     name: MSRV
     runs-on: ubuntu-latest

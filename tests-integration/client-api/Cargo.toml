@@ -1,0 +1,23 @@
+[package]
+name = "client-api-tests"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Integration tests for pgwire's client API against a real PostgreSQL server.
+#
+# The server is managed by `run.sh` (podman); connection settings can be
+# overridden via PGWIRE_ITEST_* environment variables, see tests/common/mod.rs.
+
+[dependencies]
+pgwire = { path = "../..", features = ["client-api-aws-lc-rs"] }
+bytes = "1"
+futures = "0.3"
+tokio = { version = "1", features = [
+  "rt-multi-thread",
+  "macros",
+  "net",
+  "io-util",
+  "time",
+] }
+tokio-util = { version = "0.7", features = ["codec"] }
