@@ -86,6 +86,7 @@ pub trait SimpleQueryHandler: Send {
                 self.on_parameter_status(client, parameter_status).await?;
             }
             PgWireBackendMessage::ReadyForQuery(ready_for_query) => {
+                client.set_transaction_status(ready_for_query.status);
                 let response = self.on_ready_for_query(client, ready_for_query).await?;
                 return Ok(ReadyState::Ready(response));
             }
@@ -426,7 +427,10 @@ where
     async fn drain_to_ready(&mut self) {
         while let Some(message_result) = self.client.next().await {
             match message_result {
-                Ok(PgWireBackendMessage::ReadyForQuery(_)) => break,
+                Ok(PgWireBackendMessage::ReadyForQuery(ready)) => {
+                    self.client.set_transaction_status(ready.status);
+                    break;
+                }
                 Ok(PgWireBackendMessage::ParameterStatus(parameter_status)) => {
                     self.client
                         .set_server_parameter(parameter_status.name, parameter_status.value);
@@ -449,7 +453,10 @@ where
         while let Some(message_result) = self.client.next().await {
             let message = message_result?;
             match message {
-                PgWireBackendMessage::ReadyForQuery(_) => return Ok(()),
+                PgWireBackendMessage::ReadyForQuery(ready) => {
+                    self.client.set_transaction_status(ready.status);
+                    return Ok(());
+                }
                 PgWireBackendMessage::ParameterStatus(parameter_status) => {
                     self.client
                         .set_server_parameter(parameter_status.name, parameter_status.value);
@@ -502,7 +509,8 @@ where
                     let _ = self.handler.on_row_description(row_desc).await?;
                 }
                 PgWireBackendMessage::NoData(_) => {}
-                PgWireBackendMessage::ReadyForQuery(_) => {
+                PgWireBackendMessage::ReadyForQuery(ready) => {
+                    self.client.set_transaction_status(ready.status);
                     return Ok(response);
                 }
                 PgWireBackendMessage::ErrorResponse(error) => {
@@ -680,7 +688,8 @@ where
                         done = true;
                     }
                 }
-                PgWireBackendMessage::ReadyForQuery(_) => {
+                PgWireBackendMessage::ReadyForQuery(ready) => {
+                    self.client.set_transaction_status(ready.status);
                     done = true;
                 }
                 PgWireBackendMessage::ErrorResponse(error) => {
@@ -721,7 +730,8 @@ where
             let message = message_result?;
             match message {
                 PgWireBackendMessage::CloseComplete(_) => {}
-                PgWireBackendMessage::ReadyForQuery(_) => {
+                PgWireBackendMessage::ReadyForQuery(ready) => {
+                    self.client.set_transaction_status(ready.status);
                     return Ok(());
                 }
                 PgWireBackendMessage::ErrorResponse(error) => {
@@ -785,7 +795,8 @@ where
                     self.client
                         .set_server_parameter(parameter_status.name, parameter_status.value);
                 }
-                PgWireBackendMessage::ReadyForQuery(_) => {
+                PgWireBackendMessage::ReadyForQuery(ready) => {
+                    self.client.set_transaction_status(ready.status);
                     return Ok(rows);
                 }
                 _ => {

@@ -10,6 +10,11 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Client API: transaction status tracking. `ClientInfo::transaction_status`
+  reports the status carried by the last `ReadyForQuery` message (idle, in
+  transaction, or in a failed transaction), updated automatically on every
+  code path: startup, simple and extended query, and the error-recovery
+  drains.
 - Client API: protocol version negotiation. `Config::protocol_version`
   selects the version to advertise in the startup message, defaulting to 3.0.
   Following libpq, a test version `3.9999` is available to request the newest

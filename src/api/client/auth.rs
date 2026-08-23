@@ -52,6 +52,7 @@ pub trait StartupHandler: Send {
                 self.on_backend_key(client, backend_key_data).await?;
             }
             PgWireBackendMessage::ReadyForQuery(ready) => {
+                client.set_transaction_status(ready.status);
                 let server_information = self.on_ready_for_query(client, ready).await?;
                 return Ok(ReadyState::Ready(server_information));
             }
