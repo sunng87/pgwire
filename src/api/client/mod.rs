@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 pub use config::Config;
 
 use crate::messages::ProtocolVersion;
+use crate::messages::response::TransactionStatus;
 use crate::messages::startup::SecretKey;
 
 /// A trait for fetching necessary information from Client
@@ -53,7 +54,22 @@ pub trait ClientInfo {
     /// this automatically.
     fn set_protocol_version(&mut self, version: ProtocolVersion);
 
-    // TODO: transaction state
+    /// Returns the current transaction status, as last reported by the
+    /// server in a `ReadyForQuery` message.
+    ///
+    /// The status starts as [`TransactionStatus::Idle`] after startup and
+    /// is updated automatically whenever a `ReadyForQuery` message is
+    /// consumed, on every code path: startup, simple query, extended query,
+    /// and the error-recovery drains.
+    fn transaction_status(&self) -> TransactionStatus;
+
+    /// Updates the tracked transaction status.
+    ///
+    /// This is called automatically by the default message dispatch when a
+    /// `ReadyForQuery` message arrives. Handlers that override the default
+    /// `on_message` implementations and consume `ReadyForQuery` themselves
+    /// should call this so the tracked status stays in sync.
+    fn set_transaction_status(&mut self, status: TransactionStatus);
 }
 
 /// Carries server provided information for current connection
