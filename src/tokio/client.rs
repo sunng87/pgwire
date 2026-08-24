@@ -640,9 +640,10 @@ mod tests {
         config.port(port);
         config.user("pgwire");
 
-        let mut client = PgWireClient::connect(Arc::new(config), DefaultStartupHandler::new(), None)
-            .await
-            .unwrap();
+        let mut client =
+            PgWireClient::connect(Arc::new(config), DefaultStartupHandler::new(), None)
+                .await
+                .unwrap();
 
         // a fresh connection is idle
         assert_eq!(client.transaction_status(), TransactionStatus::Idle);
