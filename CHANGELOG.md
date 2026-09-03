@@ -25,6 +25,16 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Extended query protocol: empty queries (a query string without any
+  statement, such as `""` or `";;"`) are now handled like PostgreSQL instead
+  of being dispatched to the query parser: `Parse` succeeds without calling
+  `QueryParser`, `Describe` answers `ParameterDescription` (no parameters) +
+  `NoData`, `Bind` succeeds (rejecting bound parameters with `08P01`), and
+  `Execute` returns `EmptyQueryResponse` without reaching `do_query`. An
+  empty `Parse` replaces any statement previously stored under the same name,
+  and `Close`/`Sync` drop empty statements and the unnamed empty portal like
+  real ones. Empty queries are tracked internally per connection, so no
+  changes to `PortalStore`, `StoredStatement`, or `Portal` were required.
 - Client API: backend messages are now decoded with the rules of the protocol
   version the client actually advertised, instead of always 3.2. Previously a
   4-byte protocol 3.0 cancel key was decoded as `SecretKey::Bytes` instead of

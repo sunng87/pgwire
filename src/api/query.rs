@@ -1,7 +1,8 @@
 use std::cmp::max;
+use std::collections::HashSet;
 use std::fmt::Debug;
 use std::ops::Deref;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
@@ -46,6 +47,96 @@ where
 {
     let handle = client.session_extensions().get::<Arc<ConnectionHandle>>()?;
     Some(handle.start_query().await)
+}
+
+/// Tracks statement and portal names that refer to empty queries.
+///
+/// Empty queries (a query string without any statement, such as `""` or
+/// `";;"`) have no parsed representation, so there is nothing to store in
+/// the [`PortalStore`] as a `StoredStatement`. Instead, the default extended
+/// query handlers record their names in this per-connection registry,
+/// mirroring PostgreSQL's extended-query behavior for empty queries:
+///
+/// - `Parse` of an empty query succeeds and replaces any statement previously
+///   stored under the same name;
+/// - `Bind` on that name succeeds (binding zero parameters), replacing any
+///   portal previously stored under the portal name;
+/// - `Describe` answers `ParameterDescription` (no parameters) + `NoData`;
+/// - `Execute` returns `EmptyQueryResponse` without dispatching to
+///   [`ExtendedQueryHandler::do_query`];
+/// - `Close` removes the marker, and `Sync` drops the unnamed empty portal.
+///
+/// The registry lives in [`SessionExtensions`](super::SessionExtensions), so
+/// this is purely internal bookkeeping: neither the [`PortalStore`] API nor
+/// the `StoredStatement`/`Portal` types need to represent an empty variant.
+#[derive(Debug, Default)]
+struct EmptyStatementRegistry {
+    statements: RwLock<HashSet<String>>,
+    portals: RwLock<HashSet<String>>,
+}
+
+impl EmptyStatementRegistry {
+    fn for_client<C: ClientInfo>(client: &C) -> Arc<Self> {
+        client
+            .session_extensions()
+            .get_or_insert_with(Self::default)
+    }
+
+    /// Record that `name` was last `Parse`d from an empty query.
+    fn mark_statement<C: ClientInfo>(client: &C, name: &str) {
+        Self::for_client(client)
+            .statements
+            .write()
+            .unwrap()
+            .insert(name.to_owned());
+    }
+
+    /// Forget an empty-statement marker, e.g. after re-`Parse` of a real
+    /// statement or a `Close`.
+    fn unmark_statement<C: ClientInfo>(client: &C, name: &str) {
+        Self::for_client(client)
+            .statements
+            .write()
+            .unwrap()
+            .remove(name);
+    }
+
+    /// Test whether `name` is an empty statement.
+    fn is_empty_statement<C: ClientInfo>(client: &C, name: &str) -> bool {
+        Self::for_client(client)
+            .statements
+            .read()
+            .unwrap()
+            .contains(name)
+    }
+
+    /// Record that `name` was `Bind`ed from an empty statement.
+    fn mark_portal<C: ClientInfo>(client: &C, name: &str) {
+        Self::for_client(client)
+            .portals
+            .write()
+            .unwrap()
+            .insert(name.to_owned());
+    }
+
+    /// Forget an empty-portal marker, e.g. after `Bind` of a real portal or a
+    /// `Close`.
+    fn unmark_portal<C: ClientInfo>(client: &C, name: &str) {
+        Self::for_client(client)
+            .portals
+            .write()
+            .unwrap()
+            .remove(name);
+    }
+
+    /// Test whether `name` is an empty portal.
+    fn is_empty_portal<C: ClientInfo>(client: &C, name: &str) -> bool {
+        Self::for_client(client)
+            .portals
+            .read()
+            .unwrap()
+            .contains(name)
+    }
 }
 
 /// handler for processing simple query.
@@ -186,8 +277,15 @@ pub trait ExtendedQueryHandler: Send + Sync {
 
     /// Called when client sends `parse` command.
     ///
-    /// The default implementation parsed query with `Self::QueryParser` and
-    /// stores it in `Self::PortalStore`.
+    /// The default implementation parses the query with
+    /// `Self::QueryParser` and stores it in `Self::PortalStore`.
+    ///
+    /// If the query is an empty query (a string without any statement, such
+    /// as `""` or `";;"`), the parser is not called at all: like PostgreSQL,
+    /// the statement name is remembered as empty (replacing any statement
+    /// previously stored under the same name), `ParseComplete` is returned,
+    /// and later `Bind`/`Describe`/`Execute` on that name follow PostgreSQL's
+    /// empty-query behavior.
     async fn on_parse<C>(&self, client: &mut C, message: Parse) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -195,9 +293,23 @@ pub trait ExtendedQueryHandler: Send + Sync {
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        let parser = self.query_parser();
-        let stmt = StoredStatement::parse(client, &message, parser).await?;
-        client.portal_store().put_statement(Arc::new(stmt));
+        let name = message
+            .name
+            .clone()
+            .unwrap_or_else(|| DEFAULT_NAME.to_owned());
+
+        if is_empty_query(&message.query) {
+            // An empty query has no parsed statement to store. Remember the
+            // name instead, and drop any previously stored statement of the
+            // same name: `Parse` always replaces its target.
+            client.portal_store().rm_statement(&name);
+            EmptyStatementRegistry::mark_statement(client, &name);
+        } else {
+            let parser = self.query_parser();
+            let stmt = StoredStatement::parse(client, &message, parser).await?;
+            EmptyStatementRegistry::unmark_statement(client, &name);
+            client.portal_store().put_statement(Arc::new(stmt));
+        }
         client
             .send(PgWireBackendMessage::ParseComplete(ParseComplete::new()))
             .await?;
@@ -207,8 +319,13 @@ pub trait ExtendedQueryHandler: Send + Sync {
 
     /// Called when client sends `bind` command.
     ///
-    /// The default implementation associate parameters with previous parsed
-    /// statement and stores in `Self::PortalStore` as well.
+    /// The default implementation associates parameters with a previously
+    /// parsed statement and stores the result in `Self::PortalStore` as well.
+    ///
+    /// Binding to a statement parsed from an empty query also succeeds
+    /// (with zero parameters, like PostgreSQL): the portal name is remembered
+    /// as an empty portal, replacing any portal previously stored under the
+    /// same name.
     async fn on_bind<C>(&self, client: &mut C, message: Bind) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -217,10 +334,34 @@ pub trait ExtendedQueryHandler: Send + Sync {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let statement_name = message.statement_name.as_deref().unwrap_or(DEFAULT_NAME);
+        let portal_name = message.portal_name.as_deref().unwrap_or(DEFAULT_NAME);
 
         if let Some(statement) = client.portal_store().get_statement(statement_name) {
             let portal = Portal::try_new(&message, statement)?;
             client.portal_store().put_portal(Arc::new(portal));
+            // a real portal replaces a possibly existing empty-portal marker
+            EmptyStatementRegistry::unmark_portal(client, portal_name);
+            client
+                .send(PgWireBackendMessage::BindComplete(BindComplete::new()))
+                .await?;
+            Ok(())
+        } else if EmptyStatementRegistry::is_empty_statement(client, statement_name) {
+            if !message.parameters.is_empty() {
+                return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                    "ERROR".to_owned(),
+                    "08P01".to_owned(),
+                    format!(
+                        "bind message supplies {} parameters, but prepared statement {:?} requires 0",
+                        message.parameters.len(),
+                        statement_name
+                    ),
+                ))));
+            }
+            // an empty statement binds successfully: remember the portal name
+            // as an empty portal, and drop any previously stored portal of the
+            // same name: `Bind` always replaces its target.
+            client.portal_store().rm_portal(portal_name);
+            EmptyStatementRegistry::mark_portal(client, portal_name);
             client
                 .send(PgWireBackendMessage::BindComplete(BindComplete::new()))
                 .await?;
@@ -235,9 +376,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
     /// The default implementation delegates the query to `self::do_query` and
     /// sends response messages according to `Response` from `self::do_query`.
     ///
-    /// Note that, different from `SimpleQueryHandler`, this implementation
-    /// won't check empty query because it cannot understand parsed
-    /// `Self::Statement`.
+    /// Portals bound from empty statements are handled here like PostgreSQL:
+    /// they respond with `EmptyQueryResponse` and never reach `do_query`.
     async fn on_execute<C>(&self, client: &mut C, message: Execute) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -271,6 +411,17 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let max_rows = message.max_rows as usize;
 
         let Some(portal) = client.portal_store().get_portal(portal_name) else {
+            if EmptyStatementRegistry::is_empty_portal(client, portal_name) {
+                // An empty portal never reaches `do_query`: it directly
+                // answers `EmptyQueryResponse`, like PostgreSQL. The portal
+                // stays valid until it is replaced, closed, or (for the
+                // unnamed portal) dropped by `Sync`.
+                client
+                    .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
+                    .await?;
+                client.set_state(super::PgWireConnectionState::ReadyForQuery);
+                return Ok(());
+            }
             return Err(PgWireError::PortalNotFound(portal_name.to_owned()));
         };
         // Execute query if the portal hasn't been started yet
@@ -314,6 +465,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
 
                     // remove unnamed portal when transaction ends
                     client.portal_store().rm_portal(DEFAULT_NAME);
+                    EmptyStatementRegistry::unmark_portal(client, DEFAULT_NAME);
 
                     false
                 }
@@ -404,6 +556,10 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 if let Some(stmt) = client.portal_store().get_statement(name) {
                     let describe_response = self.do_describe_statement(client, &stmt).await?;
                     send_describe_response(client, &describe_response).await?;
+                } else if EmptyStatementRegistry::is_empty_statement(client, name) {
+                    // an empty statement has no parameters and no result data
+                    let describe_response = DescribeStatementResponse::no_data();
+                    send_describe_response(client, &describe_response).await?;
                 } else {
                     return Err(PgWireError::StatementNotFound(name.to_owned()));
                 }
@@ -411,6 +567,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
             TARGET_TYPE_BYTE_PORTAL => {
                 if let Some(portal) = client.portal_store().get_portal(name) {
                     let describe_response = self.do_describe_portal(client, &portal).await?;
+                    send_describe_response(client, &describe_response).await?;
+                } else if EmptyStatementRegistry::is_empty_portal(client, name) {
+                    let describe_response = DescribePortalResponse::no_data();
                     send_describe_response(client, &describe_response).await?;
                 } else {
                     return Err(PgWireError::PortalNotFound(name.to_owned()));
@@ -438,7 +597,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
     /// Called when client sends `sync` command.
     ///
     /// The default implementation flushes client buffer and sends
-    /// `READY_FOR_QUERY` response to client
+    /// `READY_FOR_QUERY` response to client. The unnamed portal, including an
+    /// empty one, is removed, like PostgreSQL.
     async fn on_sync<C>(&self, client: &mut C, _message: PgSync) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -447,6 +607,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         client.portal_store().rm_portal(DEFAULT_NAME);
+        EmptyStatementRegistry::unmark_portal(client, DEFAULT_NAME);
 
         client
             .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
@@ -459,7 +620,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
 
     /// Called when client sends `close` command.
     ///
-    /// The default implementation closes certain statement or portal.
+    /// The default implementation closes certain statement or portal,
+    /// including empty statements and empty portals.
     async fn on_close<C>(&self, client: &mut C, message: Close) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -471,9 +633,11 @@ pub trait ExtendedQueryHandler: Send + Sync {
         match message.target_type {
             TARGET_TYPE_BYTE_STATEMENT => {
                 client.portal_store().rm_statement(name);
+                EmptyStatementRegistry::unmark_statement(client, name);
             }
             TARGET_TYPE_BYTE_PORTAL => {
                 client.portal_store().rm_portal(name);
+                EmptyStatementRegistry::unmark_portal(client, name);
             }
             _ => {}
         }
@@ -818,5 +982,633 @@ mod tests {
         assert!(!is_empty_query("select 1; select 2;"));
         // a string literal containing only a semicolon is a real query
         assert!(!is_empty_query("';'"));
+    }
+}
+
+/// Unit tests for extended-query empty statement handling.
+///
+/// The expected message sequences mirror the behavior of a real PostgreSQL
+/// server (verified against PostgreSQL 18) driven over the wire with
+/// Parse/Bind/Describe/Execute/Sync of empty and semicolon-only queries.
+#[cfg(test)]
+mod extended_empty_query_tests {
+    use std::net::SocketAddr;
+    use std::pin::Pin;
+    use std::sync::Mutex;
+    use std::task::{Context, Poll};
+
+    use async_trait::async_trait;
+    use bytes::Bytes;
+    use futures::Sink;
+
+    use super::*;
+    use crate::api::results::Tag;
+    use crate::api::{DefaultClient, PgWireConnectionState};
+    use crate::messages::response::TransactionStatus;
+
+    /// A client test-double implementing everything the query handlers
+    /// require. Backend messages are recorded instead of being encoded.
+    struct TestClient {
+        inner: DefaultClient<String>,
+        sent: Mutex<Vec<PgWireBackendMessage>>,
+    }
+
+    impl TestClient {
+        fn new() -> Self {
+            let mut inner = DefaultClient::new(SocketAddr::from(([127, 0, 0, 1], 5432)), false);
+            inner.set_state(PgWireConnectionState::ReadyForQuery);
+            TestClient {
+                inner,
+                sent: Mutex::new(Vec::new()),
+            }
+        }
+
+        /// Short names of all backend messages sent so far.
+        fn sent(&self) -> Vec<&'static str> {
+            self.sent
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|m| match m {
+                    PgWireBackendMessage::ParseComplete(_) => "ParseComplete",
+                    PgWireBackendMessage::BindComplete(_) => "BindComplete",
+                    PgWireBackendMessage::CloseComplete(_) => "CloseComplete",
+                    PgWireBackendMessage::EmptyQueryResponse(_) => "EmptyQueryResponse",
+                    PgWireBackendMessage::ParameterDescription(_) => "ParameterDescription",
+                    PgWireBackendMessage::NoData(_) => "NoData",
+                    PgWireBackendMessage::CommandComplete(_) => "CommandComplete",
+                    PgWireBackendMessage::ReadyForQuery(_) => "ReadyForQuery",
+                    _ => "other",
+                })
+                .collect()
+        }
+
+        /// Number of parameter types in the `ParameterDescription` at
+        /// `idx` among the sent messages.
+        fn parameter_description_len(&self, idx: usize) -> usize {
+            self.sent
+                .lock()
+                .unwrap()
+                .iter()
+                .filter_map(|m| match m {
+                    PgWireBackendMessage::ParameterDescription(p) => Some(p.types.len()),
+                    _ => None,
+                })
+                .nth(idx)
+                .unwrap()
+        }
+    }
+
+    impl ClientInfo for TestClient {
+        fn socket_addr(&self) -> SocketAddr {
+            self.inner.socket_addr()
+        }
+
+        fn is_secure(&self) -> bool {
+            self.inner.is_secure()
+        }
+
+        fn protocol_version(&self) -> crate::messages::ProtocolVersion {
+            self.inner.protocol_version()
+        }
+
+        fn set_protocol_version(&mut self, version: crate::messages::ProtocolVersion) {
+            self.inner.set_protocol_version(version)
+        }
+
+        fn pid_and_secret_key(&self) -> (i32, crate::messages::startup::SecretKey) {
+            self.inner.pid_and_secret_key()
+        }
+
+        fn set_pid_and_secret_key(
+            &mut self,
+            pid: i32,
+            secret_key: crate::messages::startup::SecretKey,
+        ) {
+            self.inner.set_pid_and_secret_key(pid, secret_key)
+        }
+
+        fn state(&self) -> PgWireConnectionState {
+            self.inner.state()
+        }
+
+        fn set_state(&mut self, new_state: PgWireConnectionState) {
+            self.inner.set_state(new_state)
+        }
+
+        fn transaction_status(&self) -> TransactionStatus {
+            self.inner.transaction_status()
+        }
+
+        fn set_transaction_status(&mut self, new_status: TransactionStatus) {
+            self.inner.set_transaction_status(new_status)
+        }
+
+        fn metadata(&self) -> &std::collections::HashMap<String, String> {
+            self.inner.metadata()
+        }
+
+        fn metadata_mut(&mut self) -> &mut std::collections::HashMap<String, String> {
+            self.inner.metadata_mut()
+        }
+
+        fn session_extensions(&self) -> &crate::api::SessionExtensions {
+            self.inner.session_extensions()
+        }
+
+        #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+        fn sni_server_name(&self) -> Option<&str> {
+            self.inner.sni_server_name()
+        }
+
+        #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+        fn client_certificates<'a>(&self) -> Option<&[rustls_pki_types::CertificateDer<'a>]> {
+            self.inner.client_certificates()
+        }
+    }
+
+    impl ClientPortalStore for TestClient {
+        type PortalStore = crate::api::store::MemPortalStore<String>;
+
+        fn portal_store(&self) -> &Self::PortalStore {
+            self.inner.portal_store()
+        }
+    }
+
+    impl Sink<PgWireBackendMessage> for TestClient {
+        type Error = PgWireError;
+
+        fn poll_ready(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn start_send(self: Pin<&mut Self>, item: PgWireBackendMessage) -> Result<(), Self::Error> {
+            self.sent.lock().unwrap().push(item);
+            Ok(())
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    /// A parser that records every query it receives and refuses empty ones:
+    /// after this change, empty queries must never reach a parser.
+    #[derive(Default)]
+    struct RecordingParser {
+        calls: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl QueryParser for RecordingParser {
+        type Statement = String;
+
+        async fn parse_sql<C>(
+            &self,
+            _client: &C,
+            sql: &str,
+            _types: &[Option<Type>],
+        ) -> PgWireResult<Self::Statement>
+        where
+            C: ClientInfo + Unpin + Send + Sync,
+        {
+            assert!(
+                !is_empty_query(sql),
+                "parser must never be called for an empty query, got {sql:?}"
+            );
+            self.calls.lock().unwrap().push(sql.to_owned());
+            Ok(sql.to_owned())
+        }
+
+        fn get_parameter_types(&self, _stmt: &Self::Statement) -> PgWireResult<Vec<Type>> {
+            Ok(vec![])
+        }
+
+        fn get_result_schema(
+            &self,
+            _stmt: &Self::Statement,
+            _column_format: Option<&crate::api::portal::Format>,
+        ) -> PgWireResult<Vec<crate::api::results::FieldInfo>> {
+            Ok(vec![])
+        }
+    }
+
+    struct TestHandler {
+        parser: Arc<RecordingParser>,
+    }
+
+    impl TestHandler {
+        fn new() -> Self {
+            TestHandler {
+                parser: Arc::new(RecordingParser::default()),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl ExtendedQueryHandler for TestHandler {
+        type Statement = String;
+        type QueryParser = RecordingParser;
+
+        fn query_parser(&self) -> Arc<Self::QueryParser> {
+            self.parser.clone()
+        }
+
+        async fn do_query<C>(
+            &self,
+            _client: &mut C,
+            _portal: &Portal<Self::Statement>,
+            _max_rows: usize,
+        ) -> PgWireResult<Response>
+        where
+            C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+            C::PortalStore: PortalStore<Statement = Self::Statement>,
+            C::Error: Debug,
+            PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
+        {
+            Ok(Response::Execution(Tag::new("OK")))
+        }
+    }
+
+    fn parse(name: Option<&str>, query: &str) -> Parse {
+        Parse {
+            name: name.map(str::to_owned),
+            query: query.to_owned(),
+            type_oids: vec![],
+        }
+    }
+
+    fn bind(portal: Option<&str>, statement: Option<&str>) -> Bind {
+        Bind {
+            portal_name: portal.map(str::to_owned),
+            statement_name: statement.map(str::to_owned),
+            parameter_format_codes: vec![],
+            parameters: vec![],
+            result_column_format_codes: vec![],
+        }
+    }
+
+    fn describe(target_type: u8, name: Option<&str>) -> Describe {
+        Describe {
+            target_type,
+            name: name.map(str::to_owned),
+        }
+    }
+
+    fn close(target_type: u8, name: Option<&str>) -> Close {
+        Close {
+            target_type,
+            name: name.map(str::to_owned),
+        }
+    }
+
+    /// Parse/Bind/Describe/Execute/Sync of an empty query behaves exactly
+    /// like PostgreSQL: ParseComplete, ParameterDescription(0)+NoData,
+    /// BindComplete, NoData, EmptyQueryResponse (repeatable), ReadyForQuery,
+    /// and the parser is never invoked.
+    #[tokio::test]
+    async fn empty_query_extended_protocol_sequence() {
+        let handler = TestHandler::new();
+        let mut client = TestClient::new();
+
+        handler
+            .on_parse(&mut client, parse(None, ""))
+            .await
+            .unwrap();
+        assert_eq!(client.sent(), ["ParseComplete"]);
+
+        handler
+            ._on_describe(&mut client, describe(TARGET_TYPE_BYTE_STATEMENT, None))
+            .await
+            .unwrap();
+        assert_eq!(client.sent()[1..], ["ParameterDescription", "NoData"]);
+        assert_eq!(client.parameter_description_len(0), 0);
+
+        handler
+            .on_bind(&mut client, bind(None, None))
+            .await
+            .unwrap();
+        assert_eq!(client.sent()[3..], ["BindComplete"]);
+
+        handler
+            ._on_describe(&mut client, describe(TARGET_TYPE_BYTE_PORTAL, None))
+            .await
+            .unwrap();
+        assert_eq!(client.sent()[4..], ["NoData"]);
+
+        // empty portals respond EmptyQueryResponse and stay valid across
+        // repeated Execute, without ever reaching do_query
+        for _ in 0..2 {
+            handler
+                ._on_execute(
+                    &mut client,
+                    Execute {
+                        name: None,
+                        max_rows: 0,
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            client.sent()[5..],
+            ["EmptyQueryResponse", "EmptyQueryResponse"]
+        );
+        assert!(matches!(
+            client.state(),
+            PgWireConnectionState::ReadyForQuery
+        ));
+
+        handler.on_sync(&mut client, PgSync).await.unwrap();
+        assert_eq!(client.sent()[7..], ["ReadyForQuery"]);
+
+        // Sync removed the unnamed empty portal
+        assert!(matches!(
+            handler
+                ._on_execute(
+                    &mut client,
+                    Execute {
+                        name: None,
+                        max_rows: 0
+                    },
+                )
+                .await,
+            Err(PgWireError::PortalNotFound(_))
+        ));
+
+        assert!(handler.parser.calls.lock().unwrap().is_empty());
+    }
+
+    /// Semicolon-only and whitespace-only queries are empty in the extended
+    /// protocol as well.
+    #[tokio::test]
+    async fn semicolon_only_queries_are_empty() {
+        let handler = TestHandler::new();
+        let mut client = TestClient::new();
+
+        handler
+            .on_parse(&mut client, parse(Some("s1"), ";"))
+            .await
+            .unwrap();
+        handler
+            .on_parse(&mut client, parse(Some("s2"), " \n;\t"))
+            .await
+            .unwrap();
+        assert_eq!(client.sent(), ["ParseComplete", "ParseComplete"]);
+
+        handler
+            .on_bind(&mut client, bind(Some("p1"), Some("s1")))
+            .await
+            .unwrap();
+        handler
+            ._on_execute(
+                &mut client,
+                Execute {
+                    name: Some("p1".to_owned()),
+                    max_rows: 0,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(client.sent()[2..], ["BindComplete", "EmptyQueryResponse"]);
+
+        assert!(handler.parser.calls.lock().unwrap().is_empty());
+    }
+
+    /// A string literal containing only a semicolon is a real query and must
+    /// reach the parser.
+    #[tokio::test]
+    async fn string_literal_semicolon_reaches_parser() {
+        let handler = TestHandler::new();
+        let mut client = TestClient::new();
+
+        handler
+            .on_parse(&mut client, parse(None, "';'"))
+            .await
+            .unwrap();
+        assert_eq!(client.sent(), ["ParseComplete"]);
+        assert_eq!(handler.parser.calls.lock().unwrap().as_slice(), ["';'"]);
+
+        handler
+            .on_bind(&mut client, bind(None, None))
+            .await
+            .unwrap();
+        handler
+            ._on_execute(
+                &mut client,
+                Execute {
+                    name: None,
+                    max_rows: 0,
+                },
+            )
+            .await
+            .unwrap();
+        // do_query ran and returned an execution response
+        assert_eq!(client.sent()[1..], ["BindComplete", "CommandComplete"]);
+    }
+
+    /// An empty Parse replaces a previously stored statement of the same
+    /// name, like PostgreSQL.
+    #[tokio::test]
+    async fn empty_parse_replaces_stored_statement() {
+        let handler = TestHandler::new();
+        let mut client = TestClient::new();
+
+        handler
+            .on_parse(&mut client, parse(None, "select 1"))
+            .await
+            .unwrap();
+        handler
+            .on_parse(&mut client, parse(None, ""))
+            .await
+            .unwrap();
+        assert_eq!(client.sent(), ["ParseComplete", "ParseComplete"]);
+
+        // describing the unnamed statement now reports the empty statement,
+        // not the previously parsed `select 1`
+        handler
+            ._on_describe(&mut client, describe(TARGET_TYPE_BYTE_STATEMENT, None))
+            .await
+            .unwrap();
+        assert_eq!(client.sent()[2..], ["ParameterDescription", "NoData"]);
+
+        handler
+            .on_bind(&mut client, bind(None, None))
+            .await
+            .unwrap();
+        handler
+            ._on_execute(
+                &mut client,
+                Execute {
+                    name: None,
+                    max_rows: 0,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(client.sent()[4..], ["BindComplete", "EmptyQueryResponse"]);
+    }
+
+    /// Binding an empty statement to a portal name replaces a previously
+    /// bound real portal of the same name.
+    #[tokio::test]
+    async fn empty_bind_replaces_stored_portal() {
+        let handler = TestHandler::new();
+        let mut client = TestClient::new();
+
+        handler
+            .on_parse(&mut client, parse(None, "select 1"))
+            .await
+            .unwrap();
+        handler
+            .on_bind(&mut client, bind(Some("p"), None))
+            .await
+            .unwrap();
+        handler
+            ._on_execute(
+                &mut client,
+                Execute {
+                    name: Some("p".to_owned()),
+                    max_rows: 0,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(client.sent()[1..], ["BindComplete", "CommandComplete"]);
+
+        // re-parse the unnamed statement as empty, re-bind the same portal
+        handler
+            .on_parse(&mut client, parse(None, ""))
+            .await
+            .unwrap();
+        handler
+            .on_bind(&mut client, bind(Some("p"), None))
+            .await
+            .unwrap();
+        handler
+            ._on_execute(
+                &mut client,
+                Execute {
+                    name: Some("p".to_owned()),
+                    max_rows: 0,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(client.sent()[4..], ["BindComplete", "EmptyQueryResponse"]);
+    }
+
+    /// Bind on a statement that was never parsed is an error, and binding
+    /// parameters to an empty statement is a protocol violation (PostgreSQL
+    /// answers 08P01).
+    #[tokio::test]
+    async fn bind_errors() {
+        let handler = TestHandler::new();
+        let mut client = TestClient::new();
+
+        assert!(matches!(
+            handler
+                .on_bind(&mut client, bind(Some("p"), Some("missing")))
+                .await,
+            Err(PgWireError::StatementNotFound(_))
+        ));
+
+        handler
+            .on_parse(&mut client, parse(Some("e"), ""))
+            .await
+            .unwrap();
+        let mut with_param = bind(Some("p"), Some("e"));
+        with_param.parameters.push(Some(Bytes::from_static(b"1")));
+        match handler.on_bind(&mut client, with_param).await {
+            Err(PgWireError::UserError(info)) => {
+                assert_eq!(info.code, "08P01");
+                assert!(info.message.contains("requires 0"));
+            }
+            other => panic!("expected 08P01 user error, got {other:?}"),
+        }
+    }
+
+    /// `Close` removes empty statements and empty portals like real ones.
+    #[tokio::test]
+    async fn close_removes_empty_statement_and_portal() {
+        let handler = TestHandler::new();
+        let mut client = TestClient::new();
+
+        handler
+            .on_parse(&mut client, parse(Some("e"), ""))
+            .await
+            .unwrap();
+        handler
+            .on_close(&mut client, close(TARGET_TYPE_BYTE_STATEMENT, Some("e")))
+            .await
+            .unwrap();
+        assert_eq!(client.sent(), ["ParseComplete", "CloseComplete"]);
+        assert!(matches!(
+            handler
+                .on_bind(&mut client, bind(Some("p"), Some("e")))
+                .await,
+            Err(PgWireError::StatementNotFound(_))
+        ));
+
+        handler
+            .on_parse(&mut client, parse(Some("e2"), ""))
+            .await
+            .unwrap();
+        handler
+            .on_bind(&mut client, bind(Some("p2"), Some("e2")))
+            .await
+            .unwrap();
+        handler
+            .on_close(&mut client, close(TARGET_TYPE_BYTE_PORTAL, Some("p2")))
+            .await
+            .unwrap();
+        assert!(matches!(
+            handler
+                ._on_execute(
+                    &mut client,
+                    Execute {
+                        name: Some("p2".to_owned()),
+                        max_rows: 0,
+                    },
+                )
+                .await,
+            Err(PgWireError::PortalNotFound(_))
+        ));
+    }
+
+    /// After a failed Bind the empty-statement marker survives (Close is what
+    /// clears it), matching PostgreSQL where the statement stays prepared.
+    #[tokio::test]
+    async fn marker_survives_failed_bind() {
+        let handler = TestHandler::new();
+        let mut client = TestClient::new();
+
+        handler
+            .on_parse(&mut client, parse(Some("e"), ""))
+            .await
+            .unwrap();
+        let mut bad = bind(Some("p"), Some("e"));
+        bad.parameters.push(Some(Bytes::from_static(b"1")));
+        assert!(handler.on_bind(&mut client, bad).await.is_err());
+
+        handler
+            .on_bind(&mut client, bind(Some("p"), Some("e")))
+            .await
+            .unwrap();
+        handler
+            ._on_execute(
+                &mut client,
+                Execute {
+                    name: Some("p".to_owned()),
+                    max_rows: 0,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(client.sent()[1..], ["BindComplete", "EmptyQueryResponse"]);
     }
 }

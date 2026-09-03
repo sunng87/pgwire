@@ -63,6 +63,11 @@ pub trait QueryParser {
     ///
     /// The client may or may not provide type information with any parameters
     /// from the sql.
+    ///
+    /// Note that the default `on_parse` implementation never calls this
+    /// method with an empty query (a query string without any statement, such
+    /// as `""` or `";;"`): those are handled by the extended query protocol
+    /// itself and never reach a query parser or executor.
     async fn parse_sql<C>(
         &self,
         client: &C,
