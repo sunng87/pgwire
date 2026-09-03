@@ -5,24 +5,16 @@ use std::sync::{Arc, RwLock};
 use super::portal::Portal;
 use super::stmt::StoredStatement;
 
-/// The stored state of a prepared statement name.
-///
-/// [`StatementEntry::Empty`] represents a statement that was `Parse`d from an
-/// empty query (a query string without any statement, such as `""` or
-/// `";;"`). Following PostgreSQL's extended-query protocol, an empty
-/// statement has no parsed representation: it binds with zero parameters,
-/// describes as `ParameterDescription` (no parameters) + `NoData`, and
-/// executes to `EmptyQueryResponse` without reaching the query handler.
+/// A stored prepared statement: parsed from a query, or empty when `Parse`d
+/// from an empty query (no statement to parse).
 #[derive(Debug, Clone)]
 pub enum StatementEntry<S> {
-    /// The name holds a statement parsed from an empty query.
     Empty,
-    /// The name holds a parsed statement.
     Statement(Arc<StoredStatement<S>>),
 }
 
 impl<S> StatementEntry<S> {
-    /// Get the stored statement, if this entry is not empty.
+    /// The stored statement, if any.
     pub fn as_statement(&self) -> Option<&Arc<StoredStatement<S>>> {
         match self {
             StatementEntry::Empty => None,
@@ -30,26 +22,21 @@ impl<S> StatementEntry<S> {
         }
     }
 
-    /// Test whether this entry is an empty statement.
+    /// Whether this is an empty statement.
     pub fn is_empty(&self) -> bool {
         matches!(self, StatementEntry::Empty)
     }
 }
 
-/// The stored state of a portal name.
-///
-/// [`PortalEntry::Empty`] represents a portal bound from an empty statement:
-/// it describes as `NoData` and executes to `EmptyQueryResponse`.
+/// A stored portal: bound from a parsed statement, or from an empty one.
 #[derive(Debug, Clone)]
 pub enum PortalEntry<S> {
-    /// The name holds a portal bound from an empty statement.
     Empty,
-    /// The name holds a bound portal.
     Portal(Arc<Portal<S>>),
 }
 
 impl<S> PortalEntry<S> {
-    /// Get the bound portal, if this entry is not empty.
+    /// The bound portal, if any.
     pub fn as_portal(&self) -> Option<&Arc<Portal<S>>> {
         match self {
             PortalEntry::Empty => None,
@@ -57,7 +44,7 @@ impl<S> PortalEntry<S> {
         }
     }
 
-    /// Test whether this entry is an empty portal.
+    /// Whether this is an empty portal.
     pub fn is_empty(&self) -> bool {
         matches!(self, PortalEntry::Empty)
     }
@@ -65,12 +52,10 @@ impl<S> PortalEntry<S> {
 
 /// Storage trait for prepared statements and portals.
 ///
-/// Both statements and portals can also be *empty*: a `Parse` of an empty
-/// query or a `Bind` on an empty statement stores an empty marker under the
-/// target name (replacing whatever was stored under that name before), like
-/// PostgreSQL. Empty entries are returned by `get_statement`/`get_portal` as
-/// [`StatementEntry::Empty`]/[`PortalEntry::Empty`]; removing or clearing
-/// removes them along with regular entries.
+/// Statements `Parse`d from empty queries and portals bound from them are
+/// stored as empty entries, like PostgreSQL: every `put_*` replaces whatever
+/// was previously stored under the name, and `rm_*`/`clear_portals` remove
+/// empty entries along with regular ones.
 pub trait PortalStore: Any + Send + Sync + 'static {
     type Statement;
 
@@ -80,8 +65,7 @@ pub trait PortalStore: Any + Send + Sync + 'static {
     /// Store a prepared statement by name.
     fn put_statement(&self, statement: Arc<StoredStatement<Self::Statement>>);
 
-    /// Store an empty prepared statement by name, replacing any statement
-    /// previously stored under the same name.
+    /// Store an empty prepared statement by name.
     fn put_empty_statement(&self, name: &str);
 
     /// Remove a prepared statement by name.
@@ -93,14 +77,13 @@ pub trait PortalStore: Any + Send + Sync + 'static {
     /// Store a portal by name.
     fn put_portal(&self, portal: Arc<Portal<Self::Statement>>);
 
-    /// Store an empty portal by name, replacing any portal previously stored
-    /// under the same name.
+    /// Store an empty portal by name.
     fn put_empty_portal(&self, name: &str);
 
     /// Remove a portal by name.
     fn rm_portal(&self, name: &str);
 
-    /// Remove all portals, including empty ones.
+    /// Remove all portals.
     fn clear_portals(&self);
 
     /// Retrieve a portal by name.
@@ -182,7 +165,6 @@ mod tests {
         store.put_empty_statement("s");
         assert!(store.get_statement("s").unwrap().is_empty());
 
-        // a real statement replaces the empty marker
         store.put_statement(Arc::new(StoredStatement::new(
             "s".to_owned(),
             "select 1".to_owned(),
@@ -195,7 +177,6 @@ mod tests {
             Some("select 1".to_owned())
         );
 
-        // and an empty marker replaces the real statement
         store.put_empty_statement("s");
         assert!(store.get_statement("s").unwrap().is_empty());
 

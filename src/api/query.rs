@@ -187,14 +187,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
     /// Called when client sends `parse` command.
     ///
     /// The default implementation parses the query with
-    /// `Self::QueryParser` and stores it in `Self::PortalStore`.
-    ///
-    /// If the query is an empty query (a string without any statement, such
-    /// as `""` or `";;"`), the parser is not called at all: like PostgreSQL,
-    /// the statement name is remembered as empty (replacing any statement
-    /// previously stored under the same name), `ParseComplete` is returned,
-    /// and later `Bind`/`Describe`/`Execute` on that name follow PostgreSQL's
-    /// empty-query behavior.
+    /// `Self::QueryParser` and stores it in `Self::PortalStore`. Empty
+    /// queries are not parsed: like PostgreSQL, an empty statement is stored
+    /// instead, which binds, describes and executes as an empty query.
     async fn on_parse<C>(&self, client: &mut C, message: Parse) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -208,9 +203,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
             .unwrap_or_else(|| DEFAULT_NAME.to_owned());
 
         if is_empty_query(&message.query) {
-            // An empty query has no parsed statement to store. Like
-            // PostgreSQL, remember the name as an empty statement; it
-            // replaces any statement previously stored under that name.
             client.portal_store().put_empty_statement(&name);
         } else {
             let parser = self.query_parser();
@@ -228,11 +220,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
     ///
     /// The default implementation associates parameters with a previously
     /// parsed statement and stores the result in `Self::PortalStore` as well.
-    ///
-    /// Binding to a statement parsed from an empty query also succeeds
-    /// (with zero parameters, like PostgreSQL): the portal name is remembered
-    /// as an empty portal, replacing any portal previously stored under the
-    /// same name.
+    /// Binding an empty statement stores an empty portal, with zero
+    /// parameters, like PostgreSQL.
     async fn on_bind<C>(&self, client: &mut C, message: Bind) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -260,8 +249,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
                         ),
                     ))));
                 }
-                // an empty statement binds to an empty portal, which
-                // replaces any portal previously stored under that name
                 client.portal_store().put_empty_portal(portal_name);
             }
             None => return Err(PgWireError::StatementNotFound(statement_name.to_owned())),
@@ -277,9 +264,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
     ///
     /// The default implementation delegates the query to `self::do_query` and
     /// sends response messages according to `Response` from `self::do_query`.
-    ///
-    /// Portals bound from empty statements are handled here like PostgreSQL:
-    /// they respond with `EmptyQueryResponse` and never reach `do_query`.
+    /// Empty portals answer `EmptyQueryResponse` and never reach `do_query`.
     async fn on_execute<C>(&self, client: &mut C, message: Execute) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -315,10 +300,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let portal = match client.portal_store().get_portal(portal_name) {
             Some(PortalEntry::Portal(portal)) => portal,
             Some(PortalEntry::Empty) => {
-                // An empty portal never reaches `do_query`: it directly
-                // answers `EmptyQueryResponse`, like PostgreSQL. The portal
-                // stays valid until it is replaced, closed, or (for the
-                // unnamed portal) dropped by `Sync`.
+                // never reaches do_query; stays valid for repeated Execute
                 client
                     .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
                     .await?;
@@ -459,7 +441,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
                     let describe_response = self.do_describe_statement(client, &stmt).await?;
                     send_describe_response(client, &describe_response).await?;
                 }
-                // an empty statement has no parameters and no result data
                 Some(StatementEntry::Empty) => {
                     let describe_response = DescribeStatementResponse::no_data();
                     send_describe_response(client, &describe_response).await?;
@@ -499,8 +480,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
     /// Called when client sends `sync` command.
     ///
     /// The default implementation flushes client buffer and sends
-    /// `READY_FOR_QUERY` response to client. The unnamed portal, including an
-    /// empty one, is removed, like PostgreSQL.
+    /// `READY_FOR_QUERY` response to client
     async fn on_sync<C>(&self, client: &mut C, _message: PgSync) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -521,8 +501,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
 
     /// Called when client sends `close` command.
     ///
-    /// The default implementation closes certain statement or portal,
-    /// including empty statements and empty portals.
+    /// The default implementation closes certain statement or portal.
     async fn on_close<C>(&self, client: &mut C, message: Close) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -884,11 +863,8 @@ mod tests {
     }
 }
 
-/// Unit tests for extended-query empty statement handling.
-///
-/// The expected message sequences mirror the behavior of a real PostgreSQL
-/// server (verified against PostgreSQL 18) driven over the wire with
-/// Parse/Bind/Describe/Execute/Sync of empty and semicolon-only queries.
+/// Extended-query empty statement handling, mirroring PostgreSQL 18
+/// message sequences.
 #[cfg(test)]
 mod extended_empty_query_tests {
     use std::net::SocketAddr;
@@ -905,8 +881,8 @@ mod extended_empty_query_tests {
     use crate::api::{DefaultClient, PgWireConnectionState};
     use crate::messages::response::TransactionStatus;
 
-    /// A client test-double implementing everything the query handlers
-    /// require. Backend messages are recorded instead of being encoded.
+    /// A client test-double recording backend messages instead of encoding
+    /// them.
     struct TestClient {
         inner: DefaultClient<String>,
         sent: Mutex<Vec<PgWireBackendMessage>>,
@@ -1055,8 +1031,7 @@ mod extended_empty_query_tests {
         }
     }
 
-    /// A parser that records every query it receives and refuses empty ones:
-    /// after this change, empty queries must never reach a parser.
+    /// A parser that fails on empty queries: they must never reach a parser.
     #[derive(Default)]
     struct RecordingParser {
         calls: Mutex<Vec<String>>,
@@ -1166,9 +1141,7 @@ mod extended_empty_query_tests {
     }
 
     /// Parse/Bind/Describe/Execute/Sync of an empty query behaves exactly
-    /// like PostgreSQL: ParseComplete, ParameterDescription(0)+NoData,
-    /// BindComplete, NoData, EmptyQueryResponse (repeatable), ReadyForQuery,
-    /// and the parser is never invoked.
+    /// like PostgreSQL.
     #[tokio::test]
     async fn empty_query_extended_protocol_sequence() {
         let handler = TestHandler::new();
@@ -1199,8 +1172,7 @@ mod extended_empty_query_tests {
             .unwrap();
         assert_eq!(client.sent()[4..], ["NoData"]);
 
-        // empty portals respond EmptyQueryResponse and stay valid across
-        // repeated Execute, without ever reaching do_query
+        // empty portals stay valid across repeated Execute
         for _ in 0..2 {
             handler
                 ._on_execute(
@@ -1306,7 +1278,6 @@ mod extended_empty_query_tests {
             )
             .await
             .unwrap();
-        // do_query ran and returned an execution response
         assert_eq!(client.sent()[1..], ["BindComplete", "CommandComplete"]);
     }
 
@@ -1327,8 +1298,7 @@ mod extended_empty_query_tests {
             .unwrap();
         assert_eq!(client.sent(), ["ParseComplete", "ParseComplete"]);
 
-        // describing the unnamed statement now reports the empty statement,
-        // not the previously parsed `select 1`
+        // describes the empty statement, not the previously parsed `select 1`
         handler
             ._on_describe(&mut client, describe(TARGET_TYPE_BYTE_STATEMENT, None))
             .await
@@ -1479,8 +1449,8 @@ mod extended_empty_query_tests {
         ));
     }
 
-    /// After a failed Bind the empty-statement marker survives (Close is what
-    /// clears it), matching PostgreSQL where the statement stays prepared.
+    /// After a failed Bind the empty statement stays prepared, matching
+    /// PostgreSQL.
     #[tokio::test]
     async fn marker_survives_failed_bind() {
         let handler = TestHandler::new();
