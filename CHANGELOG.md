@@ -25,6 +25,13 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Breaking: `QueryParser::parse_sql` now returns
+  `PgWireResult<Option<Self::Statement>>`, and `StoredStatement::parse`
+  correspondingly returns `Option<StoredStatement<S>>`. `None` denotes an
+  empty query: it is stored as an empty statement and executes to
+  `EmptyQueryResponse`. This allows a query parser to report its own notion
+  of empty query; syntactically empty queries (semicolons and whitespace
+  only) are still never passed to the parser.
 - Breaking: `PortalStore` now represents empty statements and portals.
   `get_statement` returns `Option<StatementEntry<S>>` and `get_portal`
   returns `Option<PortalEntry<S>>`: the new `Empty` variant marks a name

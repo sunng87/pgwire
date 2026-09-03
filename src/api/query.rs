@@ -30,7 +30,7 @@ use crate::messages::extendedquery::{
 use crate::messages::response::{EmptyQueryResponse, ReadyForQuery, TransactionStatus};
 use crate::messages::simplequery::Query;
 
-fn is_empty_query(q: &str) -> bool {
+pub(crate) fn is_empty_query(q: &str) -> bool {
     // A query string that contains only semicolons and whitespace parses to no
     // statements, which PostgreSQL treats as an empty query and answers with
     // `EmptyQueryResponse` instead of dispatching to the executor. This covers
@@ -188,8 +188,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
     ///
     /// The default implementation parses the query with
     /// `Self::QueryParser` and stores it in `Self::PortalStore`. Empty
-    /// queries are not parsed: like PostgreSQL, an empty statement is stored
-    /// instead, which binds, describes and executes as an empty query.
+    /// queries are stored as empty statements instead, like PostgreSQL:
+    /// they bind, describe and execute as empty queries.
     async fn on_parse<C>(&self, client: &mut C, message: Parse) -> PgWireResult<()>
     where
         C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
@@ -202,12 +202,10 @@ pub trait ExtendedQueryHandler: Send + Sync {
             .clone()
             .unwrap_or_else(|| DEFAULT_NAME.to_owned());
 
-        if is_empty_query(&message.query) {
-            client.portal_store().put_empty_statement(&name);
-        } else {
-            let parser = self.query_parser();
-            let stmt = StoredStatement::parse(client, &message, parser).await?;
-            client.portal_store().put_statement(Arc::new(stmt));
+        let parser = self.query_parser();
+        match StoredStatement::parse(client, &message, parser).await? {
+            Some(stmt) => client.portal_store().put_statement(Arc::new(stmt)),
+            None => client.portal_store().put_empty_statement(&name),
         }
         client
             .send(PgWireBackendMessage::ParseComplete(ParseComplete::new()))
@@ -1031,7 +1029,8 @@ mod extended_empty_query_tests {
         }
     }
 
-    /// A parser that fails on empty queries: they must never reach a parser.
+    /// A parser that fails on syntactically empty queries (they must never
+    /// reach a parser) and reports comment-only queries as empty.
     #[derive(Default)]
     struct RecordingParser {
         calls: Mutex<Vec<String>>,
@@ -1046,7 +1045,7 @@ mod extended_empty_query_tests {
             _client: &C,
             sql: &str,
             _types: &[Option<Type>],
-        ) -> PgWireResult<Self::Statement>
+        ) -> PgWireResult<Option<Self::Statement>>
         where
             C: ClientInfo + Unpin + Send + Sync,
         {
@@ -1055,7 +1054,11 @@ mod extended_empty_query_tests {
                 "parser must never be called for an empty query, got {sql:?}"
             );
             self.calls.lock().unwrap().push(sql.to_owned());
-            Ok(sql.to_owned())
+            if sql.starts_with("--") {
+                Ok(None)
+            } else {
+                Ok(Some(sql.to_owned()))
+            }
         }
 
         fn get_parameter_types(&self, _stmt: &Self::Statement) -> PgWireResult<Vec<Type>> {
@@ -1212,6 +1215,45 @@ mod extended_empty_query_tests {
         ));
 
         assert!(handler.parser.calls.lock().unwrap().is_empty());
+    }
+
+    /// A query the parser reports as empty (`None`) is stored and executed
+    /// as an empty query.
+    #[tokio::test]
+    async fn parser_reported_empty_query_executes_as_empty() {
+        let handler = TestHandler::new();
+        let mut client = TestClient::new();
+
+        handler
+            .on_parse(&mut client, parse(Some("c"), "-- comment only"))
+            .await
+            .unwrap();
+        assert_eq!(
+            handler.parser.calls.lock().unwrap().as_slice(),
+            ["-- comment only"]
+        );
+
+        handler
+            ._on_describe(&mut client, describe(TARGET_TYPE_BYTE_STATEMENT, Some("c")))
+            .await
+            .unwrap();
+        assert_eq!(client.sent()[1..], ["ParameterDescription", "NoData"]);
+
+        handler
+            .on_bind(&mut client, bind(Some("p"), Some("c")))
+            .await
+            .unwrap();
+        handler
+            ._on_execute(
+                &mut client,
+                Execute {
+                    name: Some("p".to_owned()),
+                    max_rows: 0,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(client.sent()[3..], ["BindComplete", "EmptyQueryResponse"]);
     }
 
     /// Semicolon-only and whitespace-only queries are empty in the extended
