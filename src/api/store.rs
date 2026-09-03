@@ -5,48 +5,36 @@ use std::sync::{Arc, RwLock};
 use super::portal::Portal;
 use super::stmt::StoredStatement;
 
-/// A stored prepared statement: parsed from a query, or empty when `Parse`d
-/// from an empty query (no statement to parse).
-#[derive(Debug, Clone)]
-pub enum StatementEntry<S> {
+/// An entry stored in a [`PortalStore`] under a statement or portal name:
+/// either the stored value, or an empty marker for a query that parsed to
+/// no statement.
+#[derive(Debug)]
+pub enum Entry<T> {
     Empty,
-    Statement(Arc<StoredStatement<S>>),
+    Value(Arc<T>),
 }
 
-impl<S> StatementEntry<S> {
-    /// The stored statement, if any.
-    pub fn as_statement(&self) -> Option<&Arc<StoredStatement<S>>> {
+impl<T> Clone for Entry<T> {
+    fn clone(&self) -> Self {
         match self {
-            StatementEntry::Empty => None,
-            StatementEntry::Statement(stmt) => Some(stmt),
+            Entry::Empty => Entry::Empty,
+            Entry::Value(value) => Entry::Value(Arc::clone(value)),
+        }
+    }
+}
+
+impl<T> Entry<T> {
+    /// The stored value, if any.
+    pub fn value(&self) -> Option<&Arc<T>> {
+        match self {
+            Entry::Empty => None,
+            Entry::Value(value) => Some(value),
         }
     }
 
-    /// Whether this is an empty statement.
+    /// Whether this is an empty entry.
     pub fn is_empty(&self) -> bool {
-        matches!(self, StatementEntry::Empty)
-    }
-}
-
-/// A stored portal: bound from a parsed statement, or from an empty one.
-#[derive(Debug, Clone)]
-pub enum PortalEntry<S> {
-    Empty,
-    Portal(Arc<Portal<S>>),
-}
-
-impl<S> PortalEntry<S> {
-    /// The bound portal, if any.
-    pub fn as_portal(&self) -> Option<&Arc<Portal<S>>> {
-        match self {
-            PortalEntry::Empty => None,
-            PortalEntry::Portal(portal) => Some(portal),
-        }
-    }
-
-    /// Whether this is an empty portal.
-    pub fn is_empty(&self) -> bool {
-        matches!(self, PortalEntry::Empty)
+        matches!(self, Entry::Empty)
     }
 }
 
@@ -72,7 +60,7 @@ pub trait PortalStore: Any + Send + Sync + 'static {
     fn rm_statement(&self, name: &str);
 
     /// Retrieve a prepared statement by name.
-    fn get_statement(&self, name: &str) -> Option<StatementEntry<Self::Statement>>;
+    fn get_statement(&self, name: &str) -> Option<Entry<StoredStatement<Self::Statement>>>;
 
     /// Store a portal by name.
     fn put_portal(&self, portal: Arc<Portal<Self::Statement>>);
@@ -87,16 +75,16 @@ pub trait PortalStore: Any + Send + Sync + 'static {
     fn clear_portals(&self);
 
     /// Retrieve a portal by name.
-    fn get_portal(&self, name: &str) -> Option<PortalEntry<Self::Statement>>;
+    fn get_portal(&self, name: &str) -> Option<Entry<Portal<Self::Statement>>>;
 }
 
 /// In-memory implementation of `PortalStore` backed by `BTreeMap`.
 #[derive(Debug, Default, new)]
 pub struct MemPortalStore<S> {
     #[new(default)]
-    statements: RwLock<BTreeMap<String, StatementEntry<S>>>,
+    statements: RwLock<BTreeMap<String, Entry<StoredStatement<S>>>>,
     #[new(default)]
-    portals: RwLock<BTreeMap<String, PortalEntry<S>>>,
+    portals: RwLock<BTreeMap<String, Entry<Portal<S>>>>,
 }
 
 impl<S: Clone + Send + Sync + 'static> PortalStore for MemPortalStore<S> {
@@ -109,12 +97,12 @@ impl<S: Clone + Send + Sync + 'static> PortalStore for MemPortalStore<S> {
     fn put_statement(&self, statement: Arc<StoredStatement<Self::Statement>>) {
         let name = statement.id.to_owned();
         let mut guard = self.statements.write().unwrap();
-        guard.insert(name, StatementEntry::Statement(statement));
+        guard.insert(name, Entry::Value(statement));
     }
 
     fn put_empty_statement(&self, name: &str) {
         let mut guard = self.statements.write().unwrap();
-        guard.insert(name.to_owned(), StatementEntry::Empty);
+        guard.insert(name.to_owned(), Entry::Empty);
     }
 
     fn rm_statement(&self, name: &str) {
@@ -122,19 +110,19 @@ impl<S: Clone + Send + Sync + 'static> PortalStore for MemPortalStore<S> {
         guard.remove(name);
     }
 
-    fn get_statement(&self, name: &str) -> Option<StatementEntry<Self::Statement>> {
+    fn get_statement(&self, name: &str) -> Option<Entry<StoredStatement<Self::Statement>>> {
         let guard = self.statements.read().unwrap();
         guard.get(name).cloned()
     }
 
     fn put_portal(&self, portal: Arc<Portal<Self::Statement>>) {
         let mut guard = self.portals.write().unwrap();
-        guard.insert(portal.name.to_owned(), PortalEntry::Portal(portal));
+        guard.insert(portal.name.to_owned(), Entry::Value(portal));
     }
 
     fn put_empty_portal(&self, name: &str) {
         let mut guard = self.portals.write().unwrap();
-        guard.insert(name.to_owned(), PortalEntry::Empty);
+        guard.insert(name.to_owned(), Entry::Empty);
     }
 
     fn rm_portal(&self, name: &str) {
@@ -147,7 +135,7 @@ impl<S: Clone + Send + Sync + 'static> PortalStore for MemPortalStore<S> {
         guard.clear();
     }
 
-    fn get_portal(&self, name: &str) -> Option<PortalEntry<Self::Statement>> {
+    fn get_portal(&self, name: &str) -> Option<Entry<Portal<Self::Statement>>> {
         let guard = self.portals.read().unwrap();
         guard.get(name).cloned()
     }
@@ -173,7 +161,7 @@ mod tests {
         assert_eq!(
             store
                 .get_statement("s")
-                .and_then(|e| e.as_statement().map(|s| s.statement.clone())),
+                .and_then(|e| e.value().map(|s| s.statement.clone())),
             Some("select 1".to_owned())
         );
 
@@ -195,7 +183,7 @@ mod tests {
         let portal = Portal::new_cursor("p".to_owned(), statement);
 
         store.put_portal(Arc::new(portal));
-        assert!(store.get_portal("p").unwrap().as_portal().is_some());
+        assert!(store.get_portal("p").unwrap().value().is_some());
 
         store.put_empty_portal("p");
         assert!(store.get_portal("p").unwrap().is_empty());

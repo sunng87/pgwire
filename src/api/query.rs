@@ -12,7 +12,7 @@ use futures::stream::StreamExt;
 use super::portal::Portal;
 use super::results::{Tag, into_row_description};
 use super::stmt::{NoopQueryParser, QueryParser, StoredStatement};
-use super::store::{PortalEntry, PortalStore, StatementEntry};
+use super::store::{Entry, PortalStore};
 use super::{ClientInfo, ClientPortalStore, ConnectionHandle, DEFAULT_NAME, copy};
 use crate::api::PgWireConnectionState;
 use crate::api::Type;
@@ -231,11 +231,11 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let portal_name = message.portal_name.as_deref().unwrap_or(DEFAULT_NAME);
 
         match client.portal_store().get_statement(statement_name) {
-            Some(StatementEntry::Statement(statement)) => {
+            Some(Entry::Value(statement)) => {
                 let portal = Portal::try_new(&message, statement)?;
                 client.portal_store().put_portal(Arc::new(portal));
             }
-            Some(StatementEntry::Empty) => {
+            Some(Entry::Empty) => {
                 if !message.parameters.is_empty() {
                     return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                         "ERROR".to_owned(),
@@ -296,8 +296,8 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let max_rows = message.max_rows as usize;
 
         let portal = match client.portal_store().get_portal(portal_name) {
-            Some(PortalEntry::Portal(portal)) => portal,
-            Some(PortalEntry::Empty) => {
+            Some(Entry::Value(portal)) => portal,
+            Some(Entry::Empty) => {
                 // never reaches do_query; stays valid for repeated Execute
                 client
                     .feed(PgWireBackendMessage::EmptyQueryResponse(EmptyQueryResponse))
@@ -435,22 +435,22 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let name = message.name.as_deref().unwrap_or(DEFAULT_NAME);
         match message.target_type {
             TARGET_TYPE_BYTE_STATEMENT => match client.portal_store().get_statement(name) {
-                Some(StatementEntry::Statement(stmt)) => {
+                Some(Entry::Value(stmt)) => {
                     let describe_response = self.do_describe_statement(client, &stmt).await?;
                     send_describe_response(client, &describe_response).await?;
                 }
-                Some(StatementEntry::Empty) => {
+                Some(Entry::Empty) => {
                     let describe_response = DescribeStatementResponse::no_data();
                     send_describe_response(client, &describe_response).await?;
                 }
                 None => return Err(PgWireError::StatementNotFound(name.to_owned())),
             },
             TARGET_TYPE_BYTE_PORTAL => match client.portal_store().get_portal(name) {
-                Some(PortalEntry::Portal(portal)) => {
+                Some(Entry::Value(portal)) => {
                     let describe_response = self.do_describe_portal(client, &portal).await?;
                     send_describe_response(client, &describe_response).await?;
                 }
-                Some(PortalEntry::Empty) => {
+                Some(Entry::Empty) => {
                     let describe_response = DescribePortalResponse::no_data();
                     send_describe_response(client, &describe_response).await?;
                 }

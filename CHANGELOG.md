@@ -33,16 +33,16 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   of empty query; syntactically empty queries (semicolons and whitespace
   only) are still never passed to the parser.
 - Breaking: `PortalStore` now represents empty statements and portals.
-  `get_statement` returns `Option<StatementEntry<S>>` and `get_portal`
-  returns `Option<PortalEntry<S>>`: the new `Empty` variant marks a name
-  under which an empty prepared statement or portal is stored, alongside the
-  new `put_empty_statement`/`put_empty_portal` methods. Like every `put_*`,
-  storing an empty entry replaces whatever was previously stored under that
-  name, and `rm_*`/`clear_portals` remove empty entries along with regular
-  ones. `StoredStatement` and `Portal` themselves are unchanged — the
-  impact is limited to `PortalStore` implementors and code calling
-  `get_statement`/`get_portal` directly (`StatementEntry::as_statement`/
-  `PortalEntry::as_portal` help with the migration).
+  `get_statement` returns `Option<Entry<StoredStatement<S>>>` and
+  `get_portal` returns `Option<Entry<Portal<S>>>`: the new `Entry::Empty`
+  variant marks a name under which an empty prepared statement or portal is
+  stored, alongside the new `put_empty_statement`/`put_empty_portal`
+  methods. Like every `put_*`, storing an empty entry replaces whatever was
+  previously stored under that name, and `rm_*`/`clear_portals` remove
+  empty entries along with regular ones. `StoredStatement` and `Portal`
+  themselves are unchanged — the impact is limited to `PortalStore`
+  implementors and code calling `get_statement`/`get_portal` directly
+  (`Entry::value` helps with the migration).
 
 ### Fixed
 

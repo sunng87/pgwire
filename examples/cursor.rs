@@ -11,7 +11,7 @@ use pgwire::api::portal::Portal;
 use pgwire::api::query::SimpleQueryHandler;
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
 use pgwire::api::stmt::StoredStatement;
-use pgwire::api::store::{MemPortalStore, PortalEntry, PortalStore};
+use pgwire::api::store::{Entry, MemPortalStore, PortalStore};
 use pgwire::api::{ClientInfo, ClientPortalStore, PgWireServerHandlers, Type};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pgwire::messages::response::NoticeResponse;
@@ -210,7 +210,7 @@ async fn handle_fetch(
 ) -> PgWireResult<Vec<Response>> {
     println!("FETCH {} FROM {}", count, cursor_name);
 
-    let Some(PortalEntry::Portal(portal)) = portal_store.get_portal(cursor_name) else {
+    let Some(Entry::Value(portal)) = portal_store.get_portal(cursor_name) else {
         return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
             "ERROR".to_owned(),
             "34000".to_owned(),
