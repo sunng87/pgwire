@@ -9,6 +9,7 @@ use crate::messages::PgWireBackendMessage;
 use crate::messages::extendedquery::Parse;
 
 use super::portal::Format;
+use super::query::is_empty_query;
 use super::results::FieldInfo;
 use super::{ClientInfo, DEFAULT_NAME};
 
@@ -26,12 +27,15 @@ pub struct StoredStatement<S> {
 }
 
 impl<S> StoredStatement<S> {
-    /// Parse a `Parse` message into a stored statement using the given query parser.
+    /// Parse a `Parse` message into a stored statement using the given query
+    /// parser.
+    ///
+    /// Returns `None` for an empty query: there is no statement to store.
     pub async fn parse<C, Q>(
         client: &C,
         parse: &Parse,
         parser: Q,
-    ) -> PgWireResult<StoredStatement<S>>
+    ) -> PgWireResult<Option<StoredStatement<S>>>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         Q: QueryParser<Statement = S>,
@@ -41,15 +45,20 @@ impl<S> StoredStatement<S> {
             .iter()
             .map(|oid| Type::from_oid(*oid))
             .collect::<Vec<_>>();
-        let statement = parser.parse_sql(client, &parse.query, &types).await?;
-        Ok(StoredStatement {
-            id: parse
-                .name
-                .clone()
-                .unwrap_or_else(|| DEFAULT_NAME.to_owned()),
-            statement,
-            parameter_types: types,
-        })
+        if is_empty_query(&parse.query) {
+            return Ok(None);
+        }
+        Ok(parser
+            .parse_sql(client, &parse.query, &types)
+            .await?
+            .map(|statement| StoredStatement {
+                id: parse
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_NAME.to_owned()),
+                statement,
+                parameter_types: types,
+            }))
     }
 }
 
@@ -63,12 +72,17 @@ pub trait QueryParser {
     ///
     /// The client may or may not provide type information with any parameters
     /// from the sql.
+    ///
+    /// Return `Ok(None)` for an empty query; it is stored as an empty
+    /// statement and executes to `EmptyQueryResponse`, like PostgreSQL.
+    /// Syntactically empty queries (only semicolons and whitespace) never
+    /// reach this method.
     async fn parse_sql<C>(
         &self,
         client: &C,
         sql: &str,
         types: &[Option<Type>],
-    ) -> PgWireResult<Self::Statement>
+    ) -> PgWireResult<Option<Self::Statement>>
     where
         C: ClientInfo + Unpin + Send + Sync;
 
@@ -103,7 +117,7 @@ where
         client: &C,
         sql: &str,
         types: &[Option<Type>],
-    ) -> PgWireResult<Self::Statement>
+    ) -> PgWireResult<Option<Self::Statement>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
@@ -136,11 +150,11 @@ impl QueryParser for NoopQueryParser {
         _client: &C,
         sql: &str,
         _types: &[Option<Type>],
-    ) -> PgWireResult<Self::Statement>
+    ) -> PgWireResult<Option<Self::Statement>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        Ok(sql.to_owned())
+        Ok(Some(sql.to_owned()))
     }
 
     fn get_parameter_types(&self, _stmt: &Self::Statement) -> PgWireResult<Vec<Type>> {
