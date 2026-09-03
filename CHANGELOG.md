@@ -23,18 +23,33 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   by PostgreSQL 18+ and the minor-only form used by older servers) and adopts
   the negotiated version for the rest of the connection.
 
+### Changed
+
+- Breaking: `PortalStore` now represents empty statements and portals.
+  `get_statement` returns `Option<StatementEntry<S>>` and `get_portal`
+  returns `Option<PortalEntry<S>>`: the new `Empty` variant marks a name
+  under which an empty prepared statement or portal is stored, alongside the
+  new `put_empty_statement`/`put_empty_portal` methods. Like every `put_*`,
+  storing an empty entry replaces whatever was previously stored under that
+  name, and `rm_*`/`clear_portals` remove empty entries along with regular
+  ones. `StoredStatement` and `Portal` themselves are unchanged — the
+  impact is limited to `PortalStore` implementors and code calling
+  `get_statement`/`get_portal` directly (`StatementEntry::as_statement`/
+  `PortalEntry::as_portal` help with the migration).
+
 ### Fixed
 
 - Extended query protocol: empty queries (a query string without any
   statement, such as `""` or `";;"`) are now handled like PostgreSQL instead
   of being dispatched to the query parser: `Parse` succeeds without calling
-  `QueryParser`, `Describe` answers `ParameterDescription` (no parameters) +
-  `NoData`, `Bind` succeeds (rejecting bound parameters with `08P01`), and
+  `QueryParser` and stores an empty statement, `Describe` answers
+  `ParameterDescription` (no parameters) + `NoData`, `Bind` succeeds
+  (rejecting bound parameters with `08P01`) and stores an empty portal, and
   `Execute` returns `EmptyQueryResponse` without reaching `do_query`. An
-  empty `Parse` replaces any statement previously stored under the same name,
-  and `Close`/`Sync` drop empty statements and the unnamed empty portal like
-  real ones. Empty queries are tracked internally per connection, so no
-  changes to `PortalStore`, `StoredStatement`, or `Portal` were required.
+  empty `Parse` replaces any statement previously stored under the same
+  name, and `Close`/`Sync` drop empty statements and the unnamed empty
+  portal like real ones. Behavior verified message-for-message against
+  PostgreSQL 18.
 - Client API: backend messages are now decoded with the rules of the protocol
   version the client actually advertised, instead of always 3.2. Previously a
   4-byte protocol 3.0 cancel key was decoded as `SecretKey::Bytes` instead of

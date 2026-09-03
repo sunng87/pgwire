@@ -1,8 +1,7 @@
 use std::cmp::max;
-use std::collections::HashSet;
 use std::fmt::Debug;
 use std::ops::Deref;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
@@ -13,7 +12,7 @@ use futures::stream::StreamExt;
 use super::portal::Portal;
 use super::results::{Tag, into_row_description};
 use super::stmt::{NoopQueryParser, QueryParser, StoredStatement};
-use super::store::PortalStore;
+use super::store::{PortalEntry, PortalStore, StatementEntry};
 use super::{ClientInfo, ClientPortalStore, ConnectionHandle, DEFAULT_NAME, copy};
 use crate::api::PgWireConnectionState;
 use crate::api::Type;
@@ -47,96 +46,6 @@ where
 {
     let handle = client.session_extensions().get::<Arc<ConnectionHandle>>()?;
     Some(handle.start_query().await)
-}
-
-/// Tracks statement and portal names that refer to empty queries.
-///
-/// Empty queries (a query string without any statement, such as `""` or
-/// `";;"`) have no parsed representation, so there is nothing to store in
-/// the [`PortalStore`] as a `StoredStatement`. Instead, the default extended
-/// query handlers record their names in this per-connection registry,
-/// mirroring PostgreSQL's extended-query behavior for empty queries:
-///
-/// - `Parse` of an empty query succeeds and replaces any statement previously
-///   stored under the same name;
-/// - `Bind` on that name succeeds (binding zero parameters), replacing any
-///   portal previously stored under the portal name;
-/// - `Describe` answers `ParameterDescription` (no parameters) + `NoData`;
-/// - `Execute` returns `EmptyQueryResponse` without dispatching to
-///   [`ExtendedQueryHandler::do_query`];
-/// - `Close` removes the marker, and `Sync` drops the unnamed empty portal.
-///
-/// The registry lives in [`SessionExtensions`](super::SessionExtensions), so
-/// this is purely internal bookkeeping: neither the [`PortalStore`] API nor
-/// the `StoredStatement`/`Portal` types need to represent an empty variant.
-#[derive(Debug, Default)]
-struct EmptyStatementRegistry {
-    statements: RwLock<HashSet<String>>,
-    portals: RwLock<HashSet<String>>,
-}
-
-impl EmptyStatementRegistry {
-    fn for_client<C: ClientInfo>(client: &C) -> Arc<Self> {
-        client
-            .session_extensions()
-            .get_or_insert_with(Self::default)
-    }
-
-    /// Record that `name` was last `Parse`d from an empty query.
-    fn mark_statement<C: ClientInfo>(client: &C, name: &str) {
-        Self::for_client(client)
-            .statements
-            .write()
-            .unwrap()
-            .insert(name.to_owned());
-    }
-
-    /// Forget an empty-statement marker, e.g. after re-`Parse` of a real
-    /// statement or a `Close`.
-    fn unmark_statement<C: ClientInfo>(client: &C, name: &str) {
-        Self::for_client(client)
-            .statements
-            .write()
-            .unwrap()
-            .remove(name);
-    }
-
-    /// Test whether `name` is an empty statement.
-    fn is_empty_statement<C: ClientInfo>(client: &C, name: &str) -> bool {
-        Self::for_client(client)
-            .statements
-            .read()
-            .unwrap()
-            .contains(name)
-    }
-
-    /// Record that `name` was `Bind`ed from an empty statement.
-    fn mark_portal<C: ClientInfo>(client: &C, name: &str) {
-        Self::for_client(client)
-            .portals
-            .write()
-            .unwrap()
-            .insert(name.to_owned());
-    }
-
-    /// Forget an empty-portal marker, e.g. after `Bind` of a real portal or a
-    /// `Close`.
-    fn unmark_portal<C: ClientInfo>(client: &C, name: &str) {
-        Self::for_client(client)
-            .portals
-            .write()
-            .unwrap()
-            .remove(name);
-    }
-
-    /// Test whether `name` is an empty portal.
-    fn is_empty_portal<C: ClientInfo>(client: &C, name: &str) -> bool {
-        Self::for_client(client)
-            .portals
-            .read()
-            .unwrap()
-            .contains(name)
-    }
 }
 
 /// handler for processing simple query.
@@ -299,15 +208,13 @@ pub trait ExtendedQueryHandler: Send + Sync {
             .unwrap_or_else(|| DEFAULT_NAME.to_owned());
 
         if is_empty_query(&message.query) {
-            // An empty query has no parsed statement to store. Remember the
-            // name instead, and drop any previously stored statement of the
-            // same name: `Parse` always replaces its target.
-            client.portal_store().rm_statement(&name);
-            EmptyStatementRegistry::mark_statement(client, &name);
+            // An empty query has no parsed statement to store. Like
+            // PostgreSQL, remember the name as an empty statement; it
+            // replaces any statement previously stored under that name.
+            client.portal_store().put_empty_statement(&name);
         } else {
             let parser = self.query_parser();
             let stmt = StoredStatement::parse(client, &message, parser).await?;
-            EmptyStatementRegistry::unmark_statement(client, &name);
             client.portal_store().put_statement(Arc::new(stmt));
         }
         client
@@ -336,39 +243,34 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let statement_name = message.statement_name.as_deref().unwrap_or(DEFAULT_NAME);
         let portal_name = message.portal_name.as_deref().unwrap_or(DEFAULT_NAME);
 
-        if let Some(statement) = client.portal_store().get_statement(statement_name) {
-            let portal = Portal::try_new(&message, statement)?;
-            client.portal_store().put_portal(Arc::new(portal));
-            // a real portal replaces a possibly existing empty-portal marker
-            EmptyStatementRegistry::unmark_portal(client, portal_name);
-            client
-                .send(PgWireBackendMessage::BindComplete(BindComplete::new()))
-                .await?;
-            Ok(())
-        } else if EmptyStatementRegistry::is_empty_statement(client, statement_name) {
-            if !message.parameters.is_empty() {
-                return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                    "ERROR".to_owned(),
-                    "08P01".to_owned(),
-                    format!(
-                        "bind message supplies {} parameters, but prepared statement {:?} requires 0",
-                        message.parameters.len(),
-                        statement_name
-                    ),
-                ))));
+        match client.portal_store().get_statement(statement_name) {
+            Some(StatementEntry::Statement(statement)) => {
+                let portal = Portal::try_new(&message, statement)?;
+                client.portal_store().put_portal(Arc::new(portal));
             }
-            // an empty statement binds successfully: remember the portal name
-            // as an empty portal, and drop any previously stored portal of the
-            // same name: `Bind` always replaces its target.
-            client.portal_store().rm_portal(portal_name);
-            EmptyStatementRegistry::mark_portal(client, portal_name);
-            client
-                .send(PgWireBackendMessage::BindComplete(BindComplete::new()))
-                .await?;
-            Ok(())
-        } else {
-            Err(PgWireError::StatementNotFound(statement_name.to_owned()))
+            Some(StatementEntry::Empty) => {
+                if !message.parameters.is_empty() {
+                    return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                        "ERROR".to_owned(),
+                        "08P01".to_owned(),
+                        format!(
+                            "bind message supplies {} parameters, but prepared statement {:?} requires 0",
+                            message.parameters.len(),
+                            statement_name
+                        ),
+                    ))));
+                }
+                // an empty statement binds to an empty portal, which
+                // replaces any portal previously stored under that name
+                client.portal_store().put_empty_portal(portal_name);
+            }
+            None => return Err(PgWireError::StatementNotFound(statement_name.to_owned())),
         }
+
+        client
+            .send(PgWireBackendMessage::BindComplete(BindComplete::new()))
+            .await?;
+        Ok(())
     }
 
     /// Called when client sends `execute` command.
@@ -410,8 +312,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
         let portal_name = message.name.as_deref().unwrap_or(DEFAULT_NAME);
         let max_rows = message.max_rows as usize;
 
-        let Some(portal) = client.portal_store().get_portal(portal_name) else {
-            if EmptyStatementRegistry::is_empty_portal(client, portal_name) {
+        let portal = match client.portal_store().get_portal(portal_name) {
+            Some(PortalEntry::Portal(portal)) => portal,
+            Some(PortalEntry::Empty) => {
                 // An empty portal never reaches `do_query`: it directly
                 // answers `EmptyQueryResponse`, like PostgreSQL. The portal
                 // stays valid until it is replaced, closed, or (for the
@@ -422,7 +325,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
                 client.set_state(super::PgWireConnectionState::ReadyForQuery);
                 return Ok(());
             }
-            return Err(PgWireError::PortalNotFound(portal_name.to_owned()));
+            None => return Err(PgWireError::PortalNotFound(portal_name.to_owned())),
         };
         // Execute query if the portal hasn't been started yet
         let needs_fetch = if matches!(
@@ -465,7 +368,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
 
                     // remove unnamed portal when transaction ends
                     client.portal_store().rm_portal(DEFAULT_NAME);
-                    EmptyStatementRegistry::unmark_portal(client, DEFAULT_NAME);
 
                     false
                 }
@@ -552,29 +454,29 @@ pub trait ExtendedQueryHandler: Send + Sync {
     {
         let name = message.name.as_deref().unwrap_or(DEFAULT_NAME);
         match message.target_type {
-            TARGET_TYPE_BYTE_STATEMENT => {
-                if let Some(stmt) = client.portal_store().get_statement(name) {
+            TARGET_TYPE_BYTE_STATEMENT => match client.portal_store().get_statement(name) {
+                Some(StatementEntry::Statement(stmt)) => {
                     let describe_response = self.do_describe_statement(client, &stmt).await?;
                     send_describe_response(client, &describe_response).await?;
-                } else if EmptyStatementRegistry::is_empty_statement(client, name) {
-                    // an empty statement has no parameters and no result data
+                }
+                // an empty statement has no parameters and no result data
+                Some(StatementEntry::Empty) => {
                     let describe_response = DescribeStatementResponse::no_data();
                     send_describe_response(client, &describe_response).await?;
-                } else {
-                    return Err(PgWireError::StatementNotFound(name.to_owned()));
                 }
-            }
-            TARGET_TYPE_BYTE_PORTAL => {
-                if let Some(portal) = client.portal_store().get_portal(name) {
+                None => return Err(PgWireError::StatementNotFound(name.to_owned())),
+            },
+            TARGET_TYPE_BYTE_PORTAL => match client.portal_store().get_portal(name) {
+                Some(PortalEntry::Portal(portal)) => {
                     let describe_response = self.do_describe_portal(client, &portal).await?;
                     send_describe_response(client, &describe_response).await?;
-                } else if EmptyStatementRegistry::is_empty_portal(client, name) {
+                }
+                Some(PortalEntry::Empty) => {
                     let describe_response = DescribePortalResponse::no_data();
                     send_describe_response(client, &describe_response).await?;
-                } else {
-                    return Err(PgWireError::PortalNotFound(name.to_owned()));
                 }
-            }
+                None => return Err(PgWireError::PortalNotFound(name.to_owned())),
+            },
             _ => return Err(PgWireError::InvalidTargetType(message.target_type)),
         }
 
@@ -607,7 +509,6 @@ pub trait ExtendedQueryHandler: Send + Sync {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         client.portal_store().rm_portal(DEFAULT_NAME);
-        EmptyStatementRegistry::unmark_portal(client, DEFAULT_NAME);
 
         client
             .send(PgWireBackendMessage::ReadyForQuery(ReadyForQuery::new(
@@ -633,11 +534,9 @@ pub trait ExtendedQueryHandler: Send + Sync {
         match message.target_type {
             TARGET_TYPE_BYTE_STATEMENT => {
                 client.portal_store().rm_statement(name);
-                EmptyStatementRegistry::unmark_statement(client, name);
             }
             TARGET_TYPE_BYTE_PORTAL => {
                 client.portal_store().rm_portal(name);
-                EmptyStatementRegistry::unmark_portal(client, name);
             }
             _ => {}
         }
