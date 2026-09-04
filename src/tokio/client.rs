@@ -9,13 +9,11 @@ use std::task::{Context, Poll};
 
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use pin_project::pin_project;
-#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use rustls_pki_types::ServerName;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 #[cfg(unix)]
 use tokio::net::UnixStream;
-#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use tokio_rustls::client::TlsStream;
 use tokio_util::codec::{Decoder, Encoder, Framed};
 
@@ -86,7 +84,6 @@ pub struct PgWireClient {
     transaction_status: TransactionStatus,
     /// TLS connector retained so [`PgWireClient::cancel`] can open a second
     /// secured connection to the same server.
-    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     tls_connector: Option<TlsConnector>,
 }
 
@@ -162,7 +159,6 @@ impl PgWireClient {
     {
         // The TLS connector is retained so `cancel` can open a second secured
         // connection later. When TLS is disabled there is no field to store.
-        #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
         let tls_connector_for_cancel = tls_connector.clone();
 
         let socket = connect_socket(&config, tls_connector).await?;
@@ -172,7 +168,6 @@ impl PgWireClient {
             config: config.clone(),
             server_information: ServerInformation::default(),
             transaction_status: TransactionStatus::Idle,
-            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             tls_connector: tls_connector_for_cancel,
         };
 
@@ -223,12 +218,7 @@ impl PgWireClient {
     /// Returns an error only if the second connection itself could not be
     /// established or the cancel message could not be written.
     pub async fn cancel(&self) -> PgWireClientResult<()> {
-        // TLS connector is only stored when a TLS backend is enabled; without
-        // TLS the cancel connection is always plaintext.
-        #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
         let tls_connector = self.tls_connector.clone();
-        #[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]
-        let tls_connector: Option<TlsConnector> = None;
 
         let mut socket = connect_socket(&self.config, tls_connector).await?;
 
@@ -315,7 +305,6 @@ impl Stream for PgWireClient {
 #[pin_project(project = ClientSocketProj)]
 pub enum ClientSocket {
     Plain(#[pin] TcpStream),
-    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     Secure(#[pin] Box<TlsStream<TcpStream>>),
     #[cfg(unix)]
     Unix(#[pin] UnixStream),
@@ -329,7 +318,6 @@ impl AsyncRead for ClientSocket {
     ) -> Poll<std::io::Result<()>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_read(cx, buf),
-            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_read(cx, buf),
             #[cfg(unix)]
             ClientSocketProj::Unix(socket) => socket.poll_read(cx, buf),
@@ -345,7 +333,6 @@ impl AsyncWrite for ClientSocket {
     ) -> Poll<Result<usize, std::io::Error>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_write(cx, buf),
-            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_write(cx, buf),
             #[cfg(unix)]
             ClientSocketProj::Unix(tls_socket) => tls_socket.poll_write(cx, buf),
@@ -355,7 +342,6 @@ impl AsyncWrite for ClientSocket {
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), std::io::Error>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_flush(cx),
-            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_flush(cx),
             #[cfg(unix)]
             ClientSocketProj::Unix(tls_socket) => tls_socket.poll_flush(cx),
@@ -368,7 +354,6 @@ impl AsyncWrite for ClientSocket {
     ) -> Poll<Result<(), std::io::Error>> {
         match self.project() {
             ClientSocketProj::Plain(socket) => socket.poll_shutdown(cx),
-            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             ClientSocketProj::Secure(tls_socket) => tls_socket.poll_shutdown(cx),
             #[cfg(unix)]
             ClientSocketProj::Unix(tls_socket) => tls_socket.poll_shutdown(cx),
@@ -376,7 +361,6 @@ impl AsyncWrite for ClientSocket {
     }
 }
 
-#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 async fn connect_tls(
     socket: TcpStream,
     config: &Config,
@@ -402,7 +386,6 @@ async fn connect_tls(
     Ok(ClientSocket::Secure(Box::new(tls_stream)))
 }
 
-#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 pub(crate) async fn ssl_handshake(
     socket: TcpStream,
     config: &Config,
@@ -453,15 +436,6 @@ pub(crate) async fn ssl_handshake(
     } else {
         Ok(ClientSocket::Plain(socket))
     }
-}
-
-#[cfg(not(any(feature = "_ring", feature = "_aws-lc-rs")))]
-pub(crate) async fn ssl_handshake(
-    socket: ClientSocket,
-    _config: &Config,
-    _tls_connector: Option<TlsConnector>,
-) -> PgWireClientResult<ClientSocket> {
-    Ok(socket)
 }
 
 /// Establish a framed connection to the server: TCP (optionually upgraded to

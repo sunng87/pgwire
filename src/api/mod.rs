@@ -10,7 +10,6 @@ use bytes::Bytes;
 use futures::channel::oneshot;
 use futures::lock::Mutex;
 pub use postgres_types::Type;
-#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use rustls_pki_types::CertificateDer;
 
 use crate::error::PgWireError;
@@ -168,11 +167,9 @@ pub trait ClientInfo {
     fn session_extensions(&self) -> &SessionExtensions;
 
     /// Returns the TLS SNI server name, if available.
-    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     fn sni_server_name(&self) -> Option<&str>;
 
     /// Returns the client TLS certificates, if available.
-    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     fn client_certificates<'a>(&self) -> Option<&[CertificateDer<'a>]>;
 }
 
@@ -213,7 +210,6 @@ pub struct DefaultClient<S> {
     /// Connection metadata key-value pairs.
     pub metadata: HashMap<String, String>,
     /// The TLS SNI server name, if using TLS.
-    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     pub sni_server_name: Option<String>,
     /// In-memory portal and prepared statement store.
     pub portal_store: store::MemPortalStore<S>,
@@ -274,12 +270,10 @@ impl<S> ClientInfo for DefaultClient<S> {
         self.transaction_status = new_status
     }
 
-    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     fn sni_server_name(&self) -> Option<&str> {
         self.sni_server_name.as_deref()
     }
 
-    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     fn client_certificates<'a>(&self) -> Option<&[CertificateDer<'a>]> {
         None
     }
@@ -296,7 +290,6 @@ impl<S> DefaultClient<S> {
             state: PgWireConnectionState::default(),
             transaction_status: TransactionStatus::Idle,
             metadata: HashMap::new(),
-            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             sni_server_name: None,
             portal_store: store::MemPortalStore::new(),
             session_extensions: SessionExtensions::new(),

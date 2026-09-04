@@ -8,6 +8,21 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- SCRAM-SHA-256 authentication and `tls-server-end-point` channel binding are
+  now implemented with pure-Rust RustCrypto crates (`sha2`, `hmac`, `pbkdf2`,
+  `x509-cert`) instead of `ring`/`aws-lc-rs`, and are always available with
+  the `server-api` and `client-api` features. `ring` and `aws-lc-rs` are no
+  longer direct dependencies of pgwire; they only appear (via `tokio-rustls`)
+  when a `*-ring`/`*-aws-lc-rs` feature is selected. The plain `server-api`
+  and `client-api` features now include the TLS types backed by a provider-less
+  `rustls`: the application selects the rustls crypto provider, following the
+  rustls "bring your own provider" recommendation. Bare `client-api` (without
+  a provider suffix) now compiles standalone. The `simple-oidc-validator`
+  feature uses the `rust_crypto` backend of `jsonwebtoken` instead of
+  `aws-lc-rs`.
+
 ### Added
 
 - Client API: transaction status tracking. `ClientInfo::transaction_status`

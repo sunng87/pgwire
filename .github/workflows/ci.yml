@@ -33,12 +33,12 @@ jobs:
       run: cargo clippy --features pg-type-postgis -- -D warnings
     - name: Lint minimal
       run: cargo clippy --no-default-features -- -D warnings
-    - name: Lint server-api without tls
+    - name: Lint server-api (rustcrypto, no tls provider)
       run: cargo clippy --no-default-features --features server-api -- -D warnings
     - name: Lint ring
       run: cargo clippy --no-default-features --features server-api-ring -- -D warnings
     - name: Lint client api
-      run: cargo clippy --features client-api-aws-lc-rs -- -D warnings
+      run: cargo clippy --no-default-features --features client-api-aws-lc-rs -- -D warnings
 
   test:
     name: Test
@@ -58,13 +58,13 @@ jobs:
       run: cargo test --features pg-type-postgis
     - name: Run tests on minimal feature set
       run: cargo test --no-default-features
-    - name: Run tests without tls
+    - name: Run tests without tls provider
       run: cargo test --no-default-features --features server-api
     - name: Run tests on additional ring feature set
       run: cargo test --no-default-features --features server-api-ring
     - name: Run tests for client api
       if: runner.os != 'Windows'
-      run: cargo test --features client-api-aws-lc-rs
+      run: cargo test --no-default-features --features client-api-aws-lc-rs,pg-ext-types
     - name: Run check sqlite example
       run: cargo check --all-targets --features _sqlite,_bundled
 

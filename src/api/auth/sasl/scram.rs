@@ -1,15 +1,18 @@
 use std::borrow::Cow;
 use std::fmt;
 use std::fmt::Write;
-use std::num::NonZeroU32;
 use std::ops::BitXor;
 use std::str::{FromStr, Split};
 use std::sync::Arc;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use x509_certificate::SignatureAlgorithm;
-use x509_certificate::certificate::CapturedX509Certificate;
+use hmac::{Hmac, Mac};
+use pbkdf2::pbkdf2_hmac;
+use sha2::{Digest, Sha256, Sha384, Sha512};
+use x509_cert::Certificate;
+use x509_cert::der::Decode;
+use x509_cert::der::oid::ObjectIdentifier;
 
 use crate::api::ClientInfo;
 /// Re-exports client-side SCRAM authentication types.
@@ -20,11 +23,6 @@ use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::{Authentication, PasswordMessageFamily};
 
 use super::SASLState;
-
-#[cfg(feature = "_aws-lc-rs")]
-use aws_lc_rs::{digest, hmac, pbkdf2};
-#[cfg(all(feature = "_ring", not(feature = "_aws-lc-rs")))]
-use ring::{digest, hmac, pbkdf2};
 
 /// Default SCRAM iteration count.
 pub const SCRAM_ITERATIONS: usize = 4096;
@@ -779,23 +777,24 @@ impl<'a> ScamMessageChunker<'a> {
 fn hi(normalized_password: &[u8], salt: &[u8], iterations: usize) -> Vec<u8> {
     let mut buf = [0u8; 32];
 
-    pbkdf2::derive(
-        pbkdf2::PBKDF2_HMAC_SHA256,
-        NonZeroU32::new(iterations as u32).unwrap(),
-        salt,
+    pbkdf2_hmac::<Sha256>(
         normalized_password,
+        salt,
+        iterations.try_into().expect("iterations out of u32 range"),
         &mut buf,
     );
     buf.to_vec()
 }
 
 fn hmac(key: &[u8], msg: &[u8]) -> Vec<u8> {
-    let mac = hmac::Key::new(hmac::HMAC_SHA256, key);
-    hmac::sign(&mac, msg).as_ref().to_vec()
+    let mut mac =
+        <Hmac<Sha256> as Mac>::new_from_slice(key).expect("HMAC can take key of any size");
+    mac.update(msg);
+    mac.finalize().into_bytes().to_vec()
 }
 
 fn h(msg: &[u8]) -> Vec<u8> {
-    digest::digest(&digest::SHA256, msg).as_ref().to_vec()
+    Sha256::digest(msg).to_vec()
 }
 
 fn xor(lhs: &[u8], rhs: &[u8]) -> Vec<u8> {
@@ -804,6 +803,16 @@ fn xor(lhs: &[u8], rhs: &[u8]) -> Vec<u8> {
         .map(|(l, r)| l.bitxor(r))
         .collect()
 }
+
+/// Signature algorithm OIDs relevant to `tls-server-end-point` channel
+/// binding, as defined in RFC 5929 section 4.1
+/// (<https://www.rfc-editor.org/rfc/rfc5929#section-4.1>).
+const OID_RSA_SHA1: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.5");
+const OID_RSA_SHA256: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.11");
+const OID_RSA_SHA384: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.12");
+const OID_RSA_SHA512: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.113549.1.1.13");
+const OID_ECDSA_SHA256: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.4.3.2");
+const OID_ECDSA_SHA384: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.4.3.3");
 
 /// Compute signature of server certificate for `tls-server-end-point` channel
 /// binding.
@@ -815,23 +824,24 @@ fn xor(lhs: &[u8], rhs: &[u8]) -> Vec<u8> {
 /// 2. use the certificate's algorithm if it's neither md5 or sha-1
 /// 3. if the certificate has 0 or more than 1 signature algorithm, the
 ///    behaviour is undefined at the time.
-fn compute_cert_signature(cert: &[u8]) -> PgWireResult<Vec<u8>> {
-    let certs = CapturedX509Certificate::from_pem_multiple(cert)
+fn compute_cert_signature(cert_pem: &[u8]) -> PgWireResult<Vec<u8>> {
+    // Hash the DER encoding of the first certificate in the pem data.
+    let (label, der_bytes) = x509_cert::der::pem::decode_vec(cert_pem)
         .map_err(|e| PgWireError::ApiError(Box::new(e)))?;
-    let x509 = &certs[0];
-    let raw = x509.constructed_data();
-    match x509.signature_algorithm() {
-        Some(SignatureAlgorithm::RsaSha1)
-        | Some(SignatureAlgorithm::RsaSha256)
-        | Some(SignatureAlgorithm::EcdsaSha256) => {
-            Ok(digest::digest(&digest::SHA256, raw).as_ref().to_vec())
-        }
-        Some(SignatureAlgorithm::RsaSha384) | Some(SignatureAlgorithm::EcdsaSha384) => {
-            Ok(digest::digest(&digest::SHA384, raw).as_ref().to_vec())
-        }
-        Some(SignatureAlgorithm::RsaSha512) => {
-            Ok(digest::digest(&digest::SHA512, raw).as_ref().to_vec())
-        }
+    if label != "CERTIFICATE" {
+        return Err(PgWireError::ApiError(Box::new(std::io::Error::other(
+            format!("unexpected PEM label: {label}"),
+        ))));
+    }
+
+    let certificate =
+        Certificate::from_der(&der_bytes).map_err(|e| PgWireError::ApiError(Box::new(e)))?;
+
+    match certificate.signature_algorithm().oid {
+        // md5 and sha-1 based signatures are re-hashed with sha-256
+        OID_RSA_SHA1 | OID_RSA_SHA256 | OID_ECDSA_SHA256 => Ok(Sha256::digest(&der_bytes).to_vec()),
+        OID_RSA_SHA384 | OID_ECDSA_SHA384 => Ok(Sha384::digest(&der_bytes).to_vec()),
+        OID_RSA_SHA512 => Ok(Sha512::digest(&der_bytes).to_vec()),
         _ => Err(PgWireError::UnsupportedCertificateSignatureAlgorithm),
     }
 }
@@ -925,6 +935,27 @@ mod tests {
                 .to_string(),
             "e=invalid-encoding"
         );
+    }
+
+    #[test]
+    fn test_compute_cert_signature_with_rsa_sha256_cert() {
+        // examples/ssl/server.crt is signed with sha256WithRSAEncryption, so
+        // the tls-server-end-point hash must be SHA-256 over its DER data.
+        let pem = std::fs::read("examples/ssl/server.crt").unwrap();
+        let signature = compute_cert_signature(&pem).unwrap();
+
+        let (label, der) = x509_cert::der::pem::decode_vec(&pem).unwrap();
+        assert_eq!(label, "CERTIFICATE");
+        assert_eq!(signature, Sha256::digest(der).to_vec());
+        assert_eq!(signature.len(), 32);
+    }
+
+    #[test]
+    fn test_compute_cert_signature_rejects_non_certificate_pem() {
+        let err = compute_cert_signature(
+            b"-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n",
+        );
+        assert!(err.is_err());
     }
 
     #[cfg(feature = "client-api")]
