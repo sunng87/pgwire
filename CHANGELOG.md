@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased] - ReleaseDate
 
 ### Added
 
@@ -43,6 +43,7 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   themselves are unchanged — the impact is limited to `PortalStore`
   implementors and code calling `get_statement`/`get_portal` directly
   (`Entry::value` helps with the migration).
+- Updated pg_interval to 0.6
 
 ### Fixed
 

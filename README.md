@@ -81,12 +81,12 @@ this library.
   - Frontend/Client
     - [x] Startup APIs
     - [x] Simple Query API
-    - [ ] Extended Query API
+    - [x] Extended Query API
     - [ ] ResultSet decoder API
-    - [ ] Query Cancellation API
+    - [x] Query Cancellation API
     - [ ] Error and Notice API
     - [ ] Copy API
-    - [ ] Transaction state
+    - [x] Transaction state
     - [ ] Streaming replication over TCP
     - [ ] Logical streaming replication server API
 
