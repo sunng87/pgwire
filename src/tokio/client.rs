@@ -474,10 +474,17 @@ async fn connect_socket(
 ) -> PgWireClientResult<Framed<ClientSocket, PgWireMessageClientCodec>> {
     let mut socket = match get_addr(config)? {
         PgSocketAddr::Ip(socket_addr) => {
-            ClientSocket::Plain(TcpStream::connect(socket_addr).await?)
+            let stream = TcpStream::connect(socket_addr).await?;
+            // Disable Nagle: protocol messages are small and latency-sensitive;
+            // with Nagle enabled, pipelined messages (Parse/Bind/Execute/...)
+            // stall behind delayed ACKs of the previous message.
+            stream.set_nodelay(true)?;
+            ClientSocket::Plain(stream)
         }
         PgSocketAddr::Host(socket_addr) => {
-            ClientSocket::Plain(TcpStream::connect(socket_addr).await?)
+            let stream = TcpStream::connect(socket_addr).await?;
+            stream.set_nodelay(true)?;
+            ClientSocket::Plain(stream)
         }
         #[cfg(unix)]
         PgSocketAddr::Unix(socket_addr) => {
