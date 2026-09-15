@@ -73,14 +73,23 @@
 //! Server API (default):
 //!
 //! - `server-api-aws-lc-rs` *(enabled by default)*: the full server-side API
-//!   with `aws-lc-rs` as the TLS/crypto backend.
-//! - `server-api-ring`: same as above but using `ring` as the crypto backend.
+//!   with `aws-lc-rs` installed as the default rustls crypto provider.
+//! - `server-api-ring`: same as above but using `ring` as the rustls crypto
+//!   provider.
+//! - `server-api`: the server-side API without selecting a rustls crypto
+//!   provider. SCRAM authentication is always available (implemented in pure
+//!   Rust with the RustCrypto crates); for TLS your application picks the
+//!   rustls provider itself, either by enabling a provider feature on your own
+//!   `rustls`/`tokio-rustls` dependency or by installing a process-wide default
+//!   with `rustls::crypto::CryptoProvider::install_default`.
 //!
 //! Client API:
 //!
 //! - `client-api-aws-lc-rs` / `client-api-ring`: the client-side API for
-//!   building proxies and protocol-level tooling, with the matching crypto
-//!   backend.
+//!   building proxies and protocol-level tooling, with the matching rustls
+//!   crypto provider.
+//! - `client-api`: the client-side API without selecting a rustls crypto
+//!   provider (see `server-api` above).
 //!
 //! Data types:
 //!
