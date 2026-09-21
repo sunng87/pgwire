@@ -236,9 +236,16 @@ where
                                 send_ready_for_query(socket, TransactionStatus::Idle).await?
                             } else {
                                 // In the extended protocol (at least as
-                                // implemented by rust-postgres) we get a Sync
-                                // after the CopyDone, so we should let the
-                                // on_sync handler send the ReadyForQuery.
+                                // implemented by rust-postgres) the client
+                                // terminates the copy with a Sync after the
+                                // CopyDone. Route the connection to
+                                // AwaitingSync so that Sync is dispatched to
+                                // on_sync, which sends the ReadyForQuery.
+                                // Without this transition the Sync falls into
+                                // the catch-all arm below, is silently
+                                // discarded, ReadyForQuery is never sent and
+                                // the connection deadlocks.
+                                socket.set_state(PgWireConnectionState::AwaitingSync);
                             }
                         }
                         err => return err,
@@ -255,7 +262,13 @@ where
                     }
                     return Err(error);
                 }
-                _ => {}
+                _msg => {
+                    return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
+                        "ERROR".to_owned(),
+                        "08P01".to_owned(),
+                        "unexpected message type during COPY".to_owned(),
+                    ))));
+                }
             }
         }
         _ => {
