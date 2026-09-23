@@ -36,15 +36,22 @@ pin-project = { version = "1.1", optional = true }
 rand = { version = "0.10", optional = true }
 md5 = { version = "0.8", optional = true }
 hex = { version = "0.4", optional = true }
-## scram libraries
+## scram libraries (RustCrypto)
 base64 = { version = "0.23", optional = true }
-ring = { version = "0.17", optional = true }
-aws-lc-rs = { version = "1.7", optional = true }
 stringprep = { version = "0.1.2", optional = true }
-x509-certificate = { version = "0.25", optional = true }
+sha2 = { version = "0.10", optional = true }
+hmac = { version = "0.12", optional = true }
+pbkdf2 = { version = "0.12", optional = true }
+x509-cert = { version = "0.3", default-features = false, features = [
+  "pem",
+  "std",
+], optional = true }
 
 ## oauth
-jsonwebtoken = { version = "11", features = ["aws_lc_rs"], optional = true }
+jsonwebtoken = { version = "11", default-features = false, features = [
+  "use_pem",
+  "rust_crypto",
+], optional = true }
 rsa = { version = "0.9", optional = true }
 reqwest = { version = "0.13", features = ["json", "rustls-no-provider"], optional = true }
 
@@ -65,21 +72,17 @@ percent-encoding = { version = "2.0", optional = true }
 [features]
 default = ["server-api-aws-lc-rs", "pg-ext-types"]
 pg-ext-types = ["pg-type-chrono", "pg-type-rust-decimal", "pg-type-serde-json"]
-_ring = [
-  "dep:ring",
-  "tokio-rustls/ring",
+
+## Shared: TLS types (provider-less rustls) and SCRAM (pure-Rust RustCrypto)
+_tls-scram = [
+  "dep:tokio-rustls",
   "dep:rustls-pki-types",
   "dep:base64",
   "dep:stringprep",
-  "dep:x509-certificate",
-]
-_aws-lc-rs = [
-  "dep:aws-lc-rs",
-  "tokio-rustls/aws-lc-rs",
-  "dep:rustls-pki-types",
-  "dep:base64",
-  "dep:stringprep",
-  "dep:x509-certificate",
+  "dep:sha2",
+  "dep:hmac",
+  "dep:pbkdf2",
+  "dep:x509-cert",
 ]
 server-api = [
   "dep:tokio",
@@ -92,16 +95,8 @@ server-api = [
   "dep:postgres-types",
   "dep:serde_json",
   "dep:pg_interval",
+  "_tls-scram",
 ]
-simple-oidc-validator = [
-  "dep:jsonwebtoken",
-  "dep:rsa",
-  "dep:reqwest",
-  "dep:base64",
-  "dep:serde",
-]
-server-api-ring = ["server-api", "_ring"]
-server-api-aws-lc-rs = ["server-api", "_aws-lc-rs"]
 client-api = [
   "dep:percent-encoding",
   "dep:pin-project",
@@ -110,13 +105,32 @@ client-api = [
   "dep:futures",
   "dep:async-trait",
   "dep:md5",
+  "dep:hex",
+  "dep:rand",
+  "dep:postgres-types",
+  "dep:pg_interval",
+  "dep:serde_json",
+  "_tls-scram",
 ]
-client-api-ring = ["client-api", "_ring", "dep:rustls-pki-types"]
-client-api-aws-lc-rs = ["client-api", "_aws-lc-rs", "dep:rustls-pki-types"]
+
+## Compatibility aliases: additionally select a default rustls crypto provider
+## for the application. With the plain `server-api`/`client-api` features, the
+## application chooses its own provider (rustls "bring your own provider").
+server-api-ring = ["server-api", "tokio-rustls/ring"]
+server-api-aws-lc-rs = ["server-api", "tokio-rustls/aws-lc-rs"]
+client-api-ring = ["client-api", "tokio-rustls/ring"]
+client-api-aws-lc-rs = ["client-api", "tokio-rustls/aws-lc-rs"]
 pg-type-chrono = ["dep:chrono", "postgres-types/with-chrono-0_4"]
 pg-type-rust-decimal = ["dep:rust_decimal"]
 pg-type-serde-json = ["dep:serde", "dep:serde_json", "postgres-types/with-serde_json-1"]
 pg-type-postgis = ["dep:postgis"]
+simple-oidc-validator = [
+  "dep:jsonwebtoken",
+  "dep:rsa",
+  "dep:reqwest",
+  "dep:base64",
+  "dep:serde",
+]
 _sqlite = []
 _bundled = ["rusqlite/bundled"]
 
@@ -140,7 +154,10 @@ gluesql = { version = "0.20", default-features = false, features = [
 ] }
 
 ## oauth
-jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
+jsonwebtoken = { version = "11", default-features = false, features = [
+  "use_pem",
+  "rust_crypto",
+] }
 rsa = { version = "0.9" }
 reqwest = { version = "0.13", features = ["json"] }
 

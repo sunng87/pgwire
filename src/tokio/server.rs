@@ -4,14 +4,12 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures::{SinkExt, StreamExt};
-#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use rustls_pki_types::CertificateDer;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 #[cfg(unix)]
 use tokio::net::UnixStream;
 use tokio::time::{Duration, sleep};
-#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use tokio_rustls::server::TlsStream;
 use tokio_util::codec::{Decoder, Encoder, Framed, FramedParts};
 
@@ -140,12 +138,10 @@ impl<T: 'static, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
             .set_transaction_status(new_status);
     }
 
-    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     fn sni_server_name(&self) -> Option<&str> {
         self.codec().client_info.sni_server_name()
     }
 
-    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     fn client_certificates<'a>(&self) -> Option<&[CertificateDer<'a>]> {
         // `process_socket` wraps the negotiated stream in `MaybeTls`, so the
         // connection is a `MaybeTls`, not a bare `TlsStream<TcpStream>`.
@@ -419,7 +415,6 @@ async fn peek_for_sslrequest<ST>(
     }
 }
 
-#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 fn check_alpn_for_direct_ssl<IO>(tls_socket: &TlsStream<IO>) -> Result<(), io::Error> {
     let (_, the_conn) = tls_socket.get_ref();
     let mut accept = false;
@@ -446,7 +441,6 @@ pub enum MaybeTls {
     Plain(TcpStream),
     #[cfg(unix)]
     Unix(UnixStream),
-    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     Tls(Box<TlsStream<TcpStream>>),
 }
 
@@ -456,7 +450,6 @@ macro_rules! maybe_tls {
             MaybeTls::Plain(io) => Pin::new(io).$poll_x($($args),*),
             #[cfg(unix)]
             MaybeTls::Unix(io) => Pin::new(io).$poll_x($($args),*),
-            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             MaybeTls::Tls(io) => Pin::new(io).$poll_x($($args),*),
         }
     };
@@ -520,7 +513,6 @@ pub async fn negotiate_tls<S>(
 
         return Ok(Some(socket));
     }
-    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     if let Some(tls_acceptor) = tls_acceptor {
         // mention the use of ssl
         let mut client_info = DefaultClient::new(addr, true);
@@ -675,7 +667,13 @@ where
     Ok(())
 }
 
-#[cfg(all(test, any(feature = "_ring", feature = "_aws-lc-rs")))]
+/// These tests build rustls configs, which requires a default crypto provider,
+/// so they only run when a provider-backed feature (`server-api-ring` or
+/// `server-api-aws-lc-rs`) is selected.
+#[cfg(all(
+    test,
+    any(feature = "server-api-ring", feature = "server-api-aws-lc-rs")
+))]
 mod tests {
     use super::*;
     use std::fs::File;
@@ -817,11 +815,11 @@ mod tests {
 
         // The default provider is process-global and install-once; another TLS
         // test in this binary may have installed it already, so tolerate `Err`.
-        #[cfg(feature = "_aws-lc-rs")]
+        #[cfg(feature = "server-api-aws-lc-rs")]
         let _ = CryptoProvider::install_default(
             tokio_rustls::rustls::crypto::aws_lc_rs::default_provider(),
         );
-        #[cfg(feature = "_ring")]
+        #[cfg(feature = "server-api-ring")]
         let _ =
             CryptoProvider::install_default(tokio_rustls::rustls::crypto::ring::default_provider());
 
@@ -933,11 +931,11 @@ mod tests {
         use std::net::SocketAddr;
         use tokio::net::{TcpListener, TcpStream};
 
-        #[cfg(feature = "_aws-lc-rs")]
+        #[cfg(feature = "server-api-aws-lc-rs")]
         let _ = CryptoProvider::install_default(
             tokio_rustls::rustls::crypto::aws_lc_rs::default_provider(),
         );
-        #[cfg(feature = "_ring")]
+        #[cfg(feature = "server-api-ring")]
         let _ =
             CryptoProvider::install_default(tokio_rustls::rustls::crypto::ring::default_provider());
 
