@@ -265,6 +265,10 @@ where
                     }
                     return Err(error);
                 }
+                // Like PostgreSQL, ignore Flush and Sync during copy-in: clients
+                // such as rust-postgres pipeline a Sync right after the Execute
+                // that starts the copy, before sending any CopyData.
+                PgWireFrontendMessage::Flush(_) | PgWireFrontendMessage::Sync(_) => {}
                 _msg => {
                     return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                         "ERROR".to_owned(),
