@@ -5,7 +5,10 @@
 //!   (previously the Sync was swallowed in `CopyInProgress` state and the
 //!   client deadlocked waiting for ReadyForQuery),
 //! * a Sync received *during* an unfinished copy is a protocol violation,
-//!   like PostgreSQL.
+//!   like PostgreSQL,
+//! * a simple-protocol COPY run inside a transaction leaves it open: the
+//!   ReadyForQuery that follows reports the tracked transaction status
+//!   (previously it was always Idle).
 
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
@@ -58,6 +61,8 @@ impl SimpleQueryHandler for CopyInProcessor {
     {
         if query.starts_with("COPY") {
             Ok(vec![copy_in_response()])
+        } else if query.starts_with("BEGIN") {
+            Ok(vec![Response::TransactionStart(Tag::new("BEGIN"))])
         } else {
             Ok(vec![Response::Execution(Tag::new("OK"))])
         }
@@ -428,6 +433,34 @@ async fn simple_copy_in_round_trip() {
     assert_eq!(type_byte as char, 'C');
     assert_eq!(&payload[..payload.len() - 1], b"COPY 1");
     client.expect_ready_for_query().await;
+
+    assert_eq!(&*received.lock().unwrap(), &[b"data".to_vec()]);
+}
+
+#[tokio::test]
+async fn simple_copy_in_keeps_transaction_open() {
+    let (port, received) = spawn_server().await;
+    let mut client = RawClient::connect(port).await;
+    client.expect_ready_for_query().await;
+
+    client.query("BEGIN").await;
+    let (_, status) = client.expect("Z").await;
+    assert_eq!(status, b"T");
+
+    client.query("COPY FROM STDIN").await;
+    let (type_byte, _) = client.expect("GE").await;
+    assert_eq!(type_byte as char, 'G');
+
+    client.copy_data(b"data").await;
+    client.copy_done().await;
+
+    let (type_byte, payload) = client.expect("CE").await;
+    assert_eq!(type_byte as char, 'C');
+    assert_eq!(&payload[..payload.len() - 1], b"COPY 1");
+
+    // The COPY must not end the transaction it ran in.
+    let (_, status) = client.expect("Z").await;
+    assert_eq!(status, b"T");
 
     assert_eq!(&*received.lock().unwrap(), &[b"data".to_vec()]);
 }
