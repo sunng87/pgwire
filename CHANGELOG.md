@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Changed
+
+- Set `tcp_nodelay` for client socket. `client-api`. [#464]
+- Reject messages other than `Sync` and `Flush` during `COPY FROM STDIN`. [#465],[#466]
+
 ## [0.41.0] - 2026-09-04
 
 ### Added
