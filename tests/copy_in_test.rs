@@ -4,8 +4,11 @@
 //!   Sync after CopyDone; the connection must return to normal operation
 //!   (previously the Sync was swallowed in `CopyInProgress` state and the
 //!   client deadlocked waiting for ReadyForQuery),
-//! * a Sync received *during* an unfinished copy is a protocol violation,
-//!   like PostgreSQL.
+//! * like PostgreSQL, Flush and Sync received during copy-in are ignored and
+//!   any other non-copy message is a protocol violation,
+//! * a simple-protocol COPY run inside a transaction leaves it open: the
+//!   ReadyForQuery that follows reports the tracked transaction status
+//!   (previously it was always Idle).
 
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
@@ -58,6 +61,8 @@ impl SimpleQueryHandler for CopyInProcessor {
     {
         if query.starts_with("COPY") {
             Ok(vec![copy_in_response()])
+        } else if query.starts_with("BEGIN") {
+            Ok(vec![Response::TransactionStart(Tag::new("BEGIN"))])
         } else {
             Ok(vec![Response::Execution(Tag::new("OK"))])
         }
@@ -385,7 +390,36 @@ async fn extended_copy_in_completes_on_sync() {
 }
 
 #[tokio::test]
-async fn sync_during_unfinished_copy_is_rejected() {
+async fn sync_during_copy_is_ignored() {
+    let (port, received) = spawn_server().await;
+    let mut client = RawClient::connect(port).await;
+    client.expect_ready_for_query().await;
+
+    // Like rust-postgres, pipeline a Sync right after the Execute that
+    // starts the copy; PostgreSQL ignores Sync and Flush in copy-in mode.
+    client.parse("COPY FROM STDIN").await;
+    client.bind().await;
+    client.execute().await;
+    client.sync().await;
+    let (type_byte, _) = client.expect("GE").await;
+    assert_eq!(type_byte as char, 'G', "expected CopyInResponse");
+
+    client.copy_data(b"data").await;
+    client.copy_done().await;
+    let (type_byte, payload) = client.expect("CE").await;
+    assert_eq!(type_byte as char, 'C');
+    assert_eq!(&payload[..payload.len() - 1], b"COPY 1");
+
+    client.sync().await;
+    client.expect_ready_for_query().await;
+    client.query("SELECT 1").await;
+    client.expect_ready_for_query().await;
+
+    assert_eq!(&*received.lock().unwrap(), &[b"data".to_vec()]);
+}
+
+#[tokio::test]
+async fn query_during_unfinished_copy_is_rejected() {
     let (port, _received) = spawn_server().await;
     let mut client = RawClient::connect(port).await;
     client.expect_ready_for_query().await;
@@ -395,9 +429,9 @@ async fn sync_during_unfinished_copy_is_rejected() {
     client.execute().await;
     client.expect("G").await;
 
-    // A Sync without a preceding CopyDone abandons the copy; like
+    // Any non-copy message other than Flush and Sync aborts the copy; like
     // PostgreSQL this is a protocol violation.
-    client.sync().await;
+    client.query("SELECT 1").await;
     let (type_byte, payload) = client.expect("EZ").await;
     assert_eq!(
         type_byte as char, 'E',
@@ -428,6 +462,34 @@ async fn simple_copy_in_round_trip() {
     assert_eq!(type_byte as char, 'C');
     assert_eq!(&payload[..payload.len() - 1], b"COPY 1");
     client.expect_ready_for_query().await;
+
+    assert_eq!(&*received.lock().unwrap(), &[b"data".to_vec()]);
+}
+
+#[tokio::test]
+async fn simple_copy_in_keeps_transaction_open() {
+    let (port, received) = spawn_server().await;
+    let mut client = RawClient::connect(port).await;
+    client.expect_ready_for_query().await;
+
+    client.query("BEGIN").await;
+    let (_, status) = client.expect("Z").await;
+    assert_eq!(status, b"T");
+
+    client.query("COPY FROM STDIN").await;
+    let (type_byte, _) = client.expect("GE").await;
+    assert_eq!(type_byte as char, 'G');
+
+    client.copy_data(b"data").await;
+    client.copy_done().await;
+
+    let (type_byte, payload) = client.expect("CE").await;
+    assert_eq!(type_byte as char, 'C');
+    assert_eq!(&payload[..payload.len() - 1], b"COPY 1");
+
+    // The COPY must not end the transaction it ran in.
+    let (_, status) = client.expect("Z").await;
+    assert_eq!(status, b"T");
 
     assert_eq!(&*received.lock().unwrap(), &[b"data".to_vec()]);
 }

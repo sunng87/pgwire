@@ -231,9 +231,12 @@ where
                         Ok(_) => {
                             if !is_extended_query {
                                 // If the copy was initiated from a simple protocol
-                                // query, notify the client that we are not ready
-                                // for the next query.
-                                send_ready_for_query(socket, TransactionStatus::Idle).await?
+                                // query, notify the client that we are ready
+                                // for the next query. A COPY run inside an
+                                // explicit transaction leaves it open, so report
+                                // the tracked status rather than Idle.
+                                let transaction_status = socket.transaction_status();
+                                send_ready_for_query(socket, transaction_status).await?
                             } else {
                                 // In the extended protocol (at least as
                                 // implemented by rust-postgres) the client
@@ -262,6 +265,10 @@ where
                     }
                     return Err(error);
                 }
+                // Like PostgreSQL, ignore Flush and Sync during copy-in: clients
+                // such as rust-postgres pipeline a Sync right after the Execute
+                // that starts the copy, before sending any CopyData.
+                PgWireFrontendMessage::Flush(_) | PgWireFrontendMessage::Sync(_) => {}
                 _msg => {
                     return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                         "ERROR".to_owned(),
