@@ -18,7 +18,7 @@
 //! use pgwire::api::auth::AuthDriver;
 //! use pgwire::api::auth::mechanism::AuthMechanismFactory;
 //! use pgwire::api::auth::cleartext::CleartextPasswordAuth;
-//! use pgwire::api::auth::sasl::scram::ScramAuth;
+//! use pgwire::api::auth::md5pass::Md5PasswordAuth;
 //! # use pgwire::api::auth::{AuthSource, LoginInfo, Password, ServerParameterProvider, StartupHandler, DefaultServerParameterProvider};
 //! # use pgwire::api::ClientInfo;
 //! # use pgwire::error::{PgWireError, PgWireResult};
@@ -36,7 +36,7 @@
 //! struct MyStartupHandler {
 //!     driver: AuthDriver<DefaultServerParameterProvider>,
 //!     cleartext: Arc<dyn AuthMechanismFactory>,
-//!     scram: Arc<dyn AuthMechanismFactory>,
+//!     md5: Arc<dyn AuthMechanismFactory>,
 //! }
 //!
 //! #[async_trait]
@@ -63,7 +63,7 @@
 //!                 let mechanism = if client.metadata().get("user").is_some_and(|u| u == "legacy") {
 //!                     self.cleartext.create()
 //!                 } else {
-//!                     self.scram.create()
+//!                     self.md5.create()
 //!                 };
 //!                 self.driver.begin_authentication(client, mechanism).await
 //!             }
@@ -79,7 +79,7 @@
 //! let handler = MyStartupHandler {
 //!     driver: AuthDriver::new(DefaultServerParameterProvider::default()),
 //!     cleartext: Arc::new(CleartextPasswordAuth::new(Arc::new(MyAuthSource))),
-//!     scram: Arc::new(ScramAuth::new(Arc::new(MyAuthSource))),
+//!     md5: Arc::new(Md5PasswordAuth::new(Arc::new(MyAuthSource))),
 //! };
 //! ```
 
