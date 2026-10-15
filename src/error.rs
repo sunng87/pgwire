@@ -311,112 +311,104 @@ impl From<ErrorInfo> for NoticeResponse {
     }
 }
 
+impl PgWireError {
+    /// Returns the severity this error is sent to the client with. A `FATAL`
+    /// error ends the connection.
+    pub fn severity(&self) -> &str {
+        match self {
+            PgWireError::UnsupportedProtocolVersion(_, _)
+            | PgWireError::InvalidCancelRequest
+            | PgWireError::InvalidMessageType(_)
+            | PgWireError::InvalidTargetType(_)
+            | PgWireError::MessageTooLarge(..)
+            | PgWireError::InvalidElementCount(..)
+            | PgWireError::InvalidTransactionStatus(_)
+            | PgWireError::InvalidSSLRequestMessage
+            | PgWireError::InvalidGssEncRequestMessage
+            | PgWireError::InvalidStartupMessage
+            | PgWireError::InvalidAuthenticationMessageCode(_)
+            | PgWireError::FailedToCoercePasswordMessage
+            | PgWireError::InvalidSASLState
+            | PgWireError::UnsupportedSASLAuthMethod(_)
+            | PgWireError::IoError(_)
+            | PgWireError::InvalidScramMessage(_)
+            | PgWireError::InvalidPassword(_)
+            | PgWireError::UnsupportedCertificateSignatureAlgorithm
+            | PgWireError::UserNameRequired
+            | PgWireError::NotReadyForQuery
+            | PgWireError::InvalidSecretKey
+            | PgWireError::InvalidOauthMessage(_)
+            | PgWireError::OAuthAuthenticationFailed(_)
+            | PgWireError::OAuthValidationError(_)
+            | PgWireError::OauthAuthzIdError(_) => "FATAL",
+            PgWireError::PortalNotFound(_)
+            | PgWireError::PortalNotStarted
+            | PgWireError::StatementNotFound(_)
+            | PgWireError::ParameterIndexOutOfBound(_)
+            | PgWireError::InvalidRustTypeForParameter(_)
+            | PgWireError::FailedToParseParameter(_)
+            | PgWireError::QueryCanceled
+            | PgWireError::ApiError(_)
+            | PgWireError::InvalidOptionValue(_) => "ERROR",
+            PgWireError::UserError(info) => &info.severity,
+        }
+    }
+
+    /// Returns `true` if the error severity is `FATAL`.
+    pub fn is_fatal(&self) -> bool {
+        self.severity() == "FATAL"
+    }
+
+    /// Returns the SQLSTATE code this error is sent to the client with.
+    pub fn code(&self) -> &str {
+        match self {
+            PgWireError::UnsupportedProtocolVersion(_, _)
+            | PgWireError::InvalidCancelRequest
+            | PgWireError::InvalidMessageType(_)
+            | PgWireError::InvalidTargetType(_)
+            | PgWireError::MessageTooLarge(..)
+            | PgWireError::InvalidElementCount(..)
+            | PgWireError::InvalidTransactionStatus(_)
+            | PgWireError::InvalidSSLRequestMessage
+            | PgWireError::InvalidGssEncRequestMessage
+            | PgWireError::InvalidStartupMessage
+            | PgWireError::InvalidAuthenticationMessageCode(_)
+            | PgWireError::UnsupportedSASLAuthMethod(_)
+            | PgWireError::InvalidScramMessage(_)
+            | PgWireError::NotReadyForQuery
+            | PgWireError::InvalidSecretKey
+            | PgWireError::InvalidOauthMessage(_)
+            | PgWireError::OAuthAuthenticationFailed(_)
+            | PgWireError::OAuthValidationError(_) => "08P01",
+            PgWireError::FailedToCoercePasswordMessage
+            | PgWireError::InvalidSASLState
+            | PgWireError::PortalNotStarted
+            | PgWireError::ApiError(_) => "XX000",
+            PgWireError::IoError(_) => "58030",
+            PgWireError::PortalNotFound(_) | PgWireError::StatementNotFound(_) => "26000",
+            PgWireError::ParameterIndexOutOfBound(_)
+            | PgWireError::InvalidRustTypeForParameter(_)
+            | PgWireError::InvalidOptionValue(_) => "22023",
+            PgWireError::FailedToParseParameter(_) => "22P02",
+            PgWireError::InvalidPassword(_) => "28P01",
+            PgWireError::UnsupportedCertificateSignatureAlgorithm
+            | PgWireError::OauthAuthzIdError(_) => "0A000",
+            PgWireError::UserNameRequired => "28000",
+            PgWireError::QueryCanceled => "57014",
+            PgWireError::UserError(info) => &info.code,
+        }
+    }
+}
+
 impl From<PgWireError> for ErrorInfo {
     fn from(error: PgWireError) -> Self {
         match error {
-            PgWireError::UnsupportedProtocolVersion(_, _) => {
-                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
-            }
-            PgWireError::InvalidCancelRequest => {
-                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
-            }
-            PgWireError::InvalidMessageType(_) => {
-                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
-            }
-            PgWireError::InvalidTargetType(_) => {
-                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
-            }
-            PgWireError::MessageTooLarge(..) => {
-                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
-            }
-            PgWireError::InvalidElementCount(..) => {
-                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
-            }
-            PgWireError::InvalidTransactionStatus(_) => {
-                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
-            }
-            PgWireError::InvalidSSLRequestMessage => {
-                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
-            }
-            PgWireError::InvalidGssEncRequestMessage => {
-                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
-            }
-            PgWireError::InvalidStartupMessage => {
-                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
-            }
-            PgWireError::InvalidAuthenticationMessageCode(_) => {
-                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
-            }
-            PgWireError::FailedToCoercePasswordMessage => {
-                ErrorInfo::new("FATAL".to_owned(), "XX000".to_owned(), error.to_string())
-            }
-            PgWireError::InvalidSASLState => {
-                ErrorInfo::new("FATAL".to_owned(), "XX000".to_owned(), error.to_string())
-            }
-            PgWireError::UnsupportedSASLAuthMethod(_) => {
-                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
-            }
-            PgWireError::IoError(_) => {
-                ErrorInfo::new("FATAL".to_owned(), "58030".to_owned(), error.to_string())
-            }
-            PgWireError::PortalNotFound(_) => {
-                ErrorInfo::new("ERROR".to_owned(), "26000".to_owned(), error.to_string())
-            }
-            PgWireError::PortalNotStarted => {
-                ErrorInfo::new("ERROR".to_owned(), "XX000".to_owned(), error.to_string())
-            }
-            PgWireError::StatementNotFound(_) => {
-                ErrorInfo::new("ERROR".to_owned(), "26000".to_owned(), error.to_string())
-            }
-            PgWireError::ParameterIndexOutOfBound(_) => {
-                ErrorInfo::new("ERROR".to_owned(), "22023".to_owned(), error.to_string())
-            }
-            PgWireError::InvalidRustTypeForParameter(_) => {
-                ErrorInfo::new("ERROR".to_owned(), "22023".to_owned(), error.to_string())
-            }
-            PgWireError::FailedToParseParameter(_) => {
-                ErrorInfo::new("ERROR".to_owned(), "22P02".to_owned(), error.to_string())
-            }
-            PgWireError::InvalidScramMessage(_) => {
-                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
-            }
-            PgWireError::InvalidPassword(_) => {
-                ErrorInfo::new("FATAL".to_owned(), "28P01".to_owned(), error.to_string())
-            }
-            PgWireError::UnsupportedCertificateSignatureAlgorithm => {
-                ErrorInfo::new("FATAL".to_owned(), "0A000".to_owned(), error.to_string())
-            }
-            PgWireError::UserNameRequired => {
-                ErrorInfo::new("FATAL".to_owned(), "28000".to_owned(), error.to_string())
-            }
-            PgWireError::NotReadyForQuery => {
-                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
-            }
-            PgWireError::QueryCanceled => {
-                ErrorInfo::new("ERROR".to_owned(), "57014".to_owned(), error.to_string())
-            }
-            PgWireError::InvalidSecretKey => {
-                ErrorInfo::new("FATAL".to_owned(), "08P01".to_owned(), error.to_string())
-            }
-            PgWireError::ApiError(_) => {
-                ErrorInfo::new("ERROR".to_owned(), "XX000".to_owned(), error.to_string())
-            }
             PgWireError::UserError(info) => *info,
-            PgWireError::InvalidOptionValue(_) => {
-                ErrorInfo::new("ERROR".to_owned(), "22023".to_owned(), error.to_string())
-            }
-            PgWireError::InvalidOauthMessage(_) => {
-                ErrorInfo::new("FATAL".to_string(), "08P01".to_string(), error.to_string())
-            }
-            PgWireError::OAuthAuthenticationFailed(_) => {
-                ErrorInfo::new("FATAL".to_string(), "08P01".to_string(), error.to_string())
-            }
-            PgWireError::OAuthValidationError(_) => {
-                ErrorInfo::new("FATAL".to_string(), "08P01".to_string(), error.to_string())
-            }
-            PgWireError::OauthAuthzIdError(_) => {
-                ErrorInfo::new("FATAL".to_string(), "0A000".to_string(), error.to_string())
-            }
+            error => ErrorInfo::new(
+                error.severity().to_owned(),
+                error.code().to_owned(),
+                error.to_string(),
+            ),
         }
     }
 }

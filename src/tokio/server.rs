@@ -321,8 +321,8 @@ pub async fn process_error<S, ST>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
 {
+    let is_fatal = error.is_fatal();
     let error_info: ErrorInfo = error.into();
-    let is_fatal = error_info.is_fatal();
     socket
         .send(PgWireBackendMessage::ErrorResponse(error_info.into()))
         .await?;
@@ -602,6 +602,8 @@ macro_rules! process_socket_messages {
                     PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
                     _ => msg.is_extended_query(),
                 };
+                // `process_message` closes a CancelRequest's dedicated connection.
+                let is_cancel_request = matches!(msg, PgWireFrontendMessage::CancelRequest(_));
                 if let Err(mut e) = process_message(
                     msg,
                     socket,
@@ -614,7 +616,17 @@ macro_rules! process_socket_messages {
                 .await
                 {
                     error_handler.on_error(socket, &mut e);
+                    // A FATAL error ends the session, as in PostgreSQL. Closing
+                    // the socket only shuts down its write side, so break to
+                    // drop it rather than wait for the client to hang up.
+                    let is_fatal = e.is_fatal();
                     process_error(socket, e, is_extended_query).await?;
+                    if is_fatal {
+                        break;
+                    }
+                }
+                if is_cancel_request {
+                    break;
                 }
             } else {
                 break;
