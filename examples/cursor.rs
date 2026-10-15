@@ -13,7 +13,7 @@ use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse
 use pgwire::api::stmt::StoredStatement;
 use pgwire::api::store::{Entry, MemPortalStore, PortalStore};
 use pgwire::api::{ClientInfo, ClientPortalStore, PgWireServerHandlers, Type};
-use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
+use pgwire::error::{ErrorInfo, PgWireError, PgWireResult, SEVERITY_ERROR, SEVERITY_INFO};
 use pgwire::messages::response::NoticeResponse;
 use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 use pgwire::tokio::process_socket;
@@ -101,7 +101,7 @@ fn encode_row_data(
 fn execute_inner_query(inner_query: &str) -> PgWireResult<QueryResponse> {
     if !inner_query.to_uppercase().starts_with("SELECT") {
         return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-            "ERROR".to_owned(),
+            SEVERITY_ERROR.to_owned(),
             "42809".to_owned(),
             "DECLARE CURSOR can only be used with SELECT queries".to_string(),
         ))));
@@ -127,7 +127,7 @@ impl NoopStartupHandler for CursorBackend {
         println!("Client connected: {}", client.socket_addr());
 
         let notice = NoticeResponse::from(ErrorInfo::new(
-            "INFO".into(),
+            SEVERITY_INFO.into(),
             "00000".into(),
             "Cursor example server. Supported statements:\n  \
              DECLARE <name> FOR SELECT ...\n  \
@@ -190,7 +190,7 @@ fn handle_declare(
 
     if !inner_query.to_uppercase().starts_with("SELECT") {
         return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-            "ERROR".to_owned(),
+            SEVERITY_ERROR.to_owned(),
             "42809".to_owned(),
             "DECLARE CURSOR can only be used with SELECT queries".to_string(),
         ))));
@@ -212,7 +212,7 @@ async fn handle_fetch(
 
     let Some(Entry::Value(portal)) = portal_store.get_portal(cursor_name) else {
         return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-            "ERROR".to_owned(),
+            SEVERITY_ERROR.to_owned(),
             "34000".to_owned(),
             format!("cursor \"{}\" does not exist", cursor_name),
         ))));

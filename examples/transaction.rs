@@ -10,7 +10,7 @@ use pgwire::api::auth::noop::NoopStartupHandler;
 use pgwire::api::query::SimpleQueryHandler;
 use pgwire::api::results::{DataRowEncoder, FieldFormat, FieldInfo, QueryResponse, Response, Tag};
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
-use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
+use pgwire::error::{ErrorInfo, PgWireError, PgWireResult, SEVERITY_ERROR, SEVERITY_NOTICE};
 use pgwire::messages::response::NoticeResponse;
 use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 use pgwire::tokio::process_socket;
@@ -33,7 +33,7 @@ impl NoopStartupHandler for DummyProcessor {
         client
             .send(PgWireBackendMessage::NoticeResponse(NoticeResponse::from(
                 ErrorInfo::new(
-                    "NOTICE".to_owned(),
+                    SEVERITY_NOTICE.to_owned(),
                     "01000".to_owned(),
                     "Supported queries in this example:\n- BEGIN;\n- ROLLBACK;\n- COMMIT;\n- SELECT 1;"
                         .to_string(),
@@ -72,7 +72,7 @@ impl SimpleQueryHandler for DummyProcessor {
                 Response::Query(QueryResponse::new(schema, data_row_stream))
             }
             _ => Response::Error(Box::new(ErrorInfo::new(
-                "FATAL".to_string(),
+                SEVERITY_ERROR.to_string(),
                 "38003".to_string(),
                 "Unsupported statement.".to_string(),
             ))),

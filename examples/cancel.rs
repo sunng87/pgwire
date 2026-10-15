@@ -12,7 +12,7 @@ use pgwire::api::query::SimpleQueryHandler;
 use pgwire::api::results::{FieldFormat, FieldInfo, QueryResponse, Response, Tag};
 use pgwire::api::store::PortalStore;
 use pgwire::api::{ClientInfo, ClientPortalStore, ConnectionManager, PgWireServerHandlers, Type};
-use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
+use pgwire::error::{ErrorInfo, PgWireError, PgWireResult, SEVERITY_NOTICE};
 use pgwire::messages::response::NoticeResponse;
 use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 use pgwire::tokio::process_socket;
@@ -40,7 +40,7 @@ impl NoopStartupHandler for SlowProcessor {
         client
             .send(PgWireBackendMessage::NoticeResponse(NoticeResponse::from(
                 ErrorInfo::new(
-                    "NOTICE".to_owned(),
+                    SEVERITY_NOTICE.to_owned(),
                     "01000".to_owned(),
                     "This example demonstrates query cancellation.\n\
                      Supported queries:\n\

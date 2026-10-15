@@ -539,7 +539,7 @@ mod tests {
     use crate::api::results::{Response, Tag};
     use crate::api::store::PortalStore;
     use crate::api::{ClientInfo as ServerClientInfo, ClientPortalStore};
-    use crate::error::{ErrorInfo, PgWireResult};
+    use crate::error::{ErrorInfo, PgWireResult, SEVERITY_ERROR};
     use crate::messages::ProtocolVersion;
     use crate::messages::response::TransactionStatus;
     use crate::messages::startup::SecretKey;
@@ -572,7 +572,7 @@ mod tests {
                 "BEGIN" => Ok(vec![Response::TransactionStart(Tag::new("BEGIN"))]),
                 "COMMIT" | "ROLLBACK" => Ok(vec![Response::TransactionEnd(Tag::new("COMMIT"))]),
                 "FAIL" => Ok(vec![Response::Error(Box::new(ErrorInfo::new(
-                    "ERROR".to_owned(),
+                    SEVERITY_ERROR.to_owned(),
                     "XX000".to_owned(),
                     "boom".to_owned(),
                 )))]),

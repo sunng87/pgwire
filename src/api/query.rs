@@ -20,7 +20,7 @@ use crate::api::portal::PortalExecutionState;
 use crate::api::results::{
     DescribePortalResponse, DescribeResponse, DescribeStatementResponse, QueryResponse, Response,
 };
-use crate::error::{ErrorInfo, PgWireError, PgWireResult};
+use crate::error::{ErrorInfo, PgWireError, PgWireResult, SEVERITY_ERROR};
 use crate::messages::PgWireBackendMessage;
 use crate::messages::data::{NoData, ParameterDescription};
 use crate::messages::extendedquery::{
@@ -238,7 +238,7 @@ pub trait ExtendedQueryHandler: Send + Sync {
             Some(Entry::Empty) => {
                 if !message.parameters.is_empty() {
                     return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                        "ERROR".to_owned(),
+                        SEVERITY_ERROR.to_owned(),
                         "08P01".to_owned(),
                         format!(
                             "bind message supplies {} parameters, but prepared statement {:?} requires 0",
@@ -773,8 +773,8 @@ impl ExtendedQueryHandler for super::NoopHandler {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-            "FATAL".to_owned(),
-            "08P01".to_owned(),
+            SEVERITY_ERROR.to_owned(),
+            "0A000".to_owned(),
             "This feature is not implemented.".to_string(),
         ))))
     }
@@ -811,8 +811,8 @@ impl SimpleQueryHandler for super::NoopHandler {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-            "FATAL".to_owned(),
-            "08P01".to_owned(),
+            SEVERITY_ERROR.to_owned(),
+            "0A000".to_owned(),
             "This feature is not implemented.".to_string(),
         ))))
     }

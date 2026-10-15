@@ -551,6 +551,7 @@ impl PgWireBackendMessage {
 
 #[cfg(test)]
 mod test {
+    use crate::error::{SEVERITY_ERROR, SEVERITY_NOTICE};
     use crate::messages::DecodeContext;
 
     use super::cancel::CancelRequest;
@@ -697,7 +698,7 @@ mod test {
         ctx.awaiting_frontend_startup = false;
 
         let mut error = ErrorResponse::default();
-        error.fields.push((b'R', "ERROR".to_owned()));
+        error.fields.push((b'R', SEVERITY_ERROR.to_owned()));
         error.fields.push((b'K', "cli".to_owned()));
 
         roundtrip!(error, ErrorResponse, &ctx);
@@ -710,7 +711,7 @@ mod test {
         ctx.awaiting_frontend_startup = false;
 
         let mut error = NoticeResponse::default();
-        error.fields.push((b'R', "NOTICE".to_owned()));
+        error.fields.push((b'R', SEVERITY_NOTICE.to_owned()));
         error.fields.push((b'K', "cli".to_owned()));
 
         roundtrip!(error, NoticeResponse, &ctx);

@@ -18,7 +18,7 @@ use pgwire::api::results::{
 };
 use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::{ClientInfo, PgWireServerHandlers, Type};
-use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
+use pgwire::error::{ErrorInfo, PgWireError, PgWireResult, SEVERITY_ERROR};
 use pgwire::messages::data::DataRow;
 use pgwire::tokio::process_socket;
 
@@ -80,7 +80,7 @@ fn name_to_type(name: &str) -> PgWireResult<Type> {
         "BINARY" => Ok(Type::BYTEA),
         "FLOAT" => Ok(Type::FLOAT8),
         _ => Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-            "ERROR".to_owned(),
+            SEVERITY_ERROR.to_owned(),
             "42846".to_owned(),
             format!("Unsupported data type: {name}"),
         )))),
