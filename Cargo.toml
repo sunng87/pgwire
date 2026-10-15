@@ -214,3 +214,7 @@ required-features = ["server-api"]
 [[test]]
 name = "fatal_error_test"
 required-features = ["server-api"]
+
+[[example]]
+name = "dynamic_auth"
+required-features = ["server-api-aws-lc-rs"]

@@ -18,7 +18,7 @@ use crate::{
 pub use crate::api::auth::simple_oidc_validator::SimpleOidcValidator;
 
 /// OAuth/OIDC authentication configuration.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Oauth {
     pub issuer: String,
     pub scope: String,
@@ -270,7 +270,7 @@ impl Oauth {
         state: &SASLState,
     ) -> PgWireResult<(Option<Authentication>, SASLState)>
     where
-        C: ClientInfo + Unpin + Send,
+        C: ClientInfo + ?Sized,
     {
         match state {
             SASLState::OauthStateInit => {
@@ -349,6 +349,57 @@ impl Oauth {
             }
             _ => Err(PgWireError::InvalidSASLState),
         }
+    }
+}
+
+/// Per-connection OAUTHBEARER state machine created by [`Oauth`].
+struct OauthMechanism {
+    oauth: Oauth,
+    state: SASLState,
+}
+
+#[async_trait]
+impl crate::api::auth::mechanism::AuthMechanism for OauthMechanism {
+    async fn begin(
+        &mut self,
+        _client: &(dyn ClientInfo + Send + Sync),
+    ) -> PgWireResult<crate::api::auth::mechanism::AuthState> {
+        Ok(crate::api::auth::mechanism::AuthState::InProgress(
+            Authentication::SASL(vec![super::OAUTHBEARER_METHOD.to_owned()]),
+        ))
+    }
+
+    async fn next(
+        &mut self,
+        client: &(dyn ClientInfo + Send + Sync),
+        message: PasswordMessageFamily,
+    ) -> PgWireResult<crate::api::auth::mechanism::AuthState> {
+        let (response, new_state) = self
+            .oauth
+            .process_oauth_message(client, message, &self.state)
+            .await?;
+        self.state = new_state;
+
+        use crate::api::auth::mechanism::AuthState;
+        match response {
+            Some(message) => Ok(AuthState::InProgress(message)),
+            None => Ok(AuthState::Ok(None)),
+        }
+    }
+}
+
+impl crate::api::auth::mechanism::AuthMechanismFactory for Oauth {
+    fn create(&self) -> Box<dyn crate::api::auth::mechanism::AuthMechanism> {
+        Box::new(OauthMechanism {
+            oauth: self.clone(),
+            state: SASLState::OauthStateInit,
+        })
+    }
+}
+
+impl super::SaslMechanismFactory for Oauth {
+    fn sasl_mechanism_names(&self) -> Vec<String> {
+        vec![super::OAUTHBEARER_METHOD.to_owned()]
     }
 }
 #[cfg(test)]
