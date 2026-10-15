@@ -1,5 +1,5 @@
-//! A FATAL error ends the connection on the server side, as it ends the
-//! backend in PostgreSQL, even while the client keeps its socket open.
+//! A FATAL error, like a CancelRequest, ends the connection on the server
+//! side, as it does in PostgreSQL, even while the client keeps its socket open.
 
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -16,8 +16,9 @@ use tokio::time::timeout;
 use pgwire::api::auth::StartupHandler;
 use pgwire::api::{ClientInfo, PgWireServerHandlers};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
+use pgwire::messages::cancel::CancelRequest;
 use pgwire::messages::simplequery::Query;
-use pgwire::messages::startup::Startup;
+use pgwire::messages::startup::{SecretKey, Startup};
 use pgwire::messages::{Message, PgWireBackendMessage, PgWireFrontendMessage};
 use pgwire::tokio::process_socket;
 
@@ -57,6 +58,17 @@ impl PgWireServerHandlers for RejectingProcessor {
 /// Serves one connection and sends it a StartupMessage. Returns the client
 /// socket, still open, and the server task.
 async fn connect(severity: &'static str) -> (TcpStream, JoinHandle<std::io::Result<()>>) {
+    let (mut client, server) = serve(severity).await;
+    let mut startup = Startup::new();
+    startup
+        .parameters
+        .insert("user".to_owned(), "postgres".to_owned());
+    send(&mut client, &startup).await;
+    (client, server)
+}
+
+/// Serves one connection. Returns the client socket and the server task.
+async fn serve(severity: &'static str) -> (TcpStream, JoinHandle<std::io::Result<()>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let server = tokio::spawn(async move {
@@ -64,13 +76,7 @@ async fn connect(severity: &'static str) -> (TcpStream, JoinHandle<std::io::Resu
         process_socket(stream, None, RejectingProcessor { severity }).await
     });
 
-    let mut client = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-    let mut startup = Startup::new();
-    startup
-        .parameters
-        .insert("user".to_owned(), "postgres".to_owned());
-    send(&mut client, &startup).await;
-
+    let client = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
     (client, server)
 }
 
@@ -92,7 +98,7 @@ async fn read_message(client: &mut TcpStream) -> u8 {
 async fn assert_server_ends(server: JoinHandle<std::io::Result<()>>) {
     timeout(Duration::from_secs(5), server)
         .await
-        .expect("the server kept the connection after a FATAL error")
+        .expect("the server kept the connection")
         .unwrap()
         .unwrap();
 }
@@ -115,5 +121,15 @@ async fn non_fatal_error_keeps_connection() {
     // The server still answers, and the FATAL answer then ends it.
     send(&mut client, &Query::new("SELECT 1".to_owned())).await;
     assert_eq!(read_message(&mut client).await, b'E');
+    assert_server_ends(server).await;
+}
+
+#[tokio::test]
+async fn cancel_request_ends_connection_while_client_holds_socket() {
+    // A CancelRequest never reaches the startup handler, so its severity is unused.
+    let (mut client, server) = serve("FATAL").await;
+    send(&mut client, &CancelRequest::new(1, SecretKey::I32(1))).await;
+
+    // The client neither hangs up nor sends anything else.
     assert_server_ends(server).await;
 }
