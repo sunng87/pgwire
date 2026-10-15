@@ -614,7 +614,20 @@ macro_rules! process_socket_messages {
                 .await
                 {
                     error_handler.on_error(socket, &mut e);
-                    process_error(socket, e, is_extended_query).await?;
+                    // A FATAL error ends the session, as in PostgreSQL. Closing
+                    // the socket only shuts down its write side, so break to
+                    // drop it rather than wait for the client to hang up.
+                    let error = ErrorInfo::from(e);
+                    let is_fatal = error.is_fatal();
+                    process_error(
+                        socket,
+                        PgWireError::UserError(Box::new(error)),
+                        is_extended_query,
+                    )
+                    .await?;
+                    if is_fatal {
+                        break;
+                    }
                 }
             } else {
                 break;
