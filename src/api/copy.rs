@@ -3,7 +3,7 @@ use futures::sink::{Sink, SinkExt};
 use futures::stream::StreamExt;
 use std::fmt::Debug;
 
-use crate::error::{ErrorInfo, PgWireError, PgWireResult};
+use crate::error::{ErrorInfo, PgWireError, PgWireResult, SEVERITY_ERROR};
 use crate::messages::PgWireBackendMessage;
 use crate::messages::copy::{
     CopyBothResponse, CopyData, CopyDone, CopyFail, CopyInResponse, CopyOutResponse,
@@ -37,8 +37,8 @@ pub trait CopyHandler: Send + Sync {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         PgWireError::UserError(Box::new(ErrorInfo::new(
-            "ERROR".to_owned(),
-            "XX000".to_owned(),
+            SEVERITY_ERROR.to_string(),
+            "XX000".to_string(),
             format!("COPY IN mode terminated by the user: {}", fail.message),
         )))
     }
@@ -176,8 +176,8 @@ impl CopyHandler for super::NoopHandler {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-            "FATAL".to_owned(),
-            "08P01".to_owned(),
+            SEVERITY_ERROR.to_string(),
+            "0A000".to_string(),
             "This feature is not implemented.".to_string(),
         ))))
     }
@@ -189,8 +189,8 @@ impl CopyHandler for super::NoopHandler {
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-            "FATAL".to_owned(),
-            "08P01".to_owned(),
+            SEVERITY_ERROR.to_string(),
+            "0A000".to_string(),
             "This feature is not implemented.".to_string(),
         ))))
     }

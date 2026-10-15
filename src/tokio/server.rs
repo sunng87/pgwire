@@ -23,7 +23,7 @@ use crate::api::{
     ClientInfo, ClientPortalStore, DefaultClient, ErrorHandler, PgWireConnectionState,
     PgWireServerHandlers,
 };
-use crate::error::{ErrorInfo, PgWireError, PgWireResult};
+use crate::error::{ErrorInfo, PgWireError, PgWireResult, SEVERITY_ERROR};
 use crate::messages::response::{GssEncResponse, ReadyForQuery, SslResponse, TransactionStatus};
 use crate::messages::startup::SecretKey;
 use crate::messages::{
@@ -271,7 +271,7 @@ where
                 PgWireFrontendMessage::Flush(_) | PgWireFrontendMessage::Sync(_) => {}
                 _msg => {
                     return Err(PgWireError::UserError(Box::new(ErrorInfo::new(
-                        "ERROR".to_owned(),
+                        SEVERITY_ERROR.to_owned(),
                         "08P01".to_owned(),
                         "unexpected message type during COPY".to_owned(),
                     ))));

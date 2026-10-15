@@ -46,7 +46,7 @@ use pgwire::api::copy::CopyHandler;
 use pgwire::api::query::SimpleQueryHandler;
 use pgwire::api::results::{CopyEncoder, CopyResponse, FieldFormat, FieldInfo, Response, Tag};
 use pgwire::api::{ClientInfo, PgWireConnectionState, PgWireServerHandlers, Type};
-use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
+use pgwire::error::{ErrorInfo, PgWireError, PgWireResult, SEVERITY_ERROR, SEVERITY_NOTICE};
 use pgwire::messages::PgWireBackendMessage;
 use pgwire::messages::copy::{CopyData, CopyDone, CopyFail};
 use pgwire::messages::response::NoticeResponse;
@@ -67,7 +67,7 @@ impl SimpleQueryHandler for DummyProcessor {
         client
             .send(PgWireBackendMessage::NoticeResponse(NoticeResponse::from(
                 ErrorInfo::new(
-                    "NOTICE".to_owned(),
+                    SEVERITY_NOTICE.to_owned(),
                     "01000".to_owned(),
                     format!("Query received {}", query),
                 ),
@@ -112,8 +112,8 @@ impl SimpleQueryHandler for DummyProcessor {
             ))])
         } else {
             Ok(vec![Response::Error(Box::new(ErrorInfo::new(
-                "FATAL".to_owned(),
-                "08P01".to_owned(),
+                SEVERITY_ERROR.to_string(),
+                "0A000".to_string(),
                 "COPY FROM STDIN / COPY TO STDOUT expected.".to_string(),
             )))])
         }
@@ -184,7 +184,7 @@ impl CopyHandler for DummyProcessor {
         println!("copy failed: {:?}", fail);
 
         PgWireError::UserError(Box::new(ErrorInfo::new(
-            "ERROR".to_owned(),
+            SEVERITY_ERROR.to_owned(),
             "XX000".to_owned(),
             format!("COPY IN mode terminated by the user: {}", fail.message),
         )))

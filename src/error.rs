@@ -4,6 +4,19 @@ use thiserror::Error;
 
 use crate::messages::response::{ErrorResponse, NoticeResponse};
 
+pub const SEVERITY_DEBUG1: &str = "DEBUG1";
+pub const SEVERITY_DEBUG2: &str = "DEBUG2";
+pub const SEVERITY_DEBUG3: &str = "DEBUG3";
+pub const SEVERITY_DEBUG4: &str = "DEBUG4";
+pub const SEVERITY_DEBUG5: &str = "DEBUG5";
+pub const SEVERITY_INFO: &str = "INFO";
+pub const SEVERITY_LOG: &str = "LOG";
+pub const SEVERITY_NOTICE: &str = "NOTICE";
+pub const SEVERITY_WARNING: &str = "WARNING";
+pub const SEVERITY_ERROR: &str = "ERROR";
+pub const SEVERITY_FATAL: &str = "FATAL";
+pub const SEVERITY_PANIC: &str = "PANIC";
+
 /// Error type for pgwire server-side operations.
 #[derive(Error, Debug)]
 pub enum PgWireError {
@@ -226,9 +239,9 @@ impl ErrorInfo {
         fields
     }
 
-    /// Returns `true` if the error severity is `FATAL`.
+    /// Returns `true` if the error severity is `FATAL` or `PANIC`.
     pub fn is_fatal(&self) -> bool {
-        self.severity == "FATAL"
+        self.severity == SEVERITY_FATAL || self.severity == SEVERITY_PANIC
     }
 }
 
@@ -340,7 +353,7 @@ impl PgWireError {
             | PgWireError::InvalidOauthMessage(_)
             | PgWireError::OAuthAuthenticationFailed(_)
             | PgWireError::OAuthValidationError(_)
-            | PgWireError::OauthAuthzIdError(_) => "FATAL",
+            | PgWireError::OauthAuthzIdError(_) => SEVERITY_FATAL,
             PgWireError::PortalNotFound(_)
             | PgWireError::PortalNotStarted
             | PgWireError::StatementNotFound(_)
@@ -349,14 +362,14 @@ impl PgWireError {
             | PgWireError::FailedToParseParameter(_)
             | PgWireError::QueryCanceled
             | PgWireError::ApiError(_)
-            | PgWireError::InvalidOptionValue(_) => "ERROR",
+            | PgWireError::InvalidOptionValue(_) => SEVERITY_ERROR,
             PgWireError::UserError(info) => &info.severity,
         }
     }
 
-    /// Returns `true` if the error severity is `FATAL`.
+    /// Returns `true` if the error severity is `FATAL` or `PANIC`.
     pub fn is_fatal(&self) -> bool {
-        self.severity() == "FATAL"
+        self.severity() == SEVERITY_FATAL || self.severity() == SEVERITY_PANIC
     }
 
     /// Returns the SQLSTATE code this error is sent to the client with.
@@ -479,11 +492,11 @@ mod test {
     #[test]
     fn test_error_notice_info() {
         let error_info = ErrorInfo::new(
-            "FATAL".to_owned(),
+            SEVERITY_FATAL.to_owned(),
             "28P01".to_owned(),
             "Password authentication failed".to_owned(),
         );
-        assert_eq!("FATAL", error_info.severity);
+        assert_eq!(SEVERITY_FATAL, error_info.severity);
         assert_eq!("28P01", error_info.code);
         assert_eq!("Password authentication failed", error_info.message);
         assert!(error_info.file_name.is_none());
