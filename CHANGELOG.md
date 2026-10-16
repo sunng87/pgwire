@@ -6,10 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased] - ReleaseDate
+
+### Added
+
+- Composable startup authentication API. [#469]
+  - `AuthMechanism`: stateful, per-connection authentication state
+    machines, driven by `begin`/`next` until `AuthState::Ok` or
+    `AuthState::Failed`
+  - `AuthMechanismFactory`: creates a fresh mechanism per connection;
+    implemented by `CleartextPasswordAuth`, `Md5PasswordAuth`, the
+    `SaslMechanisms` registry, `ScramAuth` and `Oauth`
+  - `AuthDriver`: reusable mechanism driver for custom `StartupHandler`
+    implementations; runs the mechanism state machine and completes the
+    startup protocol
+- `AuthSource::get_scram_secret` returning `ScramSecret`: servers that
+  only store postgres-style SCRAM verifiers (`stored_key`/`server_key`)
+  can now authenticate without password material. [#469]
+- `PgWireError::NoAuthenticationInProgress`, returned when a
+  password-family message arrives while no authentication handshake is
+  running. [#469]
 
 ### Changed
 
+- `CleartextPasswordAuthStartupHandler`, `Md5PasswordAuthStartupHandler`
+  and `SASLAuthStartupHandler` are now implemented over `AuthDriver` and
+  the mechanism API. Per-connection authentication state no longer lives
+  in the shared handler, fixing interleaved authentication state when a
+  single handler serves concurrent connections. [#469]
 - SCRAM parser strictness, aligning with postgres and RFC5802:
   - reject non-empty `authzid` in the client-first message
   - reject the reserved `m=` attribute in client-first and server-first
