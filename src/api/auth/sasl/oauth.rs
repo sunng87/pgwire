@@ -276,6 +276,12 @@ impl Oauth {
             SASLState::OauthStateInit => {
                 let res = msg.into_sasl_initial_response()?;
 
+                if res.auth_method != super::OAUTHBEARER_METHOD {
+                    return Err(PgWireError::UnsupportedSASLAuthMethod(
+                        res.auth_method.clone(),
+                    ));
+                }
+
                 let data = match res.data.as_deref() {
                     None => {
                         // if dtata is empty, that means it is for discovery
