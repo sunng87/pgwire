@@ -34,15 +34,19 @@ pub const SCRAM_ITERATIONS: usize = 4096;
 pub struct ScramAuth {
     auth_db: Arc<dyn AuthSource>,
     authenticator: ScramServerAuth,
+    supported_mechanisms: Vec<String>,
 }
 
 impl ScramAuth {
     /// Creates a new SCRAM auth instance.
     pub fn new(auth_db: Arc<dyn AuthSource>) -> ScramAuth {
-        ScramAuth {
+        let mut auth = ScramAuth {
             auth_db,
             authenticator: ScramServerAuth::new(),
-        }
+            supported_mechanisms: vec![],
+        };
+        auth.rebuild_supported_mechanisms();
+        auth
     }
 
     /// enable channel binding (SCRAM-SHA-256-PLUS) by configuring server
@@ -51,7 +55,9 @@ impl ScramAuth {
     /// Original pem data is required here. We will decode pem and use the first
     /// certificate as server certificate.
     pub fn configure_certificate(&mut self, certs_pem: &[u8]) -> PgWireResult<()> {
-        self.authenticator.configure_certificate(certs_pem)
+        self.authenticator.configure_certificate(certs_pem)?;
+        self.rebuild_supported_mechanisms();
+        Ok(())
     }
 
     /// Set password hash iteration count, according to SCRAM RFC, a minimal of
@@ -69,6 +75,14 @@ impl ScramAuth {
     /// Returns `true` if channel binding is configured.
     pub fn supports_channel_binding(&self) -> bool {
         self.authenticator.server_cert_sig.is_some()
+    }
+
+    fn rebuild_supported_mechanisms(&mut self) {
+        let mut mechanisms = vec![super::SCRAM_SHA_256_METHOD.to_owned()];
+        if self.supports_channel_binding() {
+            mechanisms.push(super::SCRAM_SHA_256_PLUS_METHOD.to_owned());
+        }
+        self.supported_mechanisms = mechanisms;
     }
 }
 
@@ -110,11 +124,11 @@ impl ScramAuth {
                 // initial response, client_first
                 let msg = msg.into_sasl_initial_response()?;
 
-                let mut supported_mechanisms = vec![super::SCRAM_SHA_256_METHOD];
-                if self.supports_channel_binding() {
-                    supported_mechanisms.push(super::SCRAM_SHA_256_PLUS_METHOD);
-                }
-                if !supported_mechanisms.contains(&msg.auth_method.as_str()) {
+                if !self
+                    .supported_mechanisms
+                    .iter()
+                    .any(|m| m == &msg.auth_method)
+                {
                     return Err(PgWireError::UnsupportedSASLAuthMethod(
                         msg.auth_method.clone(),
                     ));
@@ -1211,5 +1225,107 @@ mod tests {
                 "expected UnsupportedSASLAuthMethod for {method}, got {error:?}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn test_channel_binding_adds_plus_mechanism() {
+        use crate::api::SessionExtensions;
+        use crate::messages::startup::SASLInitialResponse;
+        use async_trait::async_trait;
+        use std::collections::HashMap;
+        use std::net::SocketAddr;
+
+        struct StubClient {
+            metadata: HashMap<String, String>,
+            extensions: SessionExtensions,
+        }
+
+        impl ClientInfo for StubClient {
+            fn socket_addr(&self) -> SocketAddr {
+                "127.0.0.1:5432".parse().unwrap()
+            }
+            fn is_secure(&self) -> bool {
+                false
+            }
+            fn protocol_version(&self) -> crate::messages::ProtocolVersion {
+                crate::messages::ProtocolVersion::PROTOCOL3_0
+            }
+            fn set_protocol_version(&mut self, _v: crate::messages::ProtocolVersion) {}
+            fn pid_and_secret_key(&self) -> (i32, crate::messages::startup::SecretKey) {
+                (0, crate::messages::startup::SecretKey::I32(0))
+            }
+            fn set_pid_and_secret_key(
+                &mut self,
+                _pid: i32,
+                _key: crate::messages::startup::SecretKey,
+            ) {
+            }
+            fn state(&self) -> crate::api::PgWireConnectionState {
+                crate::api::PgWireConnectionState::AuthenticationInProgress
+            }
+            fn set_state(&mut self, _s: crate::api::PgWireConnectionState) {}
+            fn transaction_status(&self) -> crate::messages::response::TransactionStatus {
+                crate::messages::response::TransactionStatus::Idle
+            }
+            fn set_transaction_status(&mut self, _s: crate::messages::response::TransactionStatus) {
+            }
+            fn metadata(&self) -> &HashMap<String, String> {
+                &self.metadata
+            }
+            fn metadata_mut(&mut self) -> &mut HashMap<String, String> {
+                &mut self.metadata
+            }
+            fn session_extensions(&self) -> &SessionExtensions {
+                &self.extensions
+            }
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+            fn sni_server_name(&self) -> Option<&str> {
+                None
+            }
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+            fn client_certificates<'a>(&self) -> Option<&[rustls_pki_types::CertificateDer<'a>]> {
+                None
+            }
+        }
+
+        #[derive(Debug)]
+        struct FixedSource;
+
+        #[async_trait]
+        impl AuthSource for FixedSource {
+            async fn get_password(&self, _login: &LoginInfo) -> PgWireResult<Password> {
+                Ok(Password::new(
+                    Some(b"salt".into()),
+                    gen_salted_password("pencil", b"salt", SCRAM_ITERATIONS),
+                ))
+            }
+        }
+
+        let mut scram = ScramAuth::new(Arc::new(FixedSource));
+        let client = StubClient {
+            metadata: HashMap::from([("user".to_owned(), "foo".to_owned())]),
+            extensions: SessionExtensions::new(),
+        };
+        let client_first = "n,,n=foo,r=clientnonce";
+        let plus = || {
+            PasswordMessageFamily::SASLInitialResponse(SASLInitialResponse::new(
+                crate::api::auth::sasl::SCRAM_SHA_256_PLUS_METHOD.to_owned(),
+                Some(client_first.into()),
+            ))
+        };
+
+        let error = scram
+            .process_scram_message(&client, plus(), &SASLState::ScramClientFirstReceived)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, PgWireError::UnsupportedSASLAuthMethod(_)));
+
+        let cert = std::fs::read("examples/ssl/server.crt").unwrap();
+        scram.configure_certificate(&cert).unwrap();
+
+        scram
+            .process_scram_message(&client, plus(), &SASLState::ScramClientFirstReceived)
+            .await
+            .unwrap();
     }
 }
