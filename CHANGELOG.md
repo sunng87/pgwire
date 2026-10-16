@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- SCRAM parser strictness, aligning with postgres and RFC5802:
+  - reject non-empty `authzid` in the client-first message
+  - reject the reserved `m=` attribute in client-first and server-first
+    messages
+  - reject selections of non-advertised SASL mechanism names
+  - verify the client-final nonce against the server-first nonce
+- SCRAM proofs are now verified against the messages exactly as
+  transmitted, so clients sending optional RFC5802 extensions no longer
+  fail authentication. Both server and client sides.
+
 ## [0.41.1] - 2026-09-29
 
 ### Changed

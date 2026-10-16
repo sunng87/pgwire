@@ -88,15 +88,19 @@ impl ScramSecret {
 pub struct ScramAuth {
     auth_db: Arc<dyn AuthSource>,
     authenticator: ScramServerAuth,
+    supported_mechanisms: Vec<String>,
 }
 
 impl ScramAuth {
     /// Creates a new SCRAM auth instance.
     pub fn new(auth_db: Arc<dyn AuthSource>) -> ScramAuth {
-        ScramAuth {
+        let mut auth = ScramAuth {
             auth_db,
             authenticator: ScramServerAuth::new(),
-        }
+            supported_mechanisms: vec![],
+        };
+        auth.rebuild_supported_mechanisms();
+        auth
     }
 
     /// enable channel binding (SCRAM-SHA-256-PLUS) by configuring server
@@ -105,7 +109,9 @@ impl ScramAuth {
     /// Original pem data is required here. We will decode pem and use the first
     /// certificate as server certificate.
     pub fn configure_certificate(&mut self, certs_pem: &[u8]) -> PgWireResult<()> {
-        self.authenticator.configure_certificate(certs_pem)
+        self.authenticator.configure_certificate(certs_pem)?;
+        self.rebuild_supported_mechanisms();
+        Ok(())
     }
 
     /// Set password hash iteration count, according to SCRAM RFC, a minimal of
@@ -123,6 +129,14 @@ impl ScramAuth {
     /// Returns `true` if channel binding is configured.
     pub fn supports_channel_binding(&self) -> bool {
         self.authenticator.server_cert_sig.is_some()
+    }
+
+    fn rebuild_supported_mechanisms(&mut self) {
+        let mut mechanisms = vec![super::SCRAM_SHA_256_METHOD.to_owned()];
+        if self.supports_channel_binding() {
+            mechanisms.push(super::SCRAM_SHA_256_PLUS_METHOD.to_owned());
+        }
+        self.supported_mechanisms = mechanisms;
     }
 }
 
@@ -219,6 +233,17 @@ impl ScramAuth {
             SASLState::ScramClientFirstReceived => {
                 // initial response, client_first
                 let msg = msg.into_sasl_initial_response()?;
+
+                if !self
+                    .supported_mechanisms
+                    .iter()
+                    .any(|m| m == &msg.auth_method)
+                {
+                    return Err(PgWireError::UnsupportedSASLAuthMethod(
+                        msg.auth_method.clone(),
+                    ));
+                }
+
                 let resp = msg.data.as_ref().ok_or_else(|| {
                     PgWireError::InvalidScramMessage("Empty client-first".to_owned())
                 })?;
@@ -381,6 +406,12 @@ impl ScramServerAuthWaitingForClientFinal {
             ));
         }
 
+        if client_final.without_proof.nonce != self.server_first_message.nonce {
+            return Err(PgWireError::InvalidScramMessage(
+                "Nonce mismatch".to_owned(),
+            ));
+        }
+
         match &self.secret {
             ScramSecret::SaltedPassword {
                 salted_password, ..
@@ -462,7 +493,12 @@ mod client {
                 .map_err(|e| PgWireClientError::InvalidConfig(format!("Invalid username: {e}")))?
                 .into_owned();
             let nonce = random_nonce();
-            let client_first_message_bare = ClientFirstBare { username, nonce };
+            let raw = format!("n={username},r={nonce}");
+            let client_first_message_bare = ClientFirstBare {
+                raw,
+                username,
+                nonce,
+            };
             let c_bind_flag = CBindFlag::N; // TODO: support channel bindings
             let channel_binding = Gs2Header {
                 c_bind_flag: c_bind_flag.clone(),
@@ -499,7 +535,9 @@ mod client {
             let server_first_message = ServerFirst::from_str(decode_str(server_first_message)?)?;
 
             let channel_binding = compute_channel_binding(None, &self.channel_binding);
+            let raw = format!("c={channel_binding},r={}", server_first_message.nonce);
             let client_final_without_proof = ClientFinalWithoutProof {
+                raw,
                 channel_binding: channel_binding.clone(),
                 nonce: server_first_message.nonce.clone(),
             };
@@ -651,21 +689,14 @@ impl FromStr for ClientFirst {
         };
 
         let authzid = parts.next_required()?;
-        let authzid = if let Some(saslname) = authzid.strip_prefix("a=") {
-            Some(saslname.to_owned())
-        } else if authzid.is_empty() {
-            None
-        } else {
+        if !authzid.is_empty() {
             return Err(PgWireError::InvalidScramMessage(s.to_owned()));
-        };
+        }
 
-        let reserved_mex_or_username = parts.next_required()?;
-        let username = if reserved_mex_or_username.starts_with("m=") {
-            // It's actually reserved-mex, move to next part
-            parts.next_required()?
-        } else {
-            reserved_mex_or_username
-        };
+        let username = parts.next_required()?;
+        if username.starts_with("m=") {
+            return Err(PgWireError::InvalidScramMessage(s.to_owned()));
+        }
         let Some(username) = username.strip_prefix("n=") else {
             return Err(PgWireError::InvalidScramMessage(s.to_owned()));
         };
@@ -674,12 +705,18 @@ impl FromStr for ClientFirst {
             return Err(PgWireError::InvalidScramMessage(s.to_owned()));
         };
 
+        let bare = s
+            .splitn(3, ',')
+            .nth(2)
+            .ok_or_else(|| PgWireError::InvalidScramMessage(s.to_owned()))?;
+
         Ok(Self {
             gs2header: Gs2Header {
                 c_bind_flag,
-                authzid,
+                authzid: None,
             },
             bare: ClientFirstBare {
+                raw: bare.to_owned(),
                 username: username.to_owned(),
                 nonce: nonce.to_owned(),
             },
@@ -734,16 +771,14 @@ impl fmt::Display for CBindFlag {
 
 #[derive(Debug, Clone)]
 struct ClientFirstBare {
+    raw: String,
     username: String,
     nonce: String,
 }
 
 impl fmt::Display for ClientFirstBare {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("n=")?;
-        f.write_str(&self.username)?;
-        f.write_str(",r=")?;
-        f.write_str(&self.nonce)
+        f.write_str(&self.raw)
     }
 }
 
@@ -767,12 +802,10 @@ impl FromStr for ServerFirst {
         let mut parts = ScamMessageChunker::new(s);
 
         let reserved_mex_or_nonce = parts.next_required()?;
-        let nonce = if reserved_mex_or_nonce.starts_with("m=") {
-            // It's actually reserved-mex, move to next part
-            parts.next_required()?
-        } else {
-            reserved_mex_or_nonce
-        };
+        if reserved_mex_or_nonce.starts_with("m=") {
+            return Err(PgWireError::InvalidScramMessage(s.to_owned()));
+        }
+        let nonce = reserved_mex_or_nonce;
         let Some(nonce) = nonce.strip_prefix("r=") else {
             return Err(PgWireError::InvalidScramMessage(s.to_owned()));
         };
@@ -823,7 +856,12 @@ impl FromStr for ClientFinal {
         // nonce = "r=" c-nonce [s-nonce]
         // proof = "p=" base64
 
-        let mut parts = ScamMessageChunker::new(s);
+        let proof_start = s
+            .rfind(",p=")
+            .ok_or_else(|| PgWireError::InvalidScramMessage(s.to_owned()))?;
+        let without_proof_raw = &s[..proof_start];
+
+        let mut parts = ScamMessageChunker::new(without_proof_raw);
 
         let Some(channel_binding) = parts.next_required()?.strip_prefix("c=") else {
             return Err(PgWireError::InvalidScramMessage(s.to_owned()));
@@ -833,12 +871,11 @@ impl FromStr for ClientFinal {
             return Err(PgWireError::InvalidScramMessage(s.to_owned()));
         };
 
-        let Some(proof) = parts.last_required()?.strip_prefix("p=") else {
-            return Err(PgWireError::InvalidScramMessage(s.to_owned()));
-        };
+        let proof = &s[proof_start + 3..];
 
         Ok(Self {
             without_proof: ClientFinalWithoutProof {
+                raw: without_proof_raw.to_owned(),
                 channel_binding: channel_binding.to_owned(),
                 nonce: nonce.to_owned(),
             },
@@ -857,16 +894,14 @@ impl fmt::Display for ClientFinal {
 
 #[derive(Debug, Clone)]
 struct ClientFinalWithoutProof {
+    raw: String,
     channel_binding: String,
     nonce: String,
 }
 
 impl fmt::Display for ClientFinalWithoutProof {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("c=")?;
-        f.write_str(&self.channel_binding)?;
-        f.write_str(",r=")?;
-        f.write_str(&self.nonce)
+        f.write_str(&self.raw)
     }
 }
 
@@ -932,14 +967,6 @@ impl<'a> ScamMessageChunker<'a> {
         self.iter
             .next()
             .ok_or_else(|| PgWireError::InvalidScramMessage(self.message.to_owned()))
-    }
-
-    fn last_required(&mut self) -> PgWireResult<&'a str> {
-        let mut maybe_last = None;
-        for e in &mut self.iter {
-            maybe_last = Some(e);
-        }
-        maybe_last.ok_or_else(|| PgWireError::InvalidScramMessage(self.message.to_owned()))
     }
 }
 
@@ -1007,6 +1034,25 @@ fn compute_cert_signature(cert: &[u8]) -> PgWireResult<Vec<u8>> {
 mod tests {
     #[cfg(feature = "client-api")]
     use super::client::*;
+
+    #[cfg(feature = "client-api")]
+    fn bare(raw: &str) -> super::ClientFirstBare {
+        super::ClientFirstBare {
+            raw: raw.to_owned(),
+            username: String::new(),
+            nonce: String::new(),
+        }
+    }
+
+    #[cfg(feature = "client-api")]
+    fn without_proof(raw: &str) -> super::ClientFinalWithoutProof {
+        super::ClientFinalWithoutProof {
+            raw: raw.to_owned(),
+            channel_binding: String::new(),
+            nonce: String::new(),
+        }
+    }
+
     use super::*;
     #[cfg(feature = "client-api")]
     use crate::error::PgWireClientResult;
@@ -1038,11 +1084,13 @@ mod tests {
             "p=foo,,n=user,r=fyko+d2lbbFgONRv9qkxdawL"
         );
         assert_eq!(
-            ClientFirst::from_str("n,,m=foo,n=user,r=fyko+d2lbbFgONRv9qkxdawL,foo")
+            ClientFirst::from_str("n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL,foo=bar")
                 .unwrap()
                 .to_string(),
-            "n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL"
+            "n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL,foo=bar"
         );
+        assert!(ClientFirst::from_str("n,,m=foo,n=user,r=fyko+d2lbbFgONRv9qkxdawL").is_err());
+        assert!(ClientFirst::from_str("n,a=user,n=user,r=fyko+d2lbbFgONRv9qkxdawL").is_err());
     }
 
     #[test]
@@ -1055,13 +1103,11 @@ mod tests {
             .to_string(),
             "r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,s=QSXCR+Q6sek8bf92,i=4096"
         );
-        assert_eq!(
+        assert!(
             ServerFirst::from_str(
                 "m=foo,r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,s=QSXCR+Q6sek8bf92,i=4096"
             )
-            .unwrap()
-            .to_string(),
-            "r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,s=QSXCR+Q6sek8bf92,i=4096"
+            .is_err()
         );
     }
 
@@ -1069,11 +1115,11 @@ mod tests {
     fn test_client_final_roundtrip() {
         assert_eq!(
             ClientFinal::from_str(
-                "c=biws,r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,p=v0X8v3Bz2T0CJGbJQyF0X+HI4Ts="
+                "c=biws,r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,foo=bar,p=v0X8v3Bz2T0CJGbJQyF0X+HI4Ts="
             )
             .unwrap()
             .to_string(),
-            "c=biws,r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,p=v0X8v3Bz2T0CJGbJQyF0X+HI4Ts="
+            "c=biws,r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,foo=bar,p=v0X8v3Bz2T0CJGbJQyF0X+HI4Ts="
         );
     }
 
@@ -1153,5 +1199,300 @@ mod tests {
             PgWireError::InvalidPassword(_)
         ));
         Ok(())
+    }
+
+    #[cfg(feature = "client-api")]
+    #[test]
+    fn test_auth_roundtrip_with_extensions() {
+        let username = "user";
+        let password = "pencil";
+        let salt = b"bar".as_slice();
+        let iterations = 12;
+        let salted_password = gen_salted_password(password, salt, iterations);
+
+        let client = ScramClientAuth::new(username.into(), password.into());
+        let mut server = ScramServerAuth::new();
+        server.set_iterations(iterations);
+
+        let (client_first_message, _) = client.build_client_first().unwrap();
+        let extended_first = format!("{client_first_message},foo=bar");
+        let (server_first_message, server) = server
+            .on_client_first_message(
+                extended_first.as_bytes(),
+                Password::new(Some(salt.into()), salted_password.clone()),
+            )
+            .unwrap();
+
+        let server_first = ServerFirst::from_str(&server_first_message).unwrap();
+        let cb = compute_channel_binding(
+            None,
+            &Gs2Header {
+                c_bind_flag: CBindFlag::N,
+                authzid: None,
+            },
+        );
+        let without_proof_raw = format!("c={cb},r={},foo=bar", server_first.nonce);
+        let bare_raw = extended_first.strip_prefix("n,,").unwrap();
+        let proof = compute_client_proof(
+            &salted_password,
+            &bare(bare_raw),
+            &server_first,
+            &without_proof(&without_proof_raw),
+        );
+        let client_final_message = format!("{without_proof_raw},p={proof}");
+
+        let server_final_message = server
+            .on_client_final_message(client_final_message.as_bytes())
+            .unwrap();
+
+        let expected_verifier = compute_server_signature(
+            &salted_password,
+            &bare(bare_raw),
+            &server_first,
+            &without_proof(&without_proof_raw),
+        );
+        assert_eq!(server_final_message, format!("v={expected_verifier}"));
+    }
+
+    #[cfg(feature = "client-api")]
+    #[test]
+    fn test_client_final_nonce_mismatch_rejected() {
+        let password = "pencil";
+        let salt = b"bar".as_slice();
+        let iterations = 12;
+        let salted_password = gen_salted_password(password, salt, iterations);
+
+        let client = ScramClientAuth::new("user".into(), password.into());
+        let mut server = ScramServerAuth::new();
+        server.set_iterations(iterations);
+        let (client_first_message, _) = client.build_client_first().unwrap();
+        let (server_first_message, server) = server
+            .on_client_first_message(
+                client_first_message.as_bytes(),
+                Password::new(Some(salt.into()), salted_password.clone()),
+            )
+            .unwrap();
+
+        let server_first = ServerFirst::from_str(&server_first_message).unwrap();
+        let cb = compute_channel_binding(
+            None,
+            &Gs2Header {
+                c_bind_flag: CBindFlag::N,
+                authzid: None,
+            },
+        );
+        let without_proof_raw = format!("c={cb},r=tampered-nonce");
+        let bare_raw = client_first_message.strip_prefix("n,,").unwrap();
+        let proof = compute_client_proof(
+            &salted_password,
+            &bare(bare_raw),
+            &server_first,
+            &without_proof(&without_proof_raw),
+        );
+        let client_final_message = format!("{without_proof_raw},p={proof}");
+
+        let error = server
+            .on_client_final_message(client_final_message.as_bytes())
+            .unwrap_err();
+        assert!(error.to_string().contains("Nonce mismatch"));
+    }
+
+    #[tokio::test]
+    async fn test_unsupported_mechanism_name_rejected() {
+        use crate::api::SessionExtensions;
+        use crate::messages::startup::SASLInitialResponse;
+        use async_trait::async_trait;
+        use std::collections::HashMap;
+        use std::net::SocketAddr;
+
+        struct StubClient {
+            metadata: HashMap<String, String>,
+            extensions: SessionExtensions,
+        }
+
+        impl ClientInfo for StubClient {
+            fn socket_addr(&self) -> SocketAddr {
+                "127.0.0.1:5432".parse().unwrap()
+            }
+            fn is_secure(&self) -> bool {
+                false
+            }
+            fn protocol_version(&self) -> crate::messages::ProtocolVersion {
+                crate::messages::ProtocolVersion::PROTOCOL3_0
+            }
+            fn set_protocol_version(&mut self, _v: crate::messages::ProtocolVersion) {}
+            fn pid_and_secret_key(&self) -> (i32, crate::messages::startup::SecretKey) {
+                (0, crate::messages::startup::SecretKey::I32(0))
+            }
+            fn set_pid_and_secret_key(
+                &mut self,
+                _pid: i32,
+                _key: crate::messages::startup::SecretKey,
+            ) {
+            }
+            fn state(&self) -> crate::api::PgWireConnectionState {
+                crate::api::PgWireConnectionState::AuthenticationInProgress
+            }
+            fn set_state(&mut self, _s: crate::api::PgWireConnectionState) {}
+            fn transaction_status(&self) -> crate::messages::response::TransactionStatus {
+                crate::messages::response::TransactionStatus::Idle
+            }
+            fn set_transaction_status(&mut self, _s: crate::messages::response::TransactionStatus) {
+            }
+            fn metadata(&self) -> &HashMap<String, String> {
+                &self.metadata
+            }
+            fn metadata_mut(&mut self) -> &mut HashMap<String, String> {
+                &mut self.metadata
+            }
+            fn session_extensions(&self) -> &SessionExtensions {
+                &self.extensions
+            }
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+            fn sni_server_name(&self) -> Option<&str> {
+                None
+            }
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+            fn client_certificates<'a>(&self) -> Option<&[rustls_pki_types::CertificateDer<'a>]> {
+                None
+            }
+        }
+
+        #[derive(Debug)]
+        struct FixedSource;
+
+        #[async_trait]
+        impl AuthSource for FixedSource {
+            async fn get_password(&self, _login: &LoginInfo) -> PgWireResult<Password> {
+                Ok(Password::new(
+                    Some(b"salt".into()),
+                    gen_salted_password("pencil", b"salt", SCRAM_ITERATIONS),
+                ))
+            }
+        }
+
+        let scram = ScramAuth::new(Arc::new(FixedSource));
+        let client = StubClient {
+            metadata: HashMap::from([("user".to_owned(), "foo".to_owned())]),
+            extensions: SessionExtensions::new(),
+        };
+
+        let client_first = "n,,n=foo,r=clientnonce";
+        for method in ["SCRAM-SHA-512", "SCRAM-SHA-256-PLUS", "ANONYMOUS"] {
+            let msg = PasswordMessageFamily::SASLInitialResponse(SASLInitialResponse::new(
+                method.to_owned(),
+                Some(client_first.into()),
+            ));
+            let error = scram
+                .process_scram_message(&client, msg, &SASLState::ScramClientFirstReceived)
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(error, PgWireError::UnsupportedSASLAuthMethod(ref m) if m == method),
+                "expected UnsupportedSASLAuthMethod for {method}, got {error:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_channel_binding_adds_plus_mechanism() {
+        use crate::api::SessionExtensions;
+        use crate::messages::startup::SASLInitialResponse;
+        use async_trait::async_trait;
+        use std::collections::HashMap;
+        use std::net::SocketAddr;
+
+        struct StubClient {
+            metadata: HashMap<String, String>,
+            extensions: SessionExtensions,
+        }
+
+        impl ClientInfo for StubClient {
+            fn socket_addr(&self) -> SocketAddr {
+                "127.0.0.1:5432".parse().unwrap()
+            }
+            fn is_secure(&self) -> bool {
+                false
+            }
+            fn protocol_version(&self) -> crate::messages::ProtocolVersion {
+                crate::messages::ProtocolVersion::PROTOCOL3_0
+            }
+            fn set_protocol_version(&mut self, _v: crate::messages::ProtocolVersion) {}
+            fn pid_and_secret_key(&self) -> (i32, crate::messages::startup::SecretKey) {
+                (0, crate::messages::startup::SecretKey::I32(0))
+            }
+            fn set_pid_and_secret_key(
+                &mut self,
+                _pid: i32,
+                _key: crate::messages::startup::SecretKey,
+            ) {
+            }
+            fn state(&self) -> crate::api::PgWireConnectionState {
+                crate::api::PgWireConnectionState::AuthenticationInProgress
+            }
+            fn set_state(&mut self, _s: crate::api::PgWireConnectionState) {}
+            fn transaction_status(&self) -> crate::messages::response::TransactionStatus {
+                crate::messages::response::TransactionStatus::Idle
+            }
+            fn set_transaction_status(&mut self, _s: crate::messages::response::TransactionStatus) {
+            }
+            fn metadata(&self) -> &HashMap<String, String> {
+                &self.metadata
+            }
+            fn metadata_mut(&mut self) -> &mut HashMap<String, String> {
+                &mut self.metadata
+            }
+            fn session_extensions(&self) -> &SessionExtensions {
+                &self.extensions
+            }
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+            fn sni_server_name(&self) -> Option<&str> {
+                None
+            }
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+            fn client_certificates<'a>(&self) -> Option<&[rustls_pki_types::CertificateDer<'a>]> {
+                None
+            }
+        }
+
+        #[derive(Debug)]
+        struct FixedSource;
+
+        #[async_trait]
+        impl AuthSource for FixedSource {
+            async fn get_password(&self, _login: &LoginInfo) -> PgWireResult<Password> {
+                Ok(Password::new(
+                    Some(b"salt".into()),
+                    gen_salted_password("pencil", b"salt", SCRAM_ITERATIONS),
+                ))
+            }
+        }
+
+        let mut scram = ScramAuth::new(Arc::new(FixedSource));
+        let client = StubClient {
+            metadata: HashMap::from([("user".to_owned(), "foo".to_owned())]),
+            extensions: SessionExtensions::new(),
+        };
+        let client_first = "n,,n=foo,r=clientnonce";
+        let plus = || {
+            PasswordMessageFamily::SASLInitialResponse(SASLInitialResponse::new(
+                crate::api::auth::sasl::SCRAM_SHA_256_PLUS_METHOD.to_owned(),
+                Some(client_first.into()),
+            ))
+        };
+
+        let error = scram
+            .process_scram_message(&client, plus(), &SASLState::ScramClientFirstReceived)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, PgWireError::UnsupportedSASLAuthMethod(_)));
+
+        let cert = std::fs::read("examples/ssl/server.crt").unwrap();
+        scram.configure_certificate(&cert).unwrap();
+
+        scram
+            .process_scram_message(&client, plus(), &SASLState::ScramClientFirstReceived)
+            .await
+            .unwrap();
     }
 }
