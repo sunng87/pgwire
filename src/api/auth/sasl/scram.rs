@@ -11,13 +11,16 @@ use base64::engine::general_purpose::STANDARD;
 use x509_certificate::SignatureAlgorithm;
 use x509_certificate::certificate::CapturedX509Certificate;
 
+use super::SaslMechanismFactory;
 use crate::api::ClientInfo;
+use crate::api::auth::mechanism::{AuthMechanism, AuthMechanismFactory, AuthState};
 /// Re-exports client-side SCRAM authentication types.
 #[cfg(feature = "client-api")]
 pub use crate::api::auth::sasl::scram::client::*;
 use crate::api::auth::{AuthSource, LoginInfo, Password};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::{Authentication, PasswordMessageFamily};
+use async_trait::async_trait;
 
 use super::SASLState;
 
@@ -29,8 +32,82 @@ use ring::{digest, hmac, pbkdf2};
 /// Default SCRAM iteration count.
 pub const SCRAM_ITERATIONS: usize = 4096;
 
+/// SCRAM credential material used to authenticate a client.
+///
+/// Servers that know (or can compute) the client's salted password use
+/// [`ScramSecret::SaltedPassword`]. Servers that only store a
+/// postgres-style verifier
+/// (`SCRAM-SHA-256$<iterations>:<salt>:<stored_key>:<server_key>`) use
+/// [`ScramSecret::Verifier`] and never need access to password material.
+pub enum ScramSecret {
+    /// The salted password `Hi(password, salt, iterations)` and its salt.
+    SaltedPassword {
+        /// salt used to derive the salted password
+        salt: Vec<u8>,
+        /// salted password
+        salted_password: Vec<u8>,
+    },
+    /// Postgres-style verifier: salt, iterations, stored key and server key.
+    ///
+    /// The client proof is verified against `stored_key` and the server
+    /// signature is computed from `server_key`, so the salted password never
+    /// has to be present on the server.
+    Verifier {
+        /// salt used to derive the verifier
+        salt: Vec<u8>,
+        /// iteration count used to derive the verifier
+        iterations: usize,
+        /// `SHA256(ClientKey)`
+        stored_key: Vec<u8>,
+        /// `HMAC(SaltedPassword, "Server Key")`
+        server_key: Vec<u8>,
+    },
+}
+
+impl fmt::Debug for ScramSecret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // never render key material; salt and iterations are not secret
+        // (they are transmitted in the clear in the SCRAM exchange)
+        match self {
+            ScramSecret::SaltedPassword { salt, .. } => f
+                .debug_struct("SaltedPassword")
+                .field("salt", salt)
+                .field("salted_password", &"<REDACTED>")
+                .finish(),
+            ScramSecret::Verifier {
+                salt, iterations, ..
+            } => f
+                .debug_struct("Verifier")
+                .field("salt", salt)
+                .field("iterations", iterations)
+                .field("stored_key", &"<REDACTED>")
+                .field("server_key", &"<REDACTED>")
+                .finish(),
+        }
+    }
+}
+
+impl ScramSecret {
+    /// Derives a [`ScramSecret::Verifier`] from a salted password.
+    pub fn verifier_from_salted_password(
+        salt: Vec<u8>,
+        salted_password: Vec<u8>,
+        iterations: usize,
+    ) -> Self {
+        let client_key = hmac(&salted_password, b"Client Key");
+        let stored_key = h(&client_key);
+        let server_key = hmac(&salted_password, b"Server Key");
+        Self::Verifier {
+            salt,
+            iterations,
+            stored_key,
+            server_key,
+        }
+    }
+}
+
 /// SCRAM authentication configuration and state.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ScramAuth {
     auth_db: Arc<dyn AuthSource>,
     authenticator: ScramServerAuth,
@@ -86,6 +163,58 @@ impl ScramAuth {
     }
 }
 
+/// Per-connection SCRAM state machine created by [`ScramAuth`].
+struct ScramMechanism {
+    auth: ScramAuth,
+    state: SASLState,
+}
+
+#[async_trait]
+impl AuthMechanism for ScramMechanism {
+    async fn begin(&mut self, _client: &(dyn ClientInfo + Send + Sync)) -> PgWireResult<AuthState> {
+        Ok(AuthState::InProgress(Authentication::SASL(
+            self.auth.sasl_mechanism_names(),
+        )))
+    }
+
+    async fn next(
+        &mut self,
+        client: &(dyn ClientInfo + Send + Sync),
+        message: PasswordMessageFamily,
+    ) -> PgWireResult<AuthState> {
+        let (response, new_state) = self
+            .auth
+            .process_scram_message(client, message, &self.state)
+            .await?;
+        self.state = new_state;
+
+        match response {
+            Authentication::SASLContinue(_) => Ok(AuthState::InProgress(response)),
+            Authentication::SASLFinal(_) => Ok(AuthState::Ok(Some(response))),
+            _ => Err(PgWireError::InvalidSASLState),
+        }
+    }
+}
+
+impl AuthMechanismFactory for ScramAuth {
+    fn create(&self) -> Box<dyn AuthMechanism> {
+        Box::new(ScramMechanism {
+            auth: self.clone(),
+            state: SASLState::ScramClientFirstReceived,
+        })
+    }
+}
+
+impl SaslMechanismFactory for ScramAuth {
+    fn sasl_mechanism_names(&self) -> Vec<String> {
+        let mut mechanisms = vec![super::SCRAM_SHA_256_METHOD.to_owned()];
+        if self.supports_channel_binding() {
+            mechanisms.push(super::SCRAM_SHA_256_PLUS_METHOD.to_owned());
+        }
+        mechanisms
+    }
+}
+
 /// Compute salted password from raw password as defined in
 /// [RFC5802](https://www.rfc-editor.org/rfc/rfc5802#section-3)
 ///
@@ -117,7 +246,7 @@ impl ScramAuth {
         state: &SASLState,
     ) -> PgWireResult<(Authentication, SASLState)>
     where
-        C: ClientInfo + Unpin + Send,
+        C: ClientInfo + ?Sized,
     {
         match state {
             SASLState::ScramClientFirstReceived => {
@@ -139,11 +268,11 @@ impl ScramAuth {
                 })?;
 
                 let login_info = LoginInfo::from_client_info(client);
-                let expected_password = self.auth_db.get_password(&login_info).await?;
+                let secret = self.auth_db.get_scram_secret(&login_info).await?;
 
                 let (server_first, authenticator) = self
                     .authenticator
-                    .on_client_first_message(resp, expected_password)?;
+                    .on_client_first_message_with_secret(resp, secret)?;
 
                 Ok((
                     Authentication::SASLContinue(server_first.into()),
@@ -165,7 +294,7 @@ impl ScramAuth {
 }
 
 /// State machine for SCRAM server-side authentication
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ScramServerAuth {
     /// base64 encoded certificate signature for tls-server-end-point channel binding
     server_cert_sig: Option<Arc<String>>,
@@ -212,11 +341,36 @@ impl ScramServerAuth {
         self.iterations = iterations;
     }
 
+    /// Returns `true` if channel binding is configured.
+    pub fn supports_channel_binding(&self) -> bool {
+        self.server_cert_sig.is_some()
+    }
+
     /// Client first message with expected username (optional) and expected password
     pub fn on_client_first_message(
         &self,
         client_first_message: &[u8],
         expected_password: Password,
+    ) -> PgWireResult<(String, ScramServerAuthWaitingForClientFinal)> {
+        let salt = expected_password
+            .salt()
+            .map(|s| s.to_vec())
+            .ok_or_else(|| {
+                PgWireError::InvalidScramMessage("Salt required for SCRAM auth source".to_owned())
+            })?;
+        let secret = ScramSecret::SaltedPassword {
+            salt,
+            salted_password: expected_password.password().to_vec(),
+        };
+        self.on_client_first_message_with_secret(client_first_message, secret)
+    }
+
+    /// Client first message with a [`ScramSecret`], which allows both
+    /// salted-password based and verifier-based authentication.
+    pub fn on_client_first_message_with_secret(
+        &self,
+        client_first_message: &[u8],
+        secret: ScramSecret,
     ) -> PgWireResult<(String, ScramServerAuthWaitingForClientFinal)> {
         let client_first = ClientFirst::from_str(decode_str(client_first_message)?)?;
 
@@ -224,22 +378,20 @@ impl ScramServerAuth {
         let mut new_nonce = client_first.bare.nonce.clone();
         new_nonce.push_str(random_nonce().as_str());
 
-        let server_first = ServerFirst::new(
-            new_nonce,
-            STANDARD.encode(
-                expected_password
-                    .salt
-                    .as_ref()
-                    .expect("Salt required for SCRAM auth source"),
-            ),
-            self.iterations,
-        );
+        let (salt, iterations) = match &secret {
+            ScramSecret::SaltedPassword { salt, .. } => (salt, self.iterations),
+            ScramSecret::Verifier {
+                salt, iterations, ..
+            } => (salt, *iterations),
+        };
+
+        let server_first = ServerFirst::new(new_nonce, STANDARD.encode(salt), iterations);
 
         Ok((
             server_first.to_string(),
             ScramServerAuthWaitingForClientFinal {
                 server_cert_sig: self.server_cert_sig.clone(),
-                expected_password,
+                secret,
                 channel_binding: client_first.gs2header,
                 client_first_message_bare: client_first.bare,
                 server_first_message: server_first,
@@ -252,7 +404,7 @@ impl ScramServerAuth {
 #[derive(Debug)]
 pub struct ScramServerAuthWaitingForClientFinal {
     server_cert_sig: Option<Arc<String>>,
-    expected_password: Password,
+    secret: ScramSecret,
     channel_binding: Gs2Header,
     client_first_message_bare: ClientFirstBare,
     server_first_message: ServerFirst,
@@ -279,24 +431,58 @@ impl ScramServerAuthWaitingForClientFinal {
             ));
         }
 
-        let computed_client_proof = compute_client_proof(
-            self.expected_password.password(),
-            &self.client_first_message_bare,
-            &self.server_first_message,
-            &client_final.without_proof,
-        );
-        if computed_client_proof == client_final.proof {
-            let verifier = compute_server_signature(
-                self.expected_password.password(),
-                &self.client_first_message_bare,
-                &self.server_first_message,
-                &client_final.without_proof,
-            );
-            Ok(ServerFinal::Success { verifier }.to_string())
-        } else {
-            Err(PgWireError::InvalidPassword(
-                self.client_first_message_bare.username.clone(),
-            ))
+        match &self.secret {
+            ScramSecret::SaltedPassword {
+                salted_password, ..
+            } => {
+                let computed_client_proof = compute_client_proof(
+                    salted_password,
+                    &self.client_first_message_bare,
+                    &self.server_first_message,
+                    &client_final.without_proof,
+                );
+                if computed_client_proof == client_final.proof {
+                    let verifier = compute_server_signature(
+                        salted_password,
+                        &self.client_first_message_bare,
+                        &self.server_first_message,
+                        &client_final.without_proof,
+                    );
+                    Ok(ServerFinal::Success { verifier }.to_string())
+                } else {
+                    Err(PgWireError::InvalidPassword(
+                        self.client_first_message_bare.username.clone(),
+                    ))
+                }
+            }
+            ScramSecret::Verifier {
+                stored_key,
+                server_key,
+                ..
+            } => {
+                let auth_message = format!(
+                    "{},{},{}",
+                    self.client_first_message_bare,
+                    self.server_first_message,
+                    client_final.without_proof
+                );
+                let client_proof = STANDARD
+                    .decode(&client_final.proof)
+                    .map_err(|e| PgWireError::InvalidScramMessage(e.to_string()))?;
+
+                // ClientKey = ClientProof XOR ClientSignature where
+                // ClientSignature = HMAC(StoredKey, AuthMessage)
+                let client_signature = hmac(stored_key, auth_message.as_bytes());
+                let client_key = xor(&client_proof, &client_signature);
+                if h(&client_key) == *stored_key {
+                    let verifier = STANDARD.encode(hmac(server_key, auth_message.as_bytes()));
+                    Ok(ServerFinal::Success { verifier }.to_string())
+                } else {
+                    Err(PgWireError::InvalidPassword(
+                        self.client_first_message_bare.username.clone(),
+                    ))
+                }
+            }
         }
     }
 }
@@ -865,8 +1051,28 @@ fn compute_cert_signature(cert: &[u8]) -> PgWireResult<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(feature = "client-api")]
-    use super::client::*;
+    #[test]
+    fn test_scram_secret_debug_redacts_key_material() {
+        let salted = ScramSecret::SaltedPassword {
+            salt: vec![1, 2, 3],
+            salted_password: vec![4, 5, 6],
+        };
+        assert_eq!(
+            format!("{salted:?}"),
+            r#"SaltedPassword { salt: [1, 2, 3], salted_password: "<REDACTED>" }"#
+        );
+
+        let verifier = ScramSecret::Verifier {
+            salt: vec![1, 2, 3],
+            iterations: 4096,
+            stored_key: vec![4, 5, 6],
+            server_key: vec![7, 8, 9],
+        };
+        assert_eq!(
+            format!("{verifier:?}"),
+            r#"Verifier { salt: [1, 2, 3], iterations: 4096, stored_key: "<REDACTED>", server_key: "<REDACTED>" }"#
+        );
+    }
 
     #[cfg(feature = "client-api")]
     fn bare(raw: &str) -> super::ClientFirstBare {

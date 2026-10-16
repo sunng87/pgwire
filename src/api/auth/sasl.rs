@@ -2,19 +2,19 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures::{Sink, SinkExt};
-use tokio::sync::Mutex;
+use futures::sink::Sink;
 
-use crate::api::auth::sasl::scram::ScramServerAuthWaitingForClientFinal;
-use crate::api::{
-    ClientInfo, ConnectionManager, PgWireConnectionState, PidSecretKeyGenerator,
-    RandomPidSecretKeyGenerator,
-};
+use crate::api::{ClientInfo, ConnectionManager, PidSecretKeyGenerator};
 use crate::error::{PgWireError, PgWireResult};
 use crate::messages::startup::{Authentication, PasswordMessageFamily};
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 
-use super::{ServerParameterProvider, StartupHandler};
+use super::AuthDriver;
+use super::ServerParameterProvider;
+use super::StartupHandler;
+use super::mechanism::AuthMechanism;
+use super::mechanism::AuthMechanismFactory;
+use super::mechanism::AuthState;
 
 pub mod oauth;
 pub mod scram;
@@ -33,7 +33,7 @@ pub enum SASLState {
     // scram authentication method selected
     ScramClientFirstReceived,
     // cached password, channel_binding and partial auth-message
-    ScramServerFirstSent(Box<ScramServerAuthWaitingForClientFinal>),
+    ScramServerFirstSent(Box<scram::ScramServerAuthWaitingForClientFinal>),
     // oauth authentication method selected
     OauthStateInit,
     // failure during authentication
@@ -42,55 +42,147 @@ pub enum SASLState {
     Finished,
 }
 
-impl SASLState {
-    fn is_scram(&self) -> bool {
-        matches!(
-            self,
-            SASLState::ScramClientFirstReceived | SASLState::ScramServerFirstSent(_)
-        )
+/// A SASL-family [`AuthMechanismFactory`] that can be registered in a
+/// [`SaslMechanisms`] registry.
+///
+/// The names returned by [`SaslMechanismFactory::sasl_mechanism_names`] are
+/// advertised to the client (as `Authentication::SASL([...])`) and used to
+/// dispatch the mechanism the client selects.
+pub trait SaslMechanismFactory: AuthMechanismFactory {
+    /// The SASL mechanism names offered by this mechanism, for example
+    /// `["SCRAM-SHA-256", "SCRAM-SHA-256-PLUS"]`.
+    fn sasl_mechanism_names(&self) -> Vec<String>;
+}
+
+/// A composite SASL mechanism factory: advertises the union of its
+/// children's SASL mechanisms and lets each client pick one; the handshake
+/// is then dispatched to the selected child.
+///
+/// Children are [`SaslMechanismFactory`]s (for example
+/// [`scram::ScramAuth`] and [`oauth::Oauth`]), provided at construction.
+pub struct SaslMechanisms {
+    children: Vec<Arc<dyn SaslMechanismFactory>>,
+}
+
+impl std::fmt::Debug for SaslMechanisms {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SaslMechanisms")
+            .field("children", &self.children.len())
+            .finish()
+    }
+}
+
+impl SaslMechanisms {
+    /// Creates a registry from the given child mechanisms.
+    pub fn new(mechanisms: Vec<Arc<dyn SaslMechanismFactory>>) -> Self {
+        Self {
+            children: mechanisms,
+        }
     }
 
-    fn is_oauth(&self) -> bool {
-        matches!(self, SASLState::OauthStateInit | SASLState::OauthStateError)
+    /// Builder-style constructor appending one child mechanism.
+    pub fn with_mechanism(mut self, mechanism: Arc<dyn SaslMechanismFactory>) -> Self {
+        self.children.push(mechanism);
+        self
+    }
+}
+
+impl AuthMechanismFactory for SaslMechanisms {
+    fn create(&self) -> Box<dyn AuthMechanism> {
+        Box::new(SaslMechanism {
+            children: self.children.clone(),
+            selected: None,
+        })
+    }
+}
+
+/// Stateful composite SASL mechanism ([`SaslMechanisms`] is its factory).
+struct SaslMechanism {
+    children: Vec<Arc<dyn SaslMechanismFactory>>,
+    selected: Option<Box<dyn AuthMechanism>>,
+}
+
+#[async_trait]
+impl AuthMechanism for SaslMechanism {
+    async fn begin(&mut self, _client: &(dyn ClientInfo + Send + Sync)) -> PgWireResult<AuthState> {
+        // advertise the union of all children's mechanisms; the child's own
+        // `begin` is skipped, its handshake starts at the client's selection
+        Ok(AuthState::InProgress(Authentication::SASL(
+            self.children
+                .iter()
+                .flat_map(|child| child.sasl_mechanism_names())
+                .collect(),
+        )))
+    }
+
+    async fn next(
+        &mut self,
+        client: &(dyn ClientInfo + Send + Sync),
+        message: PasswordMessageFamily,
+    ) -> PgWireResult<AuthState> {
+        if let Some(mechanism) = self.selected.as_mut() {
+            return mechanism.next(client, message).await;
+        }
+
+        // First message: the client picks a mechanism from the advertised
+        // list; dispatch to the matching child.
+        let initial = message.into_sasl_initial_response()?;
+        let child = self
+            .children
+            .iter()
+            .find(|child| child.sasl_mechanism_names().contains(&initial.auth_method))
+            .ok_or_else(|| PgWireError::UnsupportedSASLAuthMethod(initial.auth_method.clone()))?;
+
+        let mut mechanism = child.create();
+        let state = mechanism
+            .next(client, PasswordMessageFamily::SASLInitialResponse(initial))
+            .await?;
+        self.selected = Some(mechanism);
+        Ok(state)
     }
 }
 
 /// Startup handler for SASL-based authentication (SCRAM and OAUTHBEARER).
+///
+/// Implements [`StartupHandler`] over an [`AuthDriver`] and a
+/// [`SaslMechanisms`] registry: it advertises the union of the configured
+/// mechanisms ([`with_scram`](Self::with_scram) /
+/// [`with_oauth`](Self::with_oauth)) and lets each client pick one.
+///
+/// The per-connection SASL state lives in the driver's per-connection
+/// mechanism storage, so a single handler can be shared across concurrent
+/// connections.
 pub struct SASLAuthStartupHandler<P> {
-    parameter_provider: Arc<P>,
-    pid_secret_key_generator: Arc<dyn PidSecretKeyGenerator>,
-    connection_manager: Option<Arc<ConnectionManager>>,
-    /// state of the SASL auth
-    state: Mutex<SASLState>,
-    /// scram configuration
-    scram: Option<scram::ScramAuth>,
-    /// oauth configuration
-    oauth: Option<oauth::Oauth>,
+    driver: AuthDriver<Arc<P>>,
+    mechanisms: SaslMechanisms,
 }
 
-impl<P> SASLAuthStartupHandler<P> {
+impl<P> SASLAuthStartupHandler<P>
+where
+    P: ServerParameterProvider,
+{
     /// Creates a new SASL auth handler.
     pub fn new(parameter_provider: Arc<P>) -> Self {
-        SASLAuthStartupHandler {
-            parameter_provider,
-            pid_secret_key_generator: Arc::new(RandomPidSecretKeyGenerator::default()),
-            connection_manager: None,
-            state: Mutex::new(SASLState::Initial),
-            scram: None,
-            oauth: None,
+        Self {
+            driver: AuthDriver::new(parameter_provider),
+            mechanisms: SaslMechanisms::new(vec![]),
         }
     }
 
     /// Configures SCRAM authentication.
-    pub fn with_scram(mut self, scram_auth: scram::ScramAuth) -> Self {
-        self.scram = Some(scram_auth);
-        self
+    pub fn with_scram(self, scram_auth: scram::ScramAuth) -> Self {
+        Self {
+            driver: self.driver,
+            mechanisms: self.mechanisms.with_mechanism(Arc::new(scram_auth)),
+        }
     }
 
     /// Configures OAuth authentication.
-    pub fn with_oauth(mut self, oauth: oauth::Oauth) -> Self {
-        self.oauth = Some(oauth);
-        self
+    pub fn with_oauth(self, oauth: oauth::Oauth) -> Self {
+        Self {
+            driver: self.driver,
+            mechanisms: self.mechanisms.with_mechanism(Arc::new(oauth)),
+        }
     }
 
     /// Sets a custom PID/secret key generator.
@@ -98,37 +190,22 @@ impl<P> SASLAuthStartupHandler<P> {
         mut self,
         generator: Arc<dyn PidSecretKeyGenerator>,
     ) -> Self {
-        self.pid_secret_key_generator = generator;
+        self.driver = self.driver.with_pid_secret_key_generator(generator);
         self
     }
 
     /// Sets a connection manager.
     pub fn with_connection_manager(mut self, manager: Arc<ConnectionManager>) -> Self {
-        self.connection_manager = Some(manager);
+        self.driver = self.driver.with_connection_manager(manager);
         self
-    }
-
-    fn supported_mechanisms(&self) -> Vec<String> {
-        let mut mechanisms = vec![];
-
-        if let Some(scram) = &self.scram {
-            mechanisms.push(SCRAM_SHA_256_METHOD.to_owned());
-
-            if scram.supports_channel_binding() {
-                mechanisms.push(SCRAM_SHA_256_PLUS_METHOD.to_owned());
-            }
-        }
-
-        if self.oauth.is_some() {
-            mechanisms.push(OAUTHBEARER_METHOD.to_owned());
-        }
-
-        mechanisms
     }
 }
 
 #[async_trait]
-impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
+impl<P> StartupHandler for SASLAuthStartupHandler<P>
+where
+    P: ServerParameterProvider,
+{
     async fn on_startup<C>(
         &self,
         client: &mut C,
@@ -143,75 +220,147 @@ impl<P: ServerParameterProvider> StartupHandler for SASLAuthStartupHandler<P> {
             PgWireFrontendMessage::Startup(ref startup) => {
                 super::protocol_negotiation(client, startup).await?;
                 super::save_startup_parameters_to_metadata(client, startup);
-                client.set_state(PgWireConnectionState::AuthenticationInProgress);
-                let supported_mechanisms = self.supported_mechanisms();
-                client
-                    .send(PgWireBackendMessage::Authentication(Authentication::SASL(
-                        supported_mechanisms,
-                    )))
-                    .await?;
+
+                let mechanism = self.mechanisms.create();
+                self.driver.begin_authentication(client, mechanism).await
             }
-            PgWireFrontendMessage::PasswordMessageFamily(mut msg) => {
-                let mut state = self.state.lock().await;
-
-                msg = if let SASLState::Initial = *state {
-                    let sasl_initial_response = msg.into_sasl_initial_response()?;
-                    let selected_mechanism = sasl_initial_response.auth_method.as_str();
-
-                    *state = if [SCRAM_SHA_256_METHOD, SCRAM_SHA_256_PLUS_METHOD]
-                        .contains(&selected_mechanism)
-                    {
-                        SASLState::ScramClientFirstReceived
-                    } else if OAUTHBEARER_METHOD == selected_mechanism {
-                        SASLState::OauthStateInit
-                    } else {
-                        return Err(PgWireError::UnsupportedSASLAuthMethod(
-                            selected_mechanism.to_string(),
-                        ));
-                    };
-
-                    PasswordMessageFamily::SASLInitialResponse(sasl_initial_response)
-                } else {
-                    let sasl_response = msg.into_sasl_response()?;
-                    PasswordMessageFamily::SASLResponse(sasl_response)
-                };
-
-                if state.is_scram() {
-                    let scram = self.scram.as_ref().ok_or_else(|| {
-                        PgWireError::UnsupportedSASLAuthMethod("SCRAM".to_string())
-                    })?;
-                    let (res, new_state) = scram.process_scram_message(client, msg, &state).await?;
-                    client
-                        .send(PgWireBackendMessage::Authentication(res))
-                        .await?;
-                    *state = new_state;
-                } else if state.is_oauth() {
-                    let oauth = self.oauth.as_ref().ok_or_else(|| {
-                        PgWireError::UnsupportedSASLAuthMethod("OAUTHBEARER".to_string())
-                    })?;
-                    let (res, new_state) = oauth.process_oauth_message(client, msg, &state).await?;
-                    if let Some(res) = res {
-                        client
-                            .send(PgWireBackendMessage::Authentication(res))
-                            .await?;
-                    }
-                    *state = new_state;
-                } else {
-                    return Err(PgWireError::InvalidSASLState);
-                };
-
-                if matches!(*state, SASLState::Finished) {
-                    let (pid, secret_key) = self.pid_secret_key_generator.generate(client);
-                    client.set_pid_and_secret_key(pid, secret_key);
-                    if let Some(manager) = &self.connection_manager {
-                        super::register_connection(client, manager);
-                    }
-                    super::finish_authentication(client, self.parameter_provider.as_ref()).await?;
-                }
+            PgWireFrontendMessage::PasswordMessageFamily(message) => {
+                self.driver.advance_authentication(client, message).await
             }
-            _ => {}
+            _ => Ok(()),
         }
+    }
+}
 
-        Ok(())
+#[cfg(all(test, feature = "client-api"))]
+mod tests {
+    use super::*;
+    use crate::api::PgWireConnectionState;
+    use crate::api::auth::DefaultServerParameterProvider;
+    use crate::api::auth::sasl::SCRAM_SHA_256_METHOD;
+    use crate::api::auth::sasl::scram::ScramClientAuth;
+    use crate::api::auth::sasl::scram::gen_salted_password;
+    use crate::api::auth::test_util::{TestClient, startup_message};
+    use crate::api::auth::{AuthSource, LoginInfo, Password};
+    use crate::error::PgWireResult;
+    use crate::messages::startup::{
+        Authentication, PasswordMessageFamily, SASLInitialResponse, SASLResponse,
+    };
+
+    const SALT: &[u8] = b"0123456789abcdef";
+    const ITERATIONS: usize = 4096;
+
+    #[derive(Debug)]
+    struct SaltedSource;
+
+    #[async_trait]
+    impl AuthSource for SaltedSource {
+        async fn get_password(&self, _login: &LoginInfo) -> PgWireResult<Password> {
+            Ok(Password::new(
+                Some(SALT.to_vec()),
+                gen_salted_password("password", SALT, ITERATIONS),
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_sasl_handler_scram_roundtrip() {
+        let scram = scram::ScramAuth::new(Arc::new(SaltedSource));
+        let handler =
+            SASLAuthStartupHandler::new(Arc::new(DefaultServerParameterProvider::default()))
+                .with_scram(scram);
+
+        let mut client = TestClient::new(Some("alice"));
+        let scram_client = ScramClientAuth::new("alice".to_owned(), "password".to_owned());
+
+        // Startup -> SASL advertisement
+        handler
+            .on_startup(&mut client, startup_message("alice"))
+            .await
+            .unwrap();
+        assert!(matches!(
+            client.sent.last(),
+            Some(PgWireBackendMessage::Authentication(Authentication::SASL(methods)))
+                if methods == &vec![SCRAM_SHA_256_METHOD.to_owned()]
+        ));
+
+        // client-first -> server-first
+        let (client_first, scram_client) = scram_client.build_client_first().unwrap();
+        handler
+            .on_startup(
+                &mut client,
+                PgWireFrontendMessage::PasswordMessageFamily(
+                    PasswordMessageFamily::SASLInitialResponse(SASLInitialResponse::new(
+                        SCRAM_SHA_256_METHOD.to_owned(),
+                        Some(client_first.into()),
+                    )),
+                ),
+            )
+            .await
+            .unwrap();
+        let server_first = match client.sent.last() {
+            Some(PgWireBackendMessage::Authentication(Authentication::SASLContinue(data))) => {
+                data.clone()
+            }
+            other => panic!("unexpected message: {other:?}"),
+        };
+
+        // client-final -> server-final + AuthenticationOk + ReadyForQuery
+        let (client_final, scram_client) = scram_client.build_client_final(&server_first).unwrap();
+        handler
+            .on_startup(
+                &mut client,
+                PgWireFrontendMessage::PasswordMessageFamily(PasswordMessageFamily::SASLResponse(
+                    SASLResponse::new(client_final.into()),
+                )),
+            )
+            .await
+            .unwrap();
+
+        let server_final = client
+            .sent
+            .iter()
+            .find_map(|msg| match msg {
+                PgWireBackendMessage::Authentication(Authentication::SASLFinal(data)) => {
+                    Some(data.clone())
+                }
+                _ => None,
+            })
+            .expect("SASLFinal should have been sent");
+        scram_client.verify_server_final(&server_final).unwrap();
+
+        assert!(matches!(
+            client.state(),
+            PgWireConnectionState::ReadyForQuery
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_sasl_handler_unsupported_method() {
+        let handler =
+            SASLAuthStartupHandler::new(Arc::new(DefaultServerParameterProvider::default()));
+
+        let mut client = TestClient::new(Some("alice"));
+        handler
+            .on_startup(&mut client, startup_message("alice"))
+            .await
+            .unwrap();
+
+        let result = handler
+            .on_startup(
+                &mut client,
+                PgWireFrontendMessage::PasswordMessageFamily(
+                    PasswordMessageFamily::SASLInitialResponse(SASLInitialResponse::new(
+                        "ANONYMOUS".to_owned(),
+                        None,
+                    )),
+                ),
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(PgWireError::UnsupportedSASLAuthMethod(method)) if method == "ANONYMOUS"
+        ));
     }
 }

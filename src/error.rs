@@ -48,6 +48,8 @@ pub enum PgWireError {
     FailedToCoercePasswordMessage,
     #[error("Invalid SASL state")]
     InvalidSASLState,
+    #[error("Received a password message but no authentication is in progress")]
+    NoAuthenticationInProgress,
     #[error("Unsupported SASL authentication method {0}")]
     UnsupportedSASLAuthMethod(String),
     #[error(transparent)]
@@ -342,6 +344,7 @@ impl PgWireError {
             | PgWireError::InvalidAuthenticationMessageCode(_)
             | PgWireError::FailedToCoercePasswordMessage
             | PgWireError::InvalidSASLState
+            | PgWireError::NoAuthenticationInProgress
             | PgWireError::UnsupportedSASLAuthMethod(_)
             | PgWireError::IoError(_)
             | PgWireError::InvalidScramMessage(_)
@@ -387,6 +390,7 @@ impl PgWireError {
             | PgWireError::InvalidStartupMessage
             | PgWireError::InvalidAuthenticationMessageCode(_)
             | PgWireError::UnsupportedSASLAuthMethod(_)
+            | PgWireError::NoAuthenticationInProgress
             | PgWireError::InvalidScramMessage(_)
             | PgWireError::NotReadyForQuery
             | PgWireError::InvalidSecretKey

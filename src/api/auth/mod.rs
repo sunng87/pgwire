@@ -39,6 +39,18 @@ pub trait ServerParameterProvider: Send + Sync {
         C: ClientInfo;
 }
 
+impl<P> ServerParameterProvider for Arc<P>
+where
+    P: ServerParameterProvider,
+{
+    fn server_parameters<C>(&self, client: &C) -> Option<HashMap<String, String>>
+    where
+        C: ClientInfo,
+    {
+        (**self).server_parameters(client)
+    }
+}
+
 /// Default noop parameter provider.
 ///
 /// This provider responds frontend with default parameters:
@@ -232,7 +244,7 @@ impl LoginInfo<'_> {
     /// Creates `LoginInfo` from a client.
     pub fn from_client_info<C>(client: &C) -> LoginInfo<'_>
     where
-        C: ClientInfo,
+        C: ClientInfo + ?Sized,
     {
         LoginInfo {
             user: client.metadata().get(METADATA_USER).map(|s| s.as_str()),
@@ -255,6 +267,26 @@ pub trait AuthSource: Send + Sync + Debug {
     ///
     /// `Password` has a an optional salt field when it's hashed.
     async fn get_password(&self, login: &LoginInfo) -> PgWireResult<Password>;
+
+    /// Get SCRAM credential material for this login.
+    ///
+    /// By default this derives a salted-password
+    /// [`ScramSecret`](crate::api::auth::sasl::scram::ScramSecret) from
+    /// [`AuthSource::get_password`]. Override this method to return a
+    /// verifier-based [`ScramSecret`](crate::api::auth::sasl::scram::ScramSecret)
+    /// when the underlying user store only keeps a postgres-style verifier
+    /// (`stored_key`/`server_key`) instead of the (salted) password.
+    #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+    async fn get_scram_secret(&self, login: &LoginInfo) -> PgWireResult<sasl::scram::ScramSecret> {
+        let password = self.get_password(login).await?;
+        let salt = password.salt().map(|s| s.to_vec()).ok_or_else(|| {
+            PgWireError::InvalidScramMessage("Salt required for SCRAM auth source".to_owned())
+        })?;
+        Ok(sasl::scram::ScramSecret::SaltedPassword {
+            salt,
+            salted_password: password.password().to_vec(),
+        })
+    }
 }
 
 /// Negotiates the protocol version with the client.
@@ -373,9 +405,14 @@ where
 }
 
 pub mod cleartext;
+pub mod driver;
 pub mod md5pass;
+pub mod mechanism;
 pub mod noop;
 #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
 pub mod sasl;
+pub use driver::AuthDriver;
 #[cfg(feature = "simple-oidc-validator")]
 pub mod simple_oidc_validator;
+#[cfg(test)]
+pub(crate) mod test_util;
