@@ -13,6 +13,7 @@ use x509_certificate::certificate::CapturedX509Certificate;
 
 use super::SaslMechanismFactory;
 use crate::api::ClientInfo;
+use crate::api::auth::mechanism::{AuthMechanism, AuthMechanismFactory, AuthState};
 /// Re-exports client-side SCRAM authentication types.
 #[cfg(feature = "client-api")]
 pub use crate::api::auth::sasl::scram::client::*;
@@ -169,28 +170,24 @@ struct ScramMechanism {
 }
 
 #[async_trait]
-impl crate::api::auth::mechanism::AuthMechanism for ScramMechanism {
-    async fn begin(
-        &mut self,
-        _client: &(dyn ClientInfo + Send + Sync),
-    ) -> PgWireResult<crate::api::auth::mechanism::AuthState> {
-        Ok(crate::api::auth::mechanism::AuthState::InProgress(
-            Authentication::SASL(self.auth.sasl_mechanism_names()),
-        ))
+impl AuthMechanism for ScramMechanism {
+    async fn begin(&mut self, _client: &(dyn ClientInfo + Send + Sync)) -> PgWireResult<AuthState> {
+        Ok(AuthState::InProgress(Authentication::SASL(
+            self.auth.sasl_mechanism_names(),
+        )))
     }
 
     async fn next(
         &mut self,
         client: &(dyn ClientInfo + Send + Sync),
         message: PasswordMessageFamily,
-    ) -> PgWireResult<crate::api::auth::mechanism::AuthState> {
+    ) -> PgWireResult<AuthState> {
         let (response, new_state) = self
             .auth
             .process_scram_message(client, message, &self.state)
             .await?;
         self.state = new_state;
 
-        use crate::api::auth::mechanism::AuthState;
         match response {
             Authentication::SASLContinue(_) => Ok(AuthState::InProgress(response)),
             Authentication::SASLFinal(_) => Ok(AuthState::Ok(Some(response))),
@@ -199,8 +196,8 @@ impl crate::api::auth::mechanism::AuthMechanism for ScramMechanism {
     }
 }
 
-impl crate::api::auth::mechanism::AuthMechanismFactory for ScramAuth {
-    fn create(&self) -> Box<dyn crate::api::auth::mechanism::AuthMechanism> {
+impl AuthMechanismFactory for ScramAuth {
+    fn create(&self) -> Box<dyn AuthMechanism> {
         Box::new(ScramMechanism {
             auth: self.clone(),
             state: SASLState::ScramClientFirstReceived,
