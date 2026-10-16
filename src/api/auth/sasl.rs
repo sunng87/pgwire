@@ -59,48 +59,38 @@ pub trait SaslMechanismFactory: AuthMechanismFactory {
 /// is then dispatched to the selected child.
 ///
 /// Children are [`SaslMechanismFactory`]s (for example
-/// [`scram::ScramAuth`] and [`oauth::Oauth`]). Children can be added at any
-/// time (the registry uses interior mutability); connections started
-/// afterwards advertise the new mechanism.
-#[derive(Default)]
+/// [`scram::ScramAuth`] and [`oauth::Oauth`]), provided at construction.
 pub struct SaslMechanisms {
-    children: std::sync::RwLock<Vec<Arc<dyn SaslMechanismFactory>>>,
+    children: Vec<Arc<dyn SaslMechanismFactory>>,
 }
 
 impl std::fmt::Debug for SaslMechanisms {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SaslMechanisms")
-            .field("children", &self.children.read().unwrap().len())
+            .field("children", &self.children.len())
             .finish()
     }
 }
 
 impl SaslMechanisms {
-    /// Creates an empty registry.
-    pub fn new() -> Self {
-        Self::default()
+    /// Creates a registry from the given child mechanisms.
+    pub fn new(mechanisms: Vec<Arc<dyn SaslMechanismFactory>>) -> Self {
+        Self {
+            children: mechanisms,
+        }
     }
 
-    /// Adds a child mechanism (interior mutability, takes `&self`).
-    pub fn add(&self, mechanism: Arc<dyn SaslMechanismFactory>) {
-        self.children.write().unwrap().push(mechanism);
-    }
-
-    /// Builder-style version of [`SaslMechanisms::add`], consuming `self`.
-    pub fn with_mechanism(self, mechanism: Arc<dyn SaslMechanismFactory>) -> Self {
-        self.add(mechanism);
+    /// Builder-style constructor appending one child mechanism.
+    pub fn with_mechanism(mut self, mechanism: Arc<dyn SaslMechanismFactory>) -> Self {
+        self.children.push(mechanism);
         self
-    }
-
-    fn snapshot(&self) -> Vec<Arc<dyn SaslMechanismFactory>> {
-        self.children.read().unwrap().clone()
     }
 }
 
 impl AuthMechanismFactory for SaslMechanisms {
     fn create(&self) -> Box<dyn AuthMechanism> {
         Box::new(SaslMechanism {
-            children: self.snapshot(),
+            children: self.children.clone(),
             selected: None,
         })
     }
@@ -164,7 +154,7 @@ impl AuthMechanism for SaslMechanism {
 /// connections.
 pub struct SASLAuthStartupHandler<P> {
     driver: AuthDriver<Arc<P>>,
-    mechanisms: Arc<SaslMechanisms>,
+    mechanisms: SaslMechanisms,
 }
 
 impl<P> SASLAuthStartupHandler<P>
@@ -175,20 +165,24 @@ where
     pub fn new(parameter_provider: Arc<P>) -> Self {
         Self {
             driver: AuthDriver::new(parameter_provider),
-            mechanisms: Arc::new(SaslMechanisms::new()),
+            mechanisms: SaslMechanisms::new(vec![]),
         }
     }
 
     /// Configures SCRAM authentication.
     pub fn with_scram(self, scram_auth: scram::ScramAuth) -> Self {
-        self.mechanisms.add(Arc::new(scram_auth));
-        self
+        Self {
+            driver: self.driver,
+            mechanisms: self.mechanisms.with_mechanism(Arc::new(scram_auth)),
+        }
     }
 
     /// Configures OAuth authentication.
     pub fn with_oauth(self, oauth: oauth::Oauth) -> Self {
-        self.mechanisms.add(Arc::new(oauth));
-        self
+        Self {
+            driver: self.driver,
+            mechanisms: self.mechanisms.with_mechanism(Arc::new(oauth)),
+        }
     }
 
     /// Sets a custom PID/secret key generator.

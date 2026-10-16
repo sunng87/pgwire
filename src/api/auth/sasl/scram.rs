@@ -1075,9 +1075,6 @@ mod tests {
     }
 
     #[cfg(feature = "client-api")]
-    use super::client::*;
-
-    #[cfg(feature = "client-api")]
     fn bare(raw: &str) -> super::ClientFirstBare {
         super::ClientFirstBare {
             raw: raw.to_owned(),
