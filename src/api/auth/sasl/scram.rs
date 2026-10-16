@@ -863,6 +863,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "client-api")]
     fn without_proof(raw: &str) -> super::ClientFinalWithoutProof {
         super::ClientFinalWithoutProof {
             raw: raw.to_owned(),
@@ -1072,6 +1073,7 @@ mod tests {
         assert_eq!(server_final_message, format!("v={expected_verifier}"));
     }
 
+    #[cfg(feature = "client-api")]
     #[test]
     fn test_client_final_nonce_mismatch_rejected() {
         let password = "pencil";
