@@ -38,7 +38,6 @@ pub const SCRAM_ITERATIONS: usize = 4096;
 /// postgres-style verifier
 /// (`SCRAM-SHA-256$<iterations>:<salt>:<stored_key>:<server_key>`) use
 /// [`ScramSecret::Verifier`] and never need access to password material.
-#[derive(Debug)]
 pub enum ScramSecret {
     /// The salted password `Hi(password, salt, iterations)` and its salt.
     SaltedPassword {
@@ -62,6 +61,29 @@ pub enum ScramSecret {
         /// `HMAC(SaltedPassword, "Server Key")`
         server_key: Vec<u8>,
     },
+}
+
+impl fmt::Debug for ScramSecret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // never render key material; salt and iterations are not secret
+        // (they are transmitted in the clear in the SCRAM exchange)
+        match self {
+            ScramSecret::SaltedPassword { salt, .. } => f
+                .debug_struct("SaltedPassword")
+                .field("salt", salt)
+                .field("salted_password", &"<REDACTED>")
+                .finish(),
+            ScramSecret::Verifier {
+                salt, iterations, ..
+            } => f
+                .debug_struct("Verifier")
+                .field("salt", salt)
+                .field("iterations", iterations)
+                .field("stored_key", &"<REDACTED>")
+                .field("server_key", &"<REDACTED>")
+                .finish(),
+        }
+    }
 }
 
 impl ScramSecret {
@@ -1032,6 +1054,29 @@ fn compute_cert_signature(cert: &[u8]) -> PgWireResult<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn test_scram_secret_debug_redacts_key_material() {
+        let salted = ScramSecret::SaltedPassword {
+            salt: vec![1, 2, 3],
+            salted_password: vec![4, 5, 6],
+        };
+        assert_eq!(
+            format!("{salted:?}"),
+            r#"SaltedPassword { salt: [1, 2, 3], salted_password: "<REDACTED>" }"#
+        );
+
+        let verifier = ScramSecret::Verifier {
+            salt: vec![1, 2, 3],
+            iterations: 4096,
+            stored_key: vec![4, 5, 6],
+            server_key: vec![7, 8, 9],
+        };
+        assert_eq!(
+            format!("{verifier:?}"),
+            r#"Verifier { salt: [1, 2, 3], iterations: 4096, stored_key: "<REDACTED>", server_key: "<REDACTED>" }"#
+        );
+    }
+
     #[cfg(feature = "client-api")]
     use super::client::*;
 
