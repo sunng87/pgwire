@@ -288,30 +288,72 @@ impl LoginInfo<'_> {
 /// authentication, salt is not required, while in md5pass, a 4-byte salt is
 /// needed.
 #[async_trait]
-pub trait AuthSource: Send + Sync + Debug {
+pub trait AuthSource<I = ()>: Send + Sync + Debug {
     /// Get password from the `AuthSource`.
     ///
     /// `Password` has a an optional salt field when it's hashed.
     async fn get_password(&self, login: &LoginInfo) -> PgWireResult<Password>;
 
-    /// Get SCRAM credential material for this login.
+    /// Verify a password presented by the client, returning the
+    /// authenticated identity on success.
+    ///
+    /// The default implementation compares the presented password against
+    /// [`AuthSource::get_password`] and reports no identity. Override it
+    /// when the backend verifies passwords itself (hashed storage, bearer
+    /// tokens, remote validation, ...) instead of storing recoverable
+    /// passwords, and return the principal it resolved.
+    async fn verify_password(
+        &self,
+        login: &LoginInfo,
+        presented_password: &[u8],
+    ) -> PgWireResult<Option<I>> {
+        let expected = self.get_password(login).await?;
+        if expected.password() == presented_password {
+            Ok(None)
+        } else {
+            Err(PgWireError::InvalidPassword(
+                login.user().unwrap_or_default().to_owned(),
+            ))
+        }
+    }
+
+    /// Authorize the verified identity, after successful authentication
+    /// and before the handshake completes.
+    ///
+    /// The default implementation allows everything. Override it to
+    /// enforce per-user permissions (catalog/schema access, ...) alongside
+    /// authentication.
+    async fn authorize(&self, _login: &LoginInfo, _identity: &I) -> PgWireResult<()> {
+        Ok(())
+    }
+
+    /// Get SCRAM credential material and the identity it belongs to for
+    /// this login.
     ///
     /// By default this derives a salted-password
     /// [`ScramSecret`](crate::api::auth::sasl::scram::ScramSecret) from
-    /// [`AuthSource::get_password`]. Override this method to return a
-    /// verifier-based [`ScramSecret`](crate::api::auth::sasl::scram::ScramSecret)
-    /// when the underlying user store only keeps a postgres-style verifier
-    /// (`stored_key`/`server_key`) instead of the (salted) password.
+    /// [`AuthSource::get_password`] and reports no identity. Override this
+    /// method to return a verifier-based
+    /// [`ScramSecret`](crate::api::auth::sasl::scram::ScramSecret) when the
+    /// underlying user store only keeps a postgres-style verifier
+    /// (`stored_key`/`server_key`) instead of the (salted) password, and
+    /// to report the identity the verifier resolves to.
     #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
-    async fn get_scram_secret(&self, login: &LoginInfo) -> PgWireResult<sasl::scram::ScramSecret> {
+    async fn get_scram_secret(
+        &self,
+        login: &LoginInfo,
+    ) -> PgWireResult<(sasl::scram::ScramSecret, Option<I>)> {
         let password = self.get_password(login).await?;
         let salt = password.salt().map(|s| s.to_vec()).ok_or_else(|| {
             PgWireError::InvalidScramMessage("Salt required for SCRAM auth source".to_owned())
         })?;
-        Ok(sasl::scram::ScramSecret::SaltedPassword {
-            salt,
-            salted_password: password.password().to_vec(),
-        })
+        Ok((
+            sasl::scram::ScramSecret::SaltedPassword {
+                salt,
+                salted_password: password.password().to_vec(),
+            },
+            None,
+        ))
     }
 }
 

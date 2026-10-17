@@ -54,13 +54,13 @@ impl AuthSource for UserStore {
         }
     }
 
-    async fn get_scram_secret(&self, login: &LoginInfo) -> PgWireResult<ScramSecret> {
+    async fn get_scram_secret(&self, login: &LoginInfo) -> PgWireResult<(ScramSecret, Option<()>)> {
         let user = login.user().unwrap_or_default();
         match self.scram_verifiers.get(user) {
-            Some(secret) => Ok(mock_safe_clone(secret)),
+            Some(secret) => Ok((mock_safe_clone(secret), None)),
             // derive a deterministic mock verifier so unknown users are
             // indistinguishable from wrong passwords (timing-safe rejection)
-            None => Ok(mock_verifier(user)),
+            None => Ok((mock_verifier(user), None)),
         }
     }
 }

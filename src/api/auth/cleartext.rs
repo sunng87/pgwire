@@ -30,8 +30,12 @@ impl<A> CleartextPasswordAuth<A> {
     }
 }
 
-impl<A: AuthSource + 'static> AuthMechanismFactory for CleartextPasswordAuth<A> {
-    fn create(&self) -> Box<dyn AuthMechanism> {
+impl<A, I> AuthMechanismFactory<I> for CleartextPasswordAuth<A>
+where
+    A: AuthSource<I> + 'static,
+    I: Send + 'static,
+{
+    fn create(&self) -> Box<dyn AuthMechanism<I>> {
         Box::new(CleartextPasswordMechanism {
             auth_source: self.auth_source.clone(),
         })
@@ -45,8 +49,15 @@ pub struct CleartextPasswordMechanism<A> {
 }
 
 #[async_trait]
-impl<A: AuthSource> AuthMechanism for CleartextPasswordMechanism<A> {
-    async fn begin(&mut self, _client: &(dyn ClientInfo + Send + Sync)) -> PgWireResult<AuthState> {
+impl<A, I> AuthMechanism<I> for CleartextPasswordMechanism<A>
+where
+    A: AuthSource<I>,
+    I: Send + 'static,
+{
+    async fn begin(
+        &mut self,
+        _client: &(dyn ClientInfo + Send + Sync),
+    ) -> PgWireResult<AuthState<I>> {
         Ok(AuthState::InProgress(Authentication::CleartextPassword))
     }
 
@@ -54,20 +65,28 @@ impl<A: AuthSource> AuthMechanism for CleartextPasswordMechanism<A> {
         &mut self,
         client: &(dyn ClientInfo + Send + Sync),
         message: crate::messages::startup::PasswordMessageFamily,
-    ) -> PgWireResult<AuthState> {
+    ) -> PgWireResult<AuthState<I>> {
         let message = message.into_password()?;
         let login_info = LoginInfo::from_client_info(client);
-        let expected = self.auth_source.get_password(&login_info).await?;
 
-        if expected.password() == message.password.as_bytes() {
-            Ok(AuthState::Ok {
+        match self
+            .auth_source
+            .verify_password(&login_info, message.password.as_bytes())
+            .await?
+        {
+            Some(identity) => {
+                if let Err(error) = self.auth_source.authorize(&login_info, &identity).await {
+                    return Ok(AuthState::Failed(error));
+                }
+                Ok(AuthState::Ok {
+                    final_message: None,
+                    identity: Some(identity),
+                })
+            }
+            None => Ok(AuthState::Ok {
                 final_message: None,
                 identity: None,
-            })
-        } else {
-            Ok(AuthState::Failed(PgWireError::InvalidPassword(
-                login_info.user().unwrap_or_default().to_owned(),
-            )))
+            }),
         }
     }
 }
