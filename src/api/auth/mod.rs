@@ -16,6 +16,8 @@ use crate::messages::startup::{
 };
 use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage, ProtocolVersion};
 use crate::types::format::FormatOptions;
+#[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+use rustls_pki_types::CertificateDer;
 
 /// Handles startup process and frontend messages
 #[async_trait]
@@ -223,6 +225,12 @@ pub struct LoginInfo<'a> {
     user: Option<&'a str>,
     database: Option<&'a str>,
     host: String,
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    #[new(default)]
+    sni_server_name: Option<&'a str>,
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    #[new(default)]
+    client_certificates: Option<&'a [CertificateDer<'a>]>,
 }
 
 impl LoginInfo<'_> {
@@ -241,6 +249,20 @@ impl LoginInfo<'_> {
         &self.host
     }
 
+    /// Returns the TLS SNI server name, if the connection is secured and
+    /// the client sent one.
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    pub fn sni_server_name(&self) -> Option<&str> {
+        self.sni_server_name
+    }
+
+    /// Returns the client TLS certificates, if the connection is secured
+    /// and the client presented any.
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    pub fn client_certificates(&self) -> Option<&[CertificateDer<'_>]> {
+        self.client_certificates
+    }
+
     /// Creates `LoginInfo` from a client.
     pub fn from_client_info<C>(client: &C) -> LoginInfo<'_>
     where
@@ -250,6 +272,10 @@ impl LoginInfo<'_> {
             user: client.metadata().get(METADATA_USER).map(|s| s.as_str()),
             database: client.metadata().get(METADATA_DATABASE).map(|s| s.as_str()),
             host: client.socket_addr().ip().to_string(),
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+            sni_server_name: client.sni_server_name(),
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+            client_certificates: client.client_certificates(),
         }
     }
 }
@@ -416,3 +442,34 @@ pub use driver::AuthDriver;
 pub mod simple_oidc_validator;
 #[cfg(test)]
 pub(crate) mod test_util;
+
+#[cfg(test)]
+mod login_info_tests {
+    use super::*;
+    use crate::api::auth::test_util::TestClient;
+
+    #[test]
+    fn login_info_from_client_info() {
+        let client = TestClient::new(Some("alice"));
+        let login = LoginInfo::from_client_info(&client);
+
+        assert_eq!(login.user(), Some("alice"));
+        assert!(login.database().is_none());
+        assert_eq!(login.host(), "127.0.0.1");
+        #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+        {
+            assert_eq!(login.sni_server_name(), None);
+            assert!(login.client_certificates().is_none());
+        }
+    }
+
+    #[test]
+    fn login_info_new_keeps_three_arguments() {
+        let login = LoginInfo::new(Some("alice"), Some("db"), "127.0.0.1".to_owned());
+
+        assert_eq!(login.user(), Some("alice"));
+        assert_eq!(login.database(), Some("db"));
+        #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+        assert_eq!(login.sni_server_name(), None);
+    }
+}

@@ -95,6 +95,48 @@
 //!     md5: Arc::new(Md5PasswordAuth::new(Arc::new(MyAuthSource))),
 //! };
 //! ```
+//!
+//! ## Customization guide
+//!
+//! The handler owns the flow, the driver owns the protocol mechanics and
+//! the mechanisms own the authentication logic; everything else composes
+//! from those three without further API surface:
+//!
+//! - **Pre-auth validation** (force TLS, resolve the database, validate
+//!   timezone): handler code on the `Startup` message, before
+//!   [`AuthDriver::begin_authentication`], with full `&mut C` access.
+//! - **Per-connection mechanism selection**: plain handler code deciding
+//!   which mechanism to `create()`. For SASL mechanisms chosen by the
+//!   client, use the
+//!   [`SaslMechanisms`](crate::api::auth::sasl::SaslMechanisms) registry.
+//! - **Custom authentication methods** (LDAP, Kerberos, certificate
+//!   based, ...): implement
+//!   [`AuthMechanism`];
+//!   `begin`/`next` receive the full `ClientInfo`, including TLS
+//!   certificates and SNI. `AuthSource` implementations receive the same
+//!   context through
+//!   [`LoginInfo`](crate::api::auth::LoginInfo).
+//! - **Recording authentication results** (metrics, audit): branch on
+//!   [`AuthOutcome::Completed`] for success; catch the `Err` returned by
+//!   [`AuthDriver::begin_authentication`] /
+//!   [`AuthDriver::advance_authentication`] for failures — at that point
+//!   nothing has been sent to the client yet.
+//! - **Custom failure responses**: same `Err` handling; send your own
+//!   `ErrorResponse` and close, or propagate the error and let the server
+//!   report it.
+//! - **Server parameters**: implement
+//!   [`ServerParameterProvider`];
+//!   `server_parameters` receives the client, so values can depend on
+//!   startup metadata. For parameters derived from the authenticated
+//!   identity (e.g. a `session_authorization` reflecting a bearer-token
+//!   user), have the mechanism record the identity in
+//!   [`ClientInfo::session_extensions`] and read it back in the provider.
+//! - **Connections that skip authentication**: a mechanism whose `begin`
+//!   reports [`AuthState::Ok`](crate::api::auth::mechanism::AuthState)
+//!   immediately.
+//! - **Built-in handlers plus custom logic**: wrap the handler in your
+//!   own `StartupHandler` that delegates `on_startup` and inspects the
+//!   `Result`.
 
 use std::fmt::Debug;
 use std::sync::Arc;
