@@ -222,16 +222,13 @@ where
                 super::save_startup_parameters_to_metadata(client, startup);
 
                 let mechanism = self.mechanisms.create();
-                self.driver
-                    .begin_authentication(client, mechanism)
-                    .await
-                    .map(|_| ())
+                self.driver.begin_authentication(client, mechanism).await?;
+                Ok(())
             }
-            PgWireFrontendMessage::PasswordMessageFamily(message) => self
-                .driver
-                .advance_authentication(client, message)
-                .await
-                .map(|_| ()),
+            PgWireFrontendMessage::PasswordMessageFamily(message) => {
+                self.driver.advance_authentication(client, message).await?;
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
