@@ -22,6 +22,7 @@ use tokio::net::TcpListener;
 use pgwire::api::auth::AuthDriver;
 use pgwire::api::auth::DefaultServerParameterProvider;
 use pgwire::api::auth::cleartext::CleartextPasswordAuth;
+use pgwire::api::auth::driver::AuthOutcome;
 use pgwire::api::auth::mechanism::AuthMechanismFactory;
 use pgwire::api::auth::sasl::scram::{ScramAuth, ScramSecret, gen_salted_password};
 use pgwire::api::auth::{
@@ -32,6 +33,13 @@ use pgwire::api::{ClientInfo, PgWireServerHandlers};
 use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 use pgwire::tokio::process_socket;
+
+/// The identity bound to a session after successful authentication.
+#[derive(Debug)]
+struct AuthenticatedUser {
+    #[allow(dead_code)]
+    name: String,
+}
 
 /// A toy user store: real deployments query a catalog/user provider here.
 #[derive(Debug)]
@@ -140,13 +148,32 @@ impl StartupHandler for DynamicAuthHandler {
                     Some(_) => self.scram.create(),
                     None => return Err(PgWireError::UserNameRequired),
                 };
-                self.driver.begin_authentication(client, mechanism).await
+                self.driver
+                    .begin_authentication(client, mechanism)
+                    .await
+                    .map(|_| ())
             }
             PgWireFrontendMessage::PasswordMessageFamily(message) => {
-                // auth failures surface as Err here; handle them your way
-                // (custom error responses, metrics, ...) or let the server
-                // report them:
-                self.driver.advance_authentication(client, message).await
+                match self.driver.advance_authentication(client, message).await {
+                    Ok(AuthOutcome::Completed) => {
+                        // authentication succeeded and the startup protocol is
+                        // complete; bind the identity to the session here
+                        let user = client
+                            .metadata()
+                            .get("user")
+                            .cloned()
+                            .unwrap_or_else(|| "anonymous".to_owned());
+                        client
+                            .session_extensions()
+                            .insert(AuthenticatedUser { name: user });
+                    }
+                    Ok(AuthOutcome::InProgress) => {}
+                    // auth failures surface as Err; handle them your way
+                    // (custom error responses, metrics, ...) or let the
+                    // server report them:
+                    Err(error) => return Err(error),
+                }
+                Ok(())
             }
             _ => Ok(()),
         }
