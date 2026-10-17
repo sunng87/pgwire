@@ -60,7 +60,10 @@ impl<A: AuthSource> AuthMechanism for CleartextPasswordMechanism<A> {
         let expected = self.auth_source.get_password(&login_info).await?;
 
         if expected.password() == message.password.as_bytes() {
-            Ok(AuthState::Ok(None))
+            Ok(AuthState::Ok {
+                final_message: None,
+                identity: None,
+            })
         } else {
             Ok(AuthState::Failed(PgWireError::InvalidPassword(
                 login_info.user().unwrap_or_default().to_owned(),

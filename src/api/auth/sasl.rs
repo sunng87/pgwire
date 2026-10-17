@@ -48,7 +48,7 @@ pub enum SASLState {
 /// The names returned by [`SaslMechanismFactory::sasl_mechanism_names`] are
 /// advertised to the client (as `Authentication::SASL([...])`) and used to
 /// dispatch the mechanism the client selects.
-pub trait SaslMechanismFactory: AuthMechanismFactory {
+pub trait SaslMechanismFactory<I = ()>: AuthMechanismFactory<I> {
     /// The SASL mechanism names offered by this mechanism, for example
     /// `["SCRAM-SHA-256", "SCRAM-SHA-256-PLUS"]`.
     fn sasl_mechanism_names(&self) -> Vec<String>;
@@ -60,8 +60,8 @@ pub trait SaslMechanismFactory: AuthMechanismFactory {
 ///
 /// Children are [`SaslMechanismFactory`]s (for example
 /// [`scram::ScramAuth`] and [`oauth::Oauth`]), provided at construction.
-pub struct SaslMechanisms {
-    children: Vec<Arc<dyn SaslMechanismFactory>>,
+pub struct SaslMechanisms<I = ()> {
+    children: Vec<Arc<dyn SaslMechanismFactory<I>>>,
 }
 
 impl std::fmt::Debug for SaslMechanisms {
@@ -97,14 +97,17 @@ impl AuthMechanismFactory for SaslMechanisms {
 }
 
 /// Stateful composite SASL mechanism ([`SaslMechanisms`] is its factory).
-struct SaslMechanism {
-    children: Vec<Arc<dyn SaslMechanismFactory>>,
-    selected: Option<Box<dyn AuthMechanism>>,
+struct SaslMechanism<I> {
+    children: Vec<Arc<dyn SaslMechanismFactory<I>>>,
+    selected: Option<Box<dyn AuthMechanism<I>>>,
 }
 
 #[async_trait]
-impl AuthMechanism for SaslMechanism {
-    async fn begin(&mut self, _client: &(dyn ClientInfo + Send + Sync)) -> PgWireResult<AuthState> {
+impl<I> AuthMechanism<I> for SaslMechanism<I> {
+    async fn begin(
+        &mut self,
+        _client: &(dyn ClientInfo + Send + Sync),
+    ) -> PgWireResult<AuthState<I>> {
         // advertise the union of all children's mechanisms; the child's own
         // `begin` is skipped, its handshake starts at the client's selection
         Ok(AuthState::InProgress(Authentication::SASL(
@@ -119,7 +122,7 @@ impl AuthMechanism for SaslMechanism {
         &mut self,
         client: &(dyn ClientInfo + Send + Sync),
         message: PasswordMessageFamily,
-    ) -> PgWireResult<AuthState> {
+    ) -> PgWireResult<AuthState<I>> {
         if let Some(mechanism) = self.selected.as_mut() {
             return mechanism.next(client, message).await;
         }

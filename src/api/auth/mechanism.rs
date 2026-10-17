@@ -44,14 +44,19 @@ use crate::messages::startup::{Authentication, PasswordMessageFamily};
 
 /// The state of an authentication handshake after one step.
 #[derive(Debug)]
-pub enum AuthState {
+pub enum AuthState<I = ()> {
     /// Handshake in progress: send this message to the client, then feed the
     /// next password-family message into [`AuthMechanism::next`].
     InProgress(Authentication),
-    /// Authentication succeeded. If a message is present, send it to the
-    /// client before completing the startup (for example SCRAM's
-    /// `Authentication::SASLFinal`).
-    Ok(Option<Authentication>),
+    /// Authentication succeeded. If `final_message` is present, send it to
+    /// the client before completing the startup (for example SCRAM's
+    /// `Authentication::SASLFinal`). `identity` is the authenticated
+    /// principal the mechanism resolved, if any; the driver hands it back
+    /// to the startup handler on completion.
+    Ok {
+        final_message: Option<Authentication>,
+        identity: Option<I>,
+    },
     /// Authentication failed with the given reason; the driver reports it
     /// to the client as an `ErrorResponse` (or the enclosing startup
     /// handler handles it).
@@ -65,7 +70,7 @@ pub enum AuthState {
 /// password-family message, until [`AuthState::Ok`] or
 /// [`AuthState::Failed`].
 #[async_trait]
-pub trait AuthMechanism: Send {
+pub trait AuthMechanism<I = ()>: Send {
     /// Called once when authentication begins, before any client
     /// password-family message arrives.
     ///
@@ -73,7 +78,10 @@ pub trait AuthMechanism: Send {
     /// ([`AuthState::InProgress`]), or a terminal state: [`AuthState::Ok`]
     /// for mechanisms that authenticate without client interaction, or
     /// [`AuthState::Failed`] to reject the connection without a round-trip.
-    async fn begin(&mut self, client: &(dyn ClientInfo + Send + Sync)) -> PgWireResult<AuthState>;
+    async fn begin(
+        &mut self,
+        client: &(dyn ClientInfo + Send + Sync),
+    ) -> PgWireResult<AuthState<I>>;
 
     /// Consume one password-family message from the client and advance the
     /// handshake.
@@ -86,18 +94,18 @@ pub trait AuthMechanism: Send {
         &mut self,
         client: &(dyn ClientInfo + Send + Sync),
         message: PasswordMessageFamily,
-    ) -> PgWireResult<AuthState>;
+    ) -> PgWireResult<AuthState<I>>;
 }
 
 /// Shared configuration of an authentication method, able to create a fresh
 /// stateful [`AuthMechanism`] for every connection.
-pub trait AuthMechanismFactory: Send + Sync {
+pub trait AuthMechanismFactory<I = ()>: Send + Sync {
     /// Creates a new per-connection mechanism.
-    fn create(&self) -> Box<dyn AuthMechanism>;
+    fn create(&self) -> Box<dyn AuthMechanism<I>>;
 }
 
-impl<F: AuthMechanismFactory + ?Sized> AuthMechanismFactory for Arc<F> {
-    fn create(&self) -> Box<dyn AuthMechanism> {
+impl<F: AuthMechanismFactory<I> + ?Sized, I> AuthMechanismFactory<I> for Arc<F> {
+    fn create(&self) -> Box<dyn AuthMechanism<I>> {
         (**self).create()
     }
 }

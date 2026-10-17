@@ -80,7 +80,10 @@ impl<A: AuthSource> AuthMechanism for Md5PasswordMechanism<A> {
         let expected = self.cached_password.as_deref().unwrap_or_default();
 
         if message.password.as_bytes() == expected {
-            Ok(AuthState::Ok(None))
+            Ok(AuthState::Ok {
+                final_message: None,
+                identity: None,
+            })
         } else {
             let login_info = LoginInfo::from_client_info(client);
             Ok(AuthState::Failed(PgWireError::InvalidPassword(

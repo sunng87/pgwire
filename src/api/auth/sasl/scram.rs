@@ -190,7 +190,10 @@ impl AuthMechanism for ScramMechanism {
 
         match response {
             Authentication::SASLContinue(_) => Ok(AuthState::InProgress(response)),
-            Authentication::SASLFinal(_) => Ok(AuthState::Ok(Some(response))),
+            Authentication::SASLFinal(_) => Ok(AuthState::Ok {
+                final_message: Some(response),
+                identity: None,
+            }),
             _ => Err(PgWireError::InvalidSASLState),
         }
     }
