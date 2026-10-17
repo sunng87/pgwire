@@ -66,10 +66,8 @@
 //!                 } else {
 //!                     self.md5.create()
 //!                 };
-//!                 self.driver
-//!                     .begin_authentication(client, mechanism)
-//!                     .await
-//!                     .map(|_| ())
+//!                 self.driver.begin_authentication(client, mechanism).await?;
+//!                 Ok(())
 //!             }
 //!             PgWireFrontendMessage::PasswordMessageFamily(message) => {
 //!                 match self.driver.advance_authentication(client, message).await {
@@ -110,6 +108,9 @@ use crate::messages::PgWireBackendMessage;
 use crate::messages::startup::{Authentication, PasswordMessageFamily};
 
 /// The outcome of one authentication step driven by [`AuthDriver`].
+///
+/// This type is deliberately not `#[must_use]`: callers that do not need
+/// the outcome can discard it with `?` and continue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthOutcome {
     /// The handshake continues: the mechanism's `Authentication` message
@@ -583,16 +584,13 @@ mod tests {
                     } else {
                         self.cleartext.create()
                     };
-                    self.driver
-                        .begin_authentication(client, mechanism)
-                        .await
-                        .map(|_| ())
+                    self.driver.begin_authentication(client, mechanism).await?;
+                    Ok(())
                 }
-                PgWireFrontendMessage::PasswordMessageFamily(message) => self
-                    .driver
-                    .advance_authentication(client, message)
-                    .await
-                    .map(|_| ()),
+                PgWireFrontendMessage::PasswordMessageFamily(message) => {
+                    self.driver.advance_authentication(client, message).await?;
+                    Ok(())
+                }
                 _ => Ok(()),
             }
         }

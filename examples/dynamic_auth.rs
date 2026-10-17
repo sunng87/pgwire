@@ -141,10 +141,8 @@ impl StartupHandler for DynamicAuthHandler {
                     Some(_) => self.scram.create(),
                     None => return Err(PgWireError::UserNameRequired),
                 };
-                self.driver
-                    .begin_authentication(client, mechanism)
-                    .await
-                    .map(|_| ())
+                self.driver.begin_authentication(client, mechanism).await?;
+                Ok(())
             }
             PgWireFrontendMessage::PasswordMessageFamily(message) => {
                 match self.driver.advance_authentication(client, message).await {
