@@ -26,6 +26,9 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - `PgWireError::NoAuthenticationInProgress`, returned when a
   password-family message arrives while no authentication handshake is
   running. [#469]
+- `LoginInfo` now carries the TLS context (`sni_server_name`,
+  `client_certificates`), so `AuthSource` implementations can make
+  certificate-based decisions
 
 ### Changed
 
