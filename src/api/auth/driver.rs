@@ -878,9 +878,7 @@ mod tests {
         }
 
         #[derive(Debug, Default)]
-        struct IdentityScramSource {
-            authorized: std::sync::atomic::AtomicBool,
-        }
+        struct IdentityScramSource;
 
         #[async_trait]
         impl AuthSource<ScramUser> for IdentityScramSource {
@@ -907,22 +905,11 @@ mod tests {
                     }),
                 ))
             }
-
-            async fn authorize(
-                &self,
-                _login: &LoginInfo,
-                identity: &ScramUser,
-            ) -> PgWireResult<()> {
-                assert_eq!(identity.name, "alice");
-                self.authorized
-                    .store(true, std::sync::atomic::Ordering::SeqCst);
-                Ok(())
-            }
         }
 
         #[tokio::test]
-        async fn test_driver_scram_identity_and_authorize() {
-            let source = Arc::new(IdentityScramSource::default());
+        async fn test_driver_scram_identity() {
+            let source = Arc::new(IdentityScramSource);
             let scram = ScramAuth::new(source.clone());
             let driver = AuthDriver::new(DefaultServerParameterProvider::default());
             let mut client = TestClient::new(Some("alice"));
@@ -964,11 +951,11 @@ mod tests {
                 panic!("expected Completed with identity, got {outcome:?}")
             };
             assert_eq!(user.name, "alice");
-            assert!(source.authorized.load(std::sync::atomic::Ordering::SeqCst));
+            drop(source);
         }
 
         #[tokio::test]
-        async fn test_driver_cleartext_identity_and_authorize() {
+        async fn test_driver_cleartext_identity() {
             use crate::api::auth::cleartext::CleartextPasswordAuth;
 
             #[derive(Debug, Clone, PartialEq)]
@@ -977,10 +964,7 @@ mod tests {
             }
 
             #[derive(Debug, Default)]
-            struct VerifyingSource {
-                authorized: std::sync::atomic::AtomicBool,
-            }
-
+            struct VerifyingSource;
             #[async_trait]
             impl AuthSource<ClearUser> for VerifyingSource {
                 async fn get_password(&self, _login: &LoginInfo) -> PgWireResult<Password> {
@@ -1002,19 +986,9 @@ mod tests {
                         ))
                     }
                 }
-
-                async fn authorize(
-                    &self,
-                    _login: &LoginInfo,
-                    _identity: &ClearUser,
-                ) -> PgWireResult<()> {
-                    self.authorized
-                        .store(true, std::sync::atomic::Ordering::SeqCst);
-                    Ok(())
-                }
             }
 
-            let source = Arc::new(VerifyingSource::default());
+            let source = Arc::new(VerifyingSource);
             let factory = CleartextPasswordAuth::new(source.clone());
             let driver = AuthDriver::new(DefaultServerParameterProvider::default());
             let mut client = TestClient::new(Some("alice"));
@@ -1035,7 +1009,6 @@ mod tests {
                 panic!("expected Completed with identity, got {outcome:?}")
             };
             assert_eq!(user.name, "alice");
-            assert!(source.authorized.load(std::sync::atomic::Ordering::SeqCst));
         }
 
         #[tokio::test]

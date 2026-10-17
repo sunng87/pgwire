@@ -210,19 +210,10 @@ where
 
         match response {
             Authentication::SASLContinue(_) => Ok(AuthState::InProgress(response)),
-            Authentication::SASLFinal(_) => {
-                let identity = self.identity.take();
-                if let Some(identity) = &identity {
-                    let login_info = LoginInfo::from_client_info(client);
-                    if let Err(error) = self.auth.auth_db.authorize(&login_info, identity).await {
-                        return Ok(AuthState::Failed(error));
-                    }
-                }
-                Ok(AuthState::Ok {
-                    final_message: Some(response),
-                    identity,
-                })
-            }
+            Authentication::SASLFinal(_) => Ok(AuthState::Ok {
+                final_message: Some(response),
+                identity: self.identity.take(),
+            }),
             _ => Err(PgWireError::InvalidSASLState),
         }
     }

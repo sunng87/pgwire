@@ -74,15 +74,10 @@ where
             .verify_password(&login_info, message.password.as_bytes())
             .await?
         {
-            Some(identity) => {
-                if let Err(error) = self.auth_source.authorize(&login_info, &identity).await {
-                    return Ok(AuthState::Failed(error));
-                }
-                Ok(AuthState::Ok {
-                    final_message: None,
-                    identity: Some(identity),
-                })
-            }
+            Some(identity) => Ok(AuthState::Ok {
+                final_message: None,
+                identity: Some(identity),
+            }),
             None => Ok(AuthState::Ok {
                 final_message: None,
                 identity: None,

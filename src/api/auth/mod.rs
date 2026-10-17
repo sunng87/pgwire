@@ -317,16 +317,6 @@ pub trait AuthSource<I = ()>: Send + Sync + Debug {
         }
     }
 
-    /// Authorize the verified identity, after successful authentication
-    /// and before the handshake completes.
-    ///
-    /// The default implementation allows everything. Override it to
-    /// enforce per-user permissions (catalog/schema access, ...) alongside
-    /// authentication.
-    async fn authorize(&self, _login: &LoginInfo, _identity: &I) -> PgWireResult<()> {
-        Ok(())
-    }
-
     /// Get SCRAM credential material and the identity it belongs to for
     /// this login.
     ///
