@@ -16,6 +16,7 @@
 //! # use async_trait::async_trait;
 //! # use futures::sink::{Sink, SinkExt};
 //! use pgwire::api::auth::AuthDriver;
+//! use pgwire::api::auth::driver::AuthOutcome;
 //! use pgwire::api::auth::mechanism::AuthMechanismFactory;
 //! use pgwire::api::auth::cleartext::CleartextPasswordAuth;
 //! use pgwire::api::auth::md5pass::Md5PasswordAuth;
@@ -65,11 +66,21 @@
 //!                 } else {
 //!                     self.md5.create()
 //!                 };
-//!                 self.driver.begin_authentication(client, mechanism).await
+//!                 self.driver.begin_authentication(client, mechanism).await?;
+//!                 Ok(())
 //!             }
 //!             PgWireFrontendMessage::PasswordMessageFamily(message) => {
-//!                 // map or report auth failures your way by handling the error:
-//!                 self.driver.advance_authentication(client, message).await
+//!                 match self.driver.advance_authentication(client, message).await {
+//!                     Ok(AuthOutcome::Completed) => {
+//!                         // authentication succeeded and the startup is
+//!                         // complete; bind the identity to the session here
+//!                     }
+//!                     Ok(AuthOutcome::InProgress) => {}
+//!                     // report failures your way, or propagate the error to
+//!                     // let the server send the standard `ErrorResponse`:
+//!                     Err(error) => return Err(error),
+//!                 }
+//!                 Ok(())
 //!             }
 //!             _ => Ok(()),
 //!         }
@@ -96,6 +107,23 @@ use crate::error::{PgWireError, PgWireResult};
 use crate::messages::PgWireBackendMessage;
 use crate::messages::startup::{Authentication, PasswordMessageFamily};
 
+/// The outcome of one authentication step driven by [`AuthDriver`].
+///
+/// This type is deliberately not `#[must_use]`: callers that do not need
+/// the outcome can discard it with `?` and continue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthOutcome {
+    /// The handshake continues: the mechanism's `Authentication` message
+    /// was sent; feed the next password-family message to
+    /// [`AuthDriver::advance_authentication`].
+    InProgress,
+    /// Authentication succeeded and the startup protocol is complete:
+    /// `AuthenticationOk`, server parameters, `BackendKeyData` and
+    /// `ReadyForQuery` have been sent, the connection is ready for
+    /// queries.
+    Completed,
+}
+
 /// Reusable authentication driver: runs a per-connection
 /// [`AuthMechanism`] state machine to
 /// completion and finishes the startup protocol around it.
@@ -109,8 +137,12 @@ use crate::messages::startup::{Authentication, PasswordMessageFamily};
 ///   with a fresh mechanism,
 /// - feed every password-family message to
 ///   [`AuthDriver::advance_authentication`],
-/// - for connections that skip authentication, call
-///   [`AuthDriver::complete_authentication`] instead.
+/// - on success the driver completes the startup protocol itself and
+///   reports [`AuthOutcome::Completed`]; failures are returned as `Err`,
+///   before anything has been sent, so you can report them your way.
+///
+/// Connections that skip authentication can use a mechanism whose `begin`
+/// returns [`AuthState::Ok`] immediately.
 ///
 /// The built-in `*AuthStartupHandler` types embed this driver alongside a
 /// fixed [`AuthMechanismFactory`](super::mechanism::AuthMechanismFactory);
@@ -162,7 +194,7 @@ impl<P: ServerParameterProvider> AuthDriver<P> {
         &self,
         client: &mut C,
         mut mechanism: Box<dyn AuthMechanism>,
-    ) -> PgWireResult<()>
+    ) -> PgWireResult<AuthOutcome>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -186,7 +218,7 @@ impl<P: ServerParameterProvider> AuthDriver<P> {
         &self,
         client: &mut C,
         message: PasswordMessageFamily,
-    ) -> PgWireResult<()>
+    ) -> PgWireResult<AuthOutcome>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -209,7 +241,7 @@ impl<P: ServerParameterProvider> AuthDriver<P> {
         client: &mut C,
         mechanism: Box<dyn AuthMechanism>,
         state: PgWireResult<AuthState>,
-    ) -> PgWireResult<()>
+    ) -> PgWireResult<AuthOutcome>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -222,17 +254,19 @@ impl<P: ServerParameterProvider> AuthDriver<P> {
                 client
                     .send(PgWireBackendMessage::Authentication(next))
                     .await?;
-                Ok(())
+                Ok(AuthOutcome::InProgress)
             }
-            Ok(AuthState::Ok(final_message)) => self.finish_with(client, final_message).await,
+            Ok(AuthState::Ok(final_message)) => {
+                self.finish_with(client, final_message).await?;
+                Ok(AuthOutcome::Completed)
+            }
             Ok(AuthState::Failed(error)) | Err(error) => Err(error),
         }
     }
 
-    /// Completes the startup protocol without authentication: generates the
-    /// pid/secret key, registers the connection, sends server parameters,
-    /// `BackendKeyData` and `ReadyForQuery`.
-    pub async fn complete_authentication<C>(&self, client: &mut C) -> PgWireResult<()>
+    /// Generates the pid/secret key, registers the connection, sends server
+    /// parameters, `BackendKeyData` and `ReadyForQuery`.
+    async fn complete_authentication<C>(&self, client: &mut C) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
         C::Error: Debug,
@@ -391,10 +425,13 @@ mod tests {
         let (driver, factory) = cleartext_driver_and_factory();
         let mut client = TestClient::new(Some("alice"));
 
-        driver
-            .begin_authentication(&mut client, factory.create())
-            .await
-            .unwrap();
+        assert_eq!(
+            driver
+                .begin_authentication(&mut client, factory.create())
+                .await
+                .unwrap(),
+            AuthOutcome::InProgress
+        );
 
         assert!(matches!(
             client.state(),
@@ -407,13 +444,16 @@ mod tests {
             ))
         ));
 
-        driver
-            .advance_authentication(
-                &mut client,
-                PasswordMessageFamily::Password(PasswordMessage::new("secret".to_owned())),
-            )
-            .await
-            .unwrap();
+        assert_eq!(
+            driver
+                .advance_authentication(
+                    &mut client,
+                    PasswordMessageFamily::Password(PasswordMessage::new("secret".to_owned())),
+                )
+                .await
+                .unwrap(),
+            AuthOutcome::Completed
+        );
 
         assert!(matches!(
             client.state(),
@@ -460,10 +500,13 @@ mod tests {
         let driver = AuthDriver::new(DefaultServerParameterProvider::default());
         let mut client = TestClient::new(None);
 
-        driver
-            .begin_authentication(&mut client, Box::new(TrustMechanism))
-            .await
-            .unwrap();
+        assert_eq!(
+            driver
+                .begin_authentication(&mut client, Box::new(TrustMechanism))
+                .await
+                .unwrap(),
+            AuthOutcome::Completed
+        );
 
         assert!(matches!(
             client.state(),
@@ -541,10 +584,12 @@ mod tests {
                     } else {
                         self.cleartext.create()
                     };
-                    self.driver.begin_authentication(client, mechanism).await
+                    self.driver.begin_authentication(client, mechanism).await?;
+                    Ok(())
                 }
                 PgWireFrontendMessage::PasswordMessageFamily(message) => {
-                    self.driver.advance_authentication(client, message).await
+                    self.driver.advance_authentication(client, message).await?;
+                    Ok(())
                 }
                 _ => Ok(()),
             }

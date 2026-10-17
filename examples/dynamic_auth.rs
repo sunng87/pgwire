@@ -22,6 +22,7 @@ use tokio::net::TcpListener;
 use pgwire::api::auth::AuthDriver;
 use pgwire::api::auth::DefaultServerParameterProvider;
 use pgwire::api::auth::cleartext::CleartextPasswordAuth;
+use pgwire::api::auth::driver::AuthOutcome;
 use pgwire::api::auth::mechanism::AuthMechanismFactory;
 use pgwire::api::auth::sasl::scram::{ScramAuth, ScramSecret, gen_salted_password};
 use pgwire::api::auth::{
@@ -140,13 +141,25 @@ impl StartupHandler for DynamicAuthHandler {
                     Some(_) => self.scram.create(),
                     None => return Err(PgWireError::UserNameRequired),
                 };
-                self.driver.begin_authentication(client, mechanism).await
+                self.driver.begin_authentication(client, mechanism).await?;
+                Ok(())
             }
             PgWireFrontendMessage::PasswordMessageFamily(message) => {
-                // auth failures surface as Err here; handle them your way
-                // (custom error responses, metrics, ...) or let the server
-                // report them:
-                self.driver.advance_authentication(client, message).await
+                match self.driver.advance_authentication(client, message).await {
+                    Ok(AuthOutcome::Completed) => {
+                        // authentication succeeded and the startup protocol
+                        // is complete; the user is already in the client
+                        // metadata. Run any post-authentication logic here
+                        // (metrics, session binding, ...)
+                        println!("user {:?} authenticated", client.metadata().get("user"));
+                    }
+                    Ok(AuthOutcome::InProgress) => {}
+                    // auth failures surface as Err; handle them your way
+                    // (custom error responses, metrics, ...) or let the
+                    // server report them:
+                    Err(error) => return Err(error),
+                }
+                Ok(())
             }
             _ => Ok(()),
         }
