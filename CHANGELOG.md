@@ -33,10 +33,7 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   `verify_password` delegates verification to the source and returns
   the authenticated identity (default: compare against
   `get_password`); `get_scram_secret` returns the identity alongside
-  the credential; and an `authorize` hook runs after successful
-  verification, before the handshake completes. The cleartext and
-  SCRAM mechanisms report these identities through
-  `AuthOutcome::Completed`
+  the credential.
 
 ### Changed
 
