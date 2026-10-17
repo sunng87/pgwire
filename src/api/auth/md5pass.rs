@@ -82,7 +82,7 @@ impl<A: AuthSource> AuthMechanism for Md5PasswordMechanism<A> {
         if message.password.as_bytes() == expected {
             Ok(AuthState::Ok {
                 final_message: None,
-                identity: None,
+                identity: (),
             })
         } else {
             let login_info = LoginInfo::from_client_info(client);
@@ -202,6 +202,11 @@ mod wire_tests {
     use super::*;
     use crate::api::PgWireConnectionState;
     use crate::api::auth::DefaultServerParameterProvider;
+    use crate::api::auth::compare_password;
+    #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+    use crate::api::auth::derive_scram_secret;
+    #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+    use crate::api::auth::sasl::scram::ScramSecret;
     use crate::api::auth::test_util::{TestClient, startup_message};
     use crate::api::auth::{LoginInfo, Password};
     use crate::error::PgWireResult;
@@ -223,6 +228,19 @@ mod wire_tests {
                 Some(SALT.to_vec()),
                 hash_md5_password(user, "password", &SALT).into_bytes(),
             ))
+        }
+
+        async fn verify_password(
+            &self,
+            login: &LoginInfo,
+            presented_password: &[u8],
+        ) -> PgWireResult<()> {
+            compare_password(self, login, presented_password).await
+        }
+
+        #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+        async fn get_scram_secret(&self, login: &LoginInfo) -> PgWireResult<(ScramSecret, ())> {
+            derive_scram_secret(self, login).await
         }
     }
 

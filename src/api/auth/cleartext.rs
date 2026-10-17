@@ -30,8 +30,12 @@ impl<A> CleartextPasswordAuth<A> {
     }
 }
 
-impl<A: AuthSource + 'static> AuthMechanismFactory for CleartextPasswordAuth<A> {
-    fn create(&self) -> Box<dyn AuthMechanism> {
+impl<A, I> AuthMechanismFactory<I> for CleartextPasswordAuth<A>
+where
+    A: AuthSource<I> + 'static,
+    I: Send + 'static,
+{
+    fn create(&self) -> Box<dyn AuthMechanism<I>> {
         Box::new(CleartextPasswordMechanism {
             auth_source: self.auth_source.clone(),
         })
@@ -45,8 +49,15 @@ pub struct CleartextPasswordMechanism<A> {
 }
 
 #[async_trait]
-impl<A: AuthSource> AuthMechanism for CleartextPasswordMechanism<A> {
-    async fn begin(&mut self, _client: &(dyn ClientInfo + Send + Sync)) -> PgWireResult<AuthState> {
+impl<A, I> AuthMechanism<I> for CleartextPasswordMechanism<A>
+where
+    A: AuthSource<I>,
+    I: Send + 'static,
+{
+    async fn begin(
+        &mut self,
+        _client: &(dyn ClientInfo + Send + Sync),
+    ) -> PgWireResult<AuthState<I>> {
         Ok(AuthState::InProgress(Authentication::CleartextPassword))
     }
 
@@ -54,21 +65,18 @@ impl<A: AuthSource> AuthMechanism for CleartextPasswordMechanism<A> {
         &mut self,
         client: &(dyn ClientInfo + Send + Sync),
         message: crate::messages::startup::PasswordMessageFamily,
-    ) -> PgWireResult<AuthState> {
+    ) -> PgWireResult<AuthState<I>> {
         let message = message.into_password()?;
         let login_info = LoginInfo::from_client_info(client);
-        let expected = self.auth_source.get_password(&login_info).await?;
 
-        if expected.password() == message.password.as_bytes() {
-            Ok(AuthState::Ok {
-                final_message: None,
-                identity: None,
-            })
-        } else {
-            Ok(AuthState::Failed(PgWireError::InvalidPassword(
-                login_info.user().unwrap_or_default().to_owned(),
-            )))
-        }
+        let identity = self
+            .auth_source
+            .verify_password(&login_info, message.password.as_bytes())
+            .await?;
+        Ok(AuthState::Ok {
+            final_message: None,
+            identity,
+        })
     }
 }
 
@@ -150,6 +158,11 @@ where
 mod tests {
     use super::*;
     use crate::api::PgWireConnectionState;
+    use crate::api::auth::compare_password;
+    #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+    use crate::api::auth::derive_scram_secret;
+    #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+    use crate::api::auth::sasl::scram::ScramSecret;
     use crate::api::auth::test_util::{TestClient, startup_message};
     use crate::api::auth::{LoginInfo, Password};
     use crate::error::PgWireResult;
@@ -166,6 +179,19 @@ mod tests {
     impl AuthSource for FixedSource {
         async fn get_password(&self, _login: &LoginInfo) -> PgWireResult<Password> {
             Ok(Password::new(None, self.password.as_bytes().to_vec()))
+        }
+
+        async fn verify_password(
+            &self,
+            login: &LoginInfo,
+            presented_password: &[u8],
+        ) -> PgWireResult<()> {
+            compare_password(self, login, presented_password).await
+        }
+
+        #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+        async fn get_scram_secret(&self, login: &LoginInfo) -> PgWireResult<(ScramSecret, ())> {
+            derive_scram_secret(self, login).await
         }
     }
 

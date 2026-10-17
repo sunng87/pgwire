@@ -29,6 +29,11 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 - `LoginInfo` now carries the TLS context (`sni_server_name`,
   `client_certificates`), so `AuthSource` implementations can make
   certificate-based decisions
+- `AuthSource` is now identity-aware (`AuthSource<I>`):
+  `verify_password` delegates verification to the source and returns
+  the authenticated identity (default: compare against
+  `get_password`); `get_scram_secret` returns the identity alongside
+  the credential.
 
 ### Changed
 

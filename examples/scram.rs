@@ -15,6 +15,7 @@ use pgwire::api::auth::sasl::SASLAuthStartupHandler;
 use pgwire::api::auth::sasl::scram::{ScramAuth, gen_salted_password};
 use pgwire::api::auth::{
     AuthSource, DefaultServerParameterProvider, LoginInfo, Password, StartupHandler,
+    compare_password, derive_scram_secret, sasl::scram::ScramSecret,
 };
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
@@ -36,6 +37,19 @@ impl AuthSource for DummyAuthDB {
 
         let hash_password = gen_salted_password(password, salt.as_ref(), ITERATIONS);
         Ok(Password::new(Some(salt), hash_password))
+    }
+
+    async fn verify_password(
+        &self,
+        login: &LoginInfo,
+        presented_password: &[u8],
+    ) -> PgWireResult<()> {
+        compare_password(self, login, presented_password).await
+    }
+
+    #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+    async fn get_scram_secret(&self, login: &LoginInfo) -> PgWireResult<(ScramSecret, ())> {
+        derive_scram_secret(self, login).await
     }
 }
 
