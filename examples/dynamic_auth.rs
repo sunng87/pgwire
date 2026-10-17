@@ -34,13 +34,6 @@ use pgwire::error::{PgWireError, PgWireResult};
 use pgwire::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 use pgwire::tokio::process_socket;
 
-/// The identity bound to a session after successful authentication.
-#[derive(Debug)]
-struct AuthenticatedUser {
-    #[allow(dead_code)]
-    name: String,
-}
-
 /// A toy user store: real deployments query a catalog/user provider here.
 #[derive(Debug)]
 struct UserStore {
@@ -156,16 +149,11 @@ impl StartupHandler for DynamicAuthHandler {
             PgWireFrontendMessage::PasswordMessageFamily(message) => {
                 match self.driver.advance_authentication(client, message).await {
                     Ok(AuthOutcome::Completed) => {
-                        // authentication succeeded and the startup protocol is
-                        // complete; bind the identity to the session here
-                        let user = client
-                            .metadata()
-                            .get("user")
-                            .cloned()
-                            .unwrap_or_else(|| "anonymous".to_owned());
-                        client
-                            .session_extensions()
-                            .insert(AuthenticatedUser { name: user });
+                        // authentication succeeded and the startup protocol
+                        // is complete; the user is already in the client
+                        // metadata. Run any post-authentication logic here
+                        // (metrics, session binding, ...)
+                        println!("user {:?} authenticated", client.metadata().get("user"));
                     }
                     Ok(AuthOutcome::InProgress) => {}
                     // auth failures surface as Err; handle them your way
