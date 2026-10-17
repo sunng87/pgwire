@@ -71,9 +71,10 @@
 //!             }
 //!             PgWireFrontendMessage::PasswordMessageFamily(message) => {
 //!                 match self.driver.advance_authentication(client, message).await {
-//!                     Ok(AuthOutcome::Completed) => {
+//!                     Ok(AuthOutcome::Completed(identity)) => {
 //!                         // authentication succeeded and the startup is
-//!                         // complete; bind the identity to the session here
+//!                         // complete; bind the identity (typed as your
+//!                         // driver's identity parameter) to the session here
 //!                     }
 //!                     Ok(AuthOutcome::InProgress) => {}
 //!                     // report failures your way, or propagate the error to
@@ -137,6 +138,7 @@
 //!   `Result`.
 
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use futures::sink::{Sink, SinkExt};
@@ -153,8 +155,8 @@ use crate::messages::startup::{Authentication, PasswordMessageFamily};
 ///
 /// This type is deliberately not `#[must_use]`: callers that do not need
 /// the outcome can discard it with `?` and continue.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AuthOutcome {
+#[derive(Debug, Clone)]
+pub enum AuthOutcome<I = ()> {
     /// The handshake continues: the mechanism's `Authentication` message
     /// was sent; feed the next password-family message to
     /// [`AuthDriver::advance_authentication`].
@@ -162,8 +164,9 @@ pub enum AuthOutcome {
     /// Authentication succeeded and the startup protocol is complete:
     /// `AuthenticationOk`, server parameters, `BackendKeyData` and
     /// `ReadyForQuery` have been sent, the connection is ready for
-    /// queries.
-    Completed,
+    /// queries. Carries the identity the mechanism reported, if any; bind
+    /// it to your session.
+    Completed(Option<I>),
 }
 
 /// Reusable authentication driver: runs a per-connection
@@ -189,19 +192,21 @@ pub enum AuthOutcome {
 /// The built-in `*AuthStartupHandler` types embed this driver alongside a
 /// fixed [`AuthMechanismFactory`](super::mechanism::AuthMechanismFactory);
 /// custom handlers embed it the same way.
-pub struct AuthDriver<P> {
+pub struct AuthDriver<P, I = ()> {
     parameter_provider: P,
     pid_secret_key_generator: Arc<dyn PidSecretKeyGenerator>,
     connection_manager: Option<Arc<ConnectionManager>>,
+    _identity: PhantomData<fn() -> I>,
 }
 
-impl<P> AuthDriver<P> {
+impl<P, I> AuthDriver<P, I> {
     /// Creates a driver with the given server parameter provider.
     pub fn new(parameter_provider: P) -> Self {
         Self {
             parameter_provider,
             pid_secret_key_generator: Arc::new(RandomPidSecretKeyGenerator::default()),
             connection_manager: None,
+            _identity: PhantomData,
         }
     }
 
@@ -221,7 +226,7 @@ impl<P> AuthDriver<P> {
     }
 }
 
-impl<P: ServerParameterProvider> AuthDriver<P> {
+impl<P: ServerParameterProvider, I: Send + 'static> AuthDriver<P, I> {
     /// Begins authenticating a connection with a fresh mechanism: calls
     /// [`AuthMechanism::begin`], sends the initial `Authentication` request
     /// and keeps the mechanism for the following password-family messages.
@@ -235,8 +240,8 @@ impl<P: ServerParameterProvider> AuthDriver<P> {
     pub async fn begin_authentication<C>(
         &self,
         client: &mut C,
-        mut mechanism: Box<dyn AuthMechanism>,
-    ) -> PgWireResult<AuthOutcome>
+        mut mechanism: Box<dyn AuthMechanism<I>>,
+    ) -> PgWireResult<AuthOutcome<I>>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -260,7 +265,7 @@ impl<P: ServerParameterProvider> AuthDriver<P> {
         &self,
         client: &mut C,
         message: PasswordMessageFamily,
-    ) -> PgWireResult<AuthOutcome>
+    ) -> PgWireResult<AuthOutcome<I>>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -281,9 +286,9 @@ impl<P: ServerParameterProvider> AuthDriver<P> {
     async fn handle_state<C>(
         &self,
         client: &mut C,
-        mechanism: Box<dyn AuthMechanism>,
-        state: PgWireResult<AuthState>,
-    ) -> PgWireResult<AuthOutcome>
+        mechanism: Box<dyn AuthMechanism<I>>,
+        state: PgWireResult<AuthState<I>>,
+    ) -> PgWireResult<AuthOutcome<I>>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
         C::Error: Debug,
@@ -298,9 +303,12 @@ impl<P: ServerParameterProvider> AuthDriver<P> {
                     .await?;
                 Ok(AuthOutcome::InProgress)
             }
-            Ok(AuthState::Ok(final_message)) => {
+            Ok(AuthState::Ok {
+                final_message,
+                identity,
+            }) => {
                 self.finish_with(client, final_message).await?;
-                Ok(AuthOutcome::Completed)
+                Ok(AuthOutcome::Completed(identity))
             }
             Ok(AuthState::Failed(error)) | Err(error) => Err(error),
         }
@@ -348,25 +356,32 @@ impl<P: ServerParameterProvider> AuthDriver<P> {
 ///
 /// Stored in [`ClientInfo::session_extensions`] so a single shared
 /// `AuthDriver` can drive any number of concurrent connections.
-#[derive(Default)]
-struct MechanismSlot {
-    mechanism: std::sync::Mutex<Option<Box<dyn AuthMechanism>>>,
+struct MechanismSlot<I = ()> {
+    mechanism: std::sync::Mutex<Option<Box<dyn AuthMechanism<I>>>>,
 }
 
-fn take_mechanism(client: &impl ClientInfo) -> Option<Box<dyn AuthMechanism>> {
+impl<I> Default for MechanismSlot<I> {
+    fn default() -> Self {
+        Self {
+            mechanism: std::sync::Mutex::new(None),
+        }
+    }
+}
+
+fn take_mechanism<I: 'static>(client: &impl ClientInfo) -> Option<Box<dyn AuthMechanism<I>>> {
     client
         .session_extensions()
-        .get_or_insert_with(MechanismSlot::default)
+        .get_or_insert_with(MechanismSlot::<I>::default)
         .mechanism
         .lock()
         .unwrap()
         .take()
 }
 
-fn store_mechanism(client: &impl ClientInfo, mechanism: Box<dyn AuthMechanism>) {
+fn store_mechanism<I: 'static>(client: &impl ClientInfo, mechanism: Box<dyn AuthMechanism<I>>) {
     *client
         .session_extensions()
-        .get_or_insert_with(MechanismSlot::default)
+        .get_or_insert_with(MechanismSlot::<I>::default)
         .mechanism
         .lock()
         .unwrap() = Some(mechanism);
@@ -417,7 +432,10 @@ mod tests {
             &mut self,
             _client: &(dyn ClientInfo + Send + Sync),
         ) -> PgWireResult<AuthState> {
-            Ok(AuthState::Ok(None))
+            Ok(AuthState::Ok {
+                final_message: None,
+                identity: None,
+            })
         }
 
         async fn next(
@@ -467,13 +485,13 @@ mod tests {
         let (driver, factory) = cleartext_driver_and_factory();
         let mut client = TestClient::new(Some("alice"));
 
-        assert_eq!(
+        assert!(matches!(
             driver
                 .begin_authentication(&mut client, factory.create())
                 .await
                 .unwrap(),
             AuthOutcome::InProgress
-        );
+        ));
 
         assert!(matches!(
             client.state(),
@@ -486,7 +504,7 @@ mod tests {
             ))
         ));
 
-        assert_eq!(
+        assert!(matches!(
             driver
                 .advance_authentication(
                     &mut client,
@@ -494,8 +512,8 @@ mod tests {
                 )
                 .await
                 .unwrap(),
-            AuthOutcome::Completed
-        );
+            AuthOutcome::Completed(None)
+        ));
 
         assert!(matches!(
             client.state(),
@@ -537,18 +555,69 @@ mod tests {
         ));
     }
 
+    #[derive(Debug)]
+    struct TrustedUser {
+        name: String,
+    }
+
+    struct TrustMechanismWithIdentity;
+
+    #[async_trait]
+    impl AuthMechanism<TrustedUser> for TrustMechanismWithIdentity {
+        async fn begin(
+            &mut self,
+            _client: &(dyn ClientInfo + Send + Sync),
+        ) -> PgWireResult<AuthState<TrustedUser>> {
+            Ok(AuthState::Ok {
+                final_message: None,
+                identity: Some(TrustedUser {
+                    name: "alice".to_owned(),
+                }),
+            })
+        }
+
+        async fn next(
+            &mut self,
+            _client: &(dyn ClientInfo + Send + Sync),
+            _message: PasswordMessageFamily,
+        ) -> PgWireResult<AuthState<TrustedUser>> {
+            Err(PgWireError::NoAuthenticationInProgress)
+        }
+    }
+
+    #[tokio::test]
+    async fn test_driver_completed_identity() {
+        let driver = AuthDriver::new(DefaultServerParameterProvider::default());
+        let mut client = TestClient::new(None);
+
+        let outcome = driver
+            .begin_authentication(&mut client, Box::new(TrustMechanismWithIdentity))
+            .await
+            .unwrap();
+
+        let AuthOutcome::Completed(Some(user)) = outcome else {
+            panic!("expected Completed with identity, got {outcome:?}")
+        };
+        assert_eq!(user.name, "alice");
+
+        assert!(matches!(
+            client.state(),
+            PgWireConnectionState::ReadyForQuery
+        ));
+    }
+
     #[tokio::test]
     async fn test_driver_instant_ok_mechanism() {
         let driver = AuthDriver::new(DefaultServerParameterProvider::default());
         let mut client = TestClient::new(None);
 
-        assert_eq!(
+        assert!(matches!(
             driver
                 .begin_authentication(&mut client, Box::new(TrustMechanism))
                 .await
                 .unwrap(),
-            AuthOutcome::Completed
-        );
+            AuthOutcome::Completed(None)
+        ));
 
         assert!(matches!(
             client.state(),
@@ -574,7 +643,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_driver_password_message_without_mechanism() {
-        let driver = AuthDriver::new(DefaultServerParameterProvider::default());
+        let driver: AuthDriver<DefaultServerParameterProvider> =
+            AuthDriver::new(DefaultServerParameterProvider::default());
         let mut client = TestClient::new(None);
 
         let result = driver

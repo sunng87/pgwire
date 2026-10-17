@@ -383,7 +383,10 @@ impl AuthMechanism for OauthMechanism {
 
         match response {
             Some(message) => Ok(AuthState::InProgress(message)),
-            None => Ok(AuthState::Ok(None)),
+            None => Ok(AuthState::Ok {
+                final_message: None,
+                identity: None,
+            }),
         }
     }
 }
