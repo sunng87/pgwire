@@ -30,6 +30,9 @@
 //! # #[async_trait]
 //! # impl AuthSource for MyAuthSource {
 //! #     async fn get_password(&self, _login: &LoginInfo) -> PgWireResult<Password> { unimplemented!() }
+//! #     async fn verify_password(&self, _login: &LoginInfo, _presented: &[u8]) -> PgWireResult<()> { unimplemented!() }
+//! #     #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+//! #     async fn get_scram_secret(&self, _login: &LoginInfo) -> PgWireResult<(pgwire::api::auth::sasl::scram::ScramSecret, ())> { unimplemented!() }
 //! # }
 //! # struct MyQueryHandlers;
 //! # impl pgwire::api::PgWireServerHandlers for MyQueryHandlers {}
@@ -164,9 +167,9 @@ pub enum AuthOutcome<I = ()> {
     /// Authentication succeeded and the startup protocol is complete:
     /// `AuthenticationOk`, server parameters, `BackendKeyData` and
     /// `ReadyForQuery` have been sent, the connection is ready for
-    /// queries. Carries the identity the mechanism reported, if any; bind
-    /// it to your session.
-    Completed(Option<I>),
+    /// queries. Carries the identity the mechanism reported, typed by
+    /// the driver's identity parameter; bind it to your session.
+    Completed(I),
 }
 
 /// Reusable authentication driver: runs a per-connection
@@ -390,6 +393,11 @@ fn store_mechanism<I: 'static>(client: &impl ClientInfo, mechanism: Box<dyn Auth
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::api::auth::compare_password;
+    #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+    use crate::api::auth::derive_scram_secret;
+    #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+    use crate::api::auth::sasl::scram::ScramSecret;
 
     use crate::messages::PgWireFrontendMessage;
     use async_trait::async_trait;
@@ -420,6 +428,19 @@ mod tests {
         async fn get_password(&self, _login: &LoginInfo) -> PgWireResult<Password> {
             Ok(Password::new(None, self.password.as_bytes().to_vec()))
         }
+
+        async fn verify_password(
+            &self,
+            login: &LoginInfo,
+            presented_password: &[u8],
+        ) -> PgWireResult<()> {
+            compare_password(self, login, presented_password).await
+        }
+
+        #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+        async fn get_scram_secret(&self, login: &LoginInfo) -> PgWireResult<(ScramSecret, ())> {
+            derive_scram_secret(self, login).await
+        }
     }
 
     /// A mechanism that authenticates instantly, exercising the
@@ -434,7 +455,7 @@ mod tests {
         ) -> PgWireResult<AuthState> {
             Ok(AuthState::Ok {
                 final_message: None,
-                identity: None,
+                identity: (),
             })
         }
 
@@ -512,7 +533,7 @@ mod tests {
                 )
                 .await
                 .unwrap(),
-            AuthOutcome::Completed(None)
+            AuthOutcome::Completed(())
         ));
 
         assert!(matches!(
@@ -570,9 +591,9 @@ mod tests {
         ) -> PgWireResult<AuthState<TrustedUser>> {
             Ok(AuthState::Ok {
                 final_message: None,
-                identity: Some(TrustedUser {
+                identity: TrustedUser {
                     name: "alice".to_owned(),
-                }),
+                },
             })
         }
 
@@ -595,7 +616,7 @@ mod tests {
             .await
             .unwrap();
 
-        let AuthOutcome::Completed(Some(user)) = outcome else {
+        let AuthOutcome::Completed(user) = outcome else {
             panic!("expected Completed with identity, got {outcome:?}")
         };
         assert_eq!(user.name, "alice");
@@ -616,7 +637,7 @@ mod tests {
                 .begin_authentication(&mut client, Box::new(TrustMechanism))
                 .await
                 .unwrap(),
-            AuthOutcome::Completed(None)
+            AuthOutcome::Completed(())
         ));
 
         assert!(matches!(
@@ -781,11 +802,18 @@ mod tests {
                 Err(PgWireError::ApiError("must not be called".into()))
             }
 
+            async fn verify_password(
+                &self,
+                _login: &LoginInfo,
+                _presented_password: &[u8],
+            ) -> PgWireResult<()> {
+                Err(PgWireError::ApiError("must not be called".into()))
+            }
+
             async fn get_scram_secret(
                 &self,
                 _login: &LoginInfo,
-            ) -> PgWireResult<(crate::api::auth::sasl::scram::ScramSecret, Option<()>)>
-            {
+            ) -> PgWireResult<(ScramSecret, ())> {
                 let salted_password = gen_salted_password(&self.password, SALT, ITERATIONS);
                 Ok((
                     ScramSecret::verifier_from_salted_password(
@@ -793,7 +821,7 @@ mod tests {
                         salted_password,
                         ITERATIONS,
                     ),
-                    None,
+                    (),
                 ))
             }
         }
@@ -886,13 +914,18 @@ mod tests {
                 Err(PgWireError::ApiError("must not be called".into()))
             }
 
+            async fn verify_password(
+                &self,
+                _login: &LoginInfo,
+                _presented_password: &[u8],
+            ) -> PgWireResult<ScramUser> {
+                Err(PgWireError::ApiError("must not be called".into()))
+            }
+
             async fn get_scram_secret(
                 &self,
                 _login: &LoginInfo,
-            ) -> PgWireResult<(
-                crate::api::auth::sasl::scram::ScramSecret,
-                Option<ScramUser>,
-            )> {
+            ) -> PgWireResult<(ScramSecret, ScramUser)> {
                 let salted_password = gen_salted_password("password", SALT, ITERATIONS);
                 Ok((
                     ScramSecret::verifier_from_salted_password(
@@ -900,9 +933,9 @@ mod tests {
                         salted_password,
                         ITERATIONS,
                     ),
-                    Some(ScramUser {
+                    ScramUser {
                         name: "alice".to_owned(),
-                    }),
+                    },
                 ))
             }
         }
@@ -947,7 +980,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            let AuthOutcome::Completed(Some(user)) = outcome else {
+            let AuthOutcome::Completed(user) = outcome else {
                 panic!("expected Completed with identity, got {outcome:?}")
             };
             assert_eq!(user.name, "alice");
@@ -971,15 +1004,22 @@ mod tests {
                     Err(PgWireError::ApiError("must not be called".into()))
                 }
 
+                async fn get_scram_secret(
+                    &self,
+                    _login: &LoginInfo,
+                ) -> PgWireResult<(ScramSecret, ClearUser)> {
+                    Err(PgWireError::ApiError("must not be called".into()))
+                }
+
                 async fn verify_password(
                     &self,
                     login: &LoginInfo,
                     presented_password: &[u8],
-                ) -> PgWireResult<Option<ClearUser>> {
+                ) -> PgWireResult<ClearUser> {
                     if presented_password == b"pencil" {
-                        Ok(Some(ClearUser {
+                        Ok(ClearUser {
                             name: login.user().unwrap_or_default().to_owned(),
-                        }))
+                        })
                     } else {
                         Err(PgWireError::InvalidPassword(
                             login.user().unwrap_or_default().to_owned(),
@@ -1005,7 +1045,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            let AuthOutcome::Completed(Some(user)) = outcome else {
+            let AuthOutcome::Completed(user) = outcome else {
                 panic!("expected Completed with identity, got {outcome:?}")
             };
             assert_eq!(user.name, "alice");

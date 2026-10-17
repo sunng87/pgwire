@@ -22,6 +22,7 @@ use tokio::net::TcpListener;
 use pgwire::api::auth::AuthDriver;
 use pgwire::api::auth::DefaultServerParameterProvider;
 use pgwire::api::auth::cleartext::CleartextPasswordAuth;
+use pgwire::api::auth::compare_password;
 use pgwire::api::auth::driver::AuthOutcome;
 use pgwire::api::auth::mechanism::AuthMechanismFactory;
 use pgwire::api::auth::sasl::scram::{ScramAuth, ScramSecret, gen_salted_password};
@@ -54,13 +55,21 @@ impl AuthSource for UserStore {
         }
     }
 
-    async fn get_scram_secret(&self, login: &LoginInfo) -> PgWireResult<(ScramSecret, Option<()>)> {
+    async fn verify_password(
+        &self,
+        login: &LoginInfo,
+        presented_password: &[u8],
+    ) -> PgWireResult<()> {
+        compare_password(self, login, presented_password).await
+    }
+
+    async fn get_scram_secret(&self, login: &LoginInfo) -> PgWireResult<(ScramSecret, ())> {
         let user = login.user().unwrap_or_default();
         match self.scram_verifiers.get(user) {
-            Some(secret) => Ok((mock_safe_clone(secret), None)),
+            Some(secret) => Ok((mock_safe_clone(secret), ())),
             // derive a deterministic mock verifier so unknown users are
             // indistinguishable from wrong passwords (timing-safe rejection)
-            None => Ok((mock_verifier(user), None)),
+            None => Ok((mock_verifier(user), ())),
         }
     }
 }

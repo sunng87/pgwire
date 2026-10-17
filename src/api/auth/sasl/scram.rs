@@ -212,7 +212,10 @@ where
             Authentication::SASLContinue(_) => Ok(AuthState::InProgress(response)),
             Authentication::SASLFinal(_) => Ok(AuthState::Ok {
                 final_message: Some(response),
-                identity: self.identity.take(),
+                identity: self
+                    .identity
+                    .take()
+                    .expect("identity resolved with the scram credential"),
             }),
             _ => Err(PgWireError::InvalidSASLState),
         }
@@ -312,7 +315,7 @@ where
                 Ok((
                     Authentication::SASLContinue(server_first.into()),
                     SASLState::ScramServerFirstSent(Box::new(authenticator)),
-                    identity,
+                    Some(identity),
                 ))
             }
             SASLState::ScramServerFirstSent(authenticator) => {
@@ -1088,6 +1091,10 @@ fn compute_cert_signature(cert: &[u8]) -> PgWireResult<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    use crate::api::auth::compare_password;
+    #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+    use crate::api::auth::derive_scram_secret;
+    #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
     #[test]
     fn test_scram_secret_debug_redacts_key_material() {
         let salted = ScramSecret::SaltedPassword {
@@ -1445,6 +1452,19 @@ mod tests {
                     gen_salted_password("pencil", b"salt", SCRAM_ITERATIONS),
                 ))
             }
+
+            async fn verify_password(
+                &self,
+                login: &LoginInfo,
+                presented_password: &[u8],
+            ) -> PgWireResult<()> {
+                compare_password(self, login, presented_password).await
+            }
+
+            #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+            async fn get_scram_secret(&self, login: &LoginInfo) -> PgWireResult<(ScramSecret, ())> {
+                derive_scram_secret(self, login).await
+            }
         }
 
         let scram = ScramAuth::new(Arc::new(FixedSource));
@@ -1541,6 +1561,19 @@ mod tests {
                     Some(b"salt".into()),
                     gen_salted_password("pencil", b"salt", SCRAM_ITERATIONS),
                 ))
+            }
+
+            async fn verify_password(
+                &self,
+                login: &LoginInfo,
+                presented_password: &[u8],
+            ) -> PgWireResult<()> {
+                compare_password(self, login, presented_password).await
+            }
+
+            #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+            async fn get_scram_secret(&self, login: &LoginInfo) -> PgWireResult<(ScramSecret, ())> {
+                derive_scram_secret(self, login).await
             }
         }
 

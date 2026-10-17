@@ -51,11 +51,11 @@ pub enum AuthState<I = ()> {
     /// Authentication succeeded. If `final_message` is present, send it to
     /// the client before completing the startup (for example SCRAM's
     /// `Authentication::SASLFinal`). `identity` is the authenticated
-    /// principal the mechanism resolved, if any; the driver hands it back
-    /// to the startup handler on completion.
+    /// principal the mechanism resolved; the driver hands it back to the
+    /// startup handler on completion.
     Ok {
         final_message: Option<Authentication>,
-        identity: Option<I>,
+        identity: I,
     },
     /// Authentication failed with the given reason; the driver reports it
     /// to the client as an `ErrorResponse` (or the enclosing startup

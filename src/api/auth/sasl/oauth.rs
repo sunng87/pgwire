@@ -385,7 +385,7 @@ impl AuthMechanism for OauthMechanism {
             Some(message) => Ok(AuthState::InProgress(message)),
             None => Ok(AuthState::Ok {
                 final_message: None,
-                identity: None,
+                identity: (),
             }),
         }
     }

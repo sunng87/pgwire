@@ -295,56 +295,87 @@ pub trait AuthSource<I = ()>: Send + Sync + Debug {
     async fn get_password(&self, login: &LoginInfo) -> PgWireResult<Password>;
 
     /// Verify a password presented by the client, returning the
-    /// authenticated identity on success.
+    /// authenticated identity.
     ///
-    /// The default implementation compares the presented password against
-    /// [`AuthSource::get_password`] and reports no identity. Override it
-    /// when the backend verifies passwords itself (hashed storage, bearer
-    /// tokens, remote validation, ...) instead of storing recoverable
-    /// passwords, and return the principal it resolved.
+    /// Use `I = ()` when the source only stores passwords (implement it
+    /// with [`compare_password`]), and any principal type when the
+    /// backend verifies passwords itself (hashed storage, bearer tokens,
+    /// remote validation, ...). An optional identity is expressed by the
+    /// implementor as `I = Option<T>`.
     async fn verify_password(
         &self,
         login: &LoginInfo,
         presented_password: &[u8],
-    ) -> PgWireResult<Option<I>> {
-        let expected = self.get_password(login).await?;
-        if expected.password() == presented_password {
-            Ok(None)
-        } else {
-            Err(PgWireError::InvalidPassword(
-                login.user().unwrap_or_default().to_owned(),
-            ))
-        }
-    }
+    ) -> PgWireResult<I>;
 
     /// Get SCRAM credential material and the identity it belongs to for
     /// this login.
     ///
-    /// By default this derives a salted-password
-    /// [`ScramSecret`](crate::api::auth::sasl::scram::ScramSecret) from
-    /// [`AuthSource::get_password`] and reports no identity. Override this
-    /// method to return a verifier-based
-    /// [`ScramSecret`](crate::api::auth::sasl::scram::ScramSecret) when the
-    /// underlying user store only keeps a postgres-style verifier
-    /// (`stored_key`/`server_key`) instead of the (salted) password, and
-    /// to report the identity the verifier resolves to.
+    /// Use `I = ()` when the source only stores (salted) passwords
+    /// (implement it with [`derive_scram_secret`]), and return a
+    /// verifier-based [`ScramSecret`](crate::api::auth::sasl::scram::ScramSecret)
+    /// when the underlying user store only keeps a postgres-style
+    /// verifier (`stored_key`/`server_key`).
     #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
     async fn get_scram_secret(
         &self,
         login: &LoginInfo,
-    ) -> PgWireResult<(sasl::scram::ScramSecret, Option<I>)> {
-        let password = self.get_password(login).await?;
-        let salt = password.salt().map(|s| s.to_vec()).ok_or_else(|| {
-            PgWireError::InvalidScramMessage("Salt required for SCRAM auth source".to_owned())
-        })?;
-        Ok((
-            sasl::scram::ScramSecret::SaltedPassword {
-                salt,
-                salted_password: password.password().to_vec(),
-            },
-            None,
+    ) -> PgWireResult<(sasl::scram::ScramSecret, I)>;
+}
+
+/// Comparison-based password verification for [`AuthSource<()>`]
+/// implementations that store passwords:
+///
+/// ```ignore
+/// async fn verify_password(&self, login: &LoginInfo, presented: &[u8]) -> PgWireResult<()> {
+///     compare_password(self, login, presented).await
+/// }
+/// ```
+pub async fn compare_password<S>(
+    source: &S,
+    login: &LoginInfo<'_>,
+    presented_password: &[u8],
+) -> PgWireResult<()>
+where
+    S: AuthSource<()> + Sync,
+{
+    let expected = source.get_password(login).await?;
+    if expected.password() == presented_password {
+        Ok(())
+    } else {
+        Err(PgWireError::InvalidPassword(
+            login.user().unwrap_or_default().to_owned(),
         ))
     }
+}
+
+/// Salted-password SCRAM credential derivation for [`AuthSource<()>`]
+/// implementations that store (salted) passwords:
+///
+/// ```ignore
+/// async fn get_scram_secret(&self, login: &LoginInfo) -> PgWireResult<(ScramSecret, ())> {
+///     derive_scram_secret(self, login).await
+/// }
+/// ```
+#[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+pub async fn derive_scram_secret<S>(
+    source: &S,
+    login: &LoginInfo<'_>,
+) -> PgWireResult<(sasl::scram::ScramSecret, ())>
+where
+    S: AuthSource<()> + Sync,
+{
+    let password = source.get_password(login).await?;
+    let salt = password.salt().map(|s| s.to_vec()).ok_or_else(|| {
+        PgWireError::InvalidScramMessage("Salt required for SCRAM auth source".to_owned())
+    })?;
+    Ok((
+        sasl::scram::ScramSecret::SaltedPassword {
+            salt,
+            salted_password: password.password().to_vec(),
+        },
+        (),
+    ))
 }
 
 /// Negotiates the protocol version with the client.

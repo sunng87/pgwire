@@ -242,8 +242,13 @@ mod tests {
     use super::*;
     use crate::api::PgWireConnectionState;
     use crate::api::auth::DefaultServerParameterProvider;
+    use crate::api::auth::compare_password;
+    #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+    use crate::api::auth::derive_scram_secret;
     use crate::api::auth::sasl::SCRAM_SHA_256_METHOD;
     use crate::api::auth::sasl::scram::ScramClientAuth;
+    #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+    use crate::api::auth::sasl::scram::ScramSecret;
     use crate::api::auth::sasl::scram::gen_salted_password;
     use crate::api::auth::test_util::{TestClient, startup_message};
     use crate::api::auth::{AuthSource, LoginInfo, Password};
@@ -265,6 +270,19 @@ mod tests {
                 Some(SALT.to_vec()),
                 gen_salted_password("password", SALT, ITERATIONS),
             ))
+        }
+
+        async fn verify_password(
+            &self,
+            login: &LoginInfo,
+            presented_password: &[u8],
+        ) -> PgWireResult<()> {
+            compare_password(self, login, presented_password).await
+        }
+
+        #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+        async fn get_scram_secret(&self, login: &LoginInfo) -> PgWireResult<(ScramSecret, ())> {
+            derive_scram_secret(self, login).await
         }
     }
 

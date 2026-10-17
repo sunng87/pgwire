@@ -69,20 +69,14 @@ where
         let message = message.into_password()?;
         let login_info = LoginInfo::from_client_info(client);
 
-        match self
+        let identity = self
             .auth_source
             .verify_password(&login_info, message.password.as_bytes())
-            .await?
-        {
-            Some(identity) => Ok(AuthState::Ok {
-                final_message: None,
-                identity: Some(identity),
-            }),
-            None => Ok(AuthState::Ok {
-                final_message: None,
-                identity: None,
-            }),
-        }
+            .await?;
+        Ok(AuthState::Ok {
+            final_message: None,
+            identity,
+        })
     }
 }
 
@@ -164,6 +158,11 @@ where
 mod tests {
     use super::*;
     use crate::api::PgWireConnectionState;
+    use crate::api::auth::compare_password;
+    #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+    use crate::api::auth::derive_scram_secret;
+    #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+    use crate::api::auth::sasl::scram::ScramSecret;
     use crate::api::auth::test_util::{TestClient, startup_message};
     use crate::api::auth::{LoginInfo, Password};
     use crate::error::PgWireResult;
@@ -180,6 +179,19 @@ mod tests {
     impl AuthSource for FixedSource {
         async fn get_password(&self, _login: &LoginInfo) -> PgWireResult<Password> {
             Ok(Password::new(None, self.password.as_bytes().to_vec()))
+        }
+
+        async fn verify_password(
+            &self,
+            login: &LoginInfo,
+            presented_password: &[u8],
+        ) -> PgWireResult<()> {
+            compare_password(self, login, presented_password).await
+        }
+
+        #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
+        async fn get_scram_secret(&self, login: &LoginInfo) -> PgWireResult<(ScramSecret, ())> {
+            derive_scram_secret(self, login).await
         }
     }
 
