@@ -469,7 +469,7 @@ pub mod mechanism;
 pub mod noop;
 #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
 pub mod sasl;
-pub use driver::AuthDriver;
+pub use driver::{AuthDriver, AuthOutcome};
 #[cfg(feature = "simple-oidc-validator")]
 pub mod simple_oidc_validator;
 #[cfg(test)]
