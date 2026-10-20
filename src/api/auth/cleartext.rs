@@ -151,16 +151,20 @@ where
                 let mechanism = self.factory.create();
                 match self.driver.begin_authentication(client, mechanism).await? {
                     AuthOutcome::InProgress => Ok(()),
-                    AuthOutcome::Authenticated(_) => {
-                        self.driver.complete_authentication(client).await
+                    AuthOutcome::Authenticated { final_message, .. } => {
+                        self.driver
+                            .complete_authentication(client, final_message)
+                            .await
                     }
                 }
             }
             PgWireFrontendMessage::PasswordMessageFamily(message) => {
                 match self.driver.advance_authentication(client, message).await? {
                     AuthOutcome::InProgress => Ok(()),
-                    AuthOutcome::Authenticated(_) => {
-                        self.driver.complete_authentication(client).await
+                    AuthOutcome::Authenticated { final_message, .. } => {
+                        self.driver
+                            .complete_authentication(client, final_message)
+                            .await
                     }
                 }
             }

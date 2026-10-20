@@ -71,13 +71,18 @@
 //!             }
 //!             PgWireFrontendMessage::PasswordMessageFamily(message) => {
 //!                 match self.driver.advance_authentication(client, message).await {
-//!                     Ok(AuthOutcome::Authenticated(identity)) => {
+//!                     Ok(AuthOutcome::Authenticated {
+//!                         identity,
+//!                         final_message,
+//!                     }) => {
 //!                         // the mechanism verified the client; nothing
 //!                         // terminal has been sent yet. Bind the identity
 //!                         // (typed as your driver's identity parameter) to
 //!                         // the session, run authorization, then finish:
 //!                         let _ = identity;
-//!                         self.driver.complete_authentication(client).await?;
+//!                         self.driver
+//!                             .complete_authentication(client, final_message)
+//!                             .await?;
 //!                     }
 //!                     Ok(AuthOutcome::InProgress) => {}
 //!                     // report failures your way, or propagate the error to
@@ -163,7 +168,7 @@ use crate::messages::startup::{Authentication, PasswordMessageFamily};
 ///
 /// This type is deliberately not `#[must_use]`: callers that do not need
 /// the outcome can discard it with `?` and continue.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum AuthOutcome<I = ()> {
     /// The handshake continues: the mechanism's `Authentication` message
     /// was sent; feed the next password-family message to
@@ -171,11 +176,18 @@ pub enum AuthOutcome<I = ()> {
     InProgress,
     /// The mechanism verified the client; the startup protocol is one
     /// step from complete and **nothing terminal has been sent yet**.
-    /// Run any post-verification logic now (authorization, binding the
-    /// carried identity to the session, metrics), then either finish the
+    /// Run any post-verification logic now (authorization, binding
+    /// `identity` to the session, metrics), then either finish the
     /// startup with [`AuthDriver::complete_authentication`], or fail the
     /// authentication by returning an error.
-    Authenticated(Option<I>),
+    Authenticated {
+        /// The identity the mechanism reported, if any.
+        identity: Option<I>,
+        /// The mechanism's final message (for example SCRAM's
+        /// `SASLFinal`), to hand back to
+        /// [`AuthDriver::complete_authentication`].
+        final_message: Option<Authentication>,
+    },
 }
 
 /// Reusable authentication driver: runs a per-connection
@@ -317,32 +329,36 @@ impl<P: ServerParameterProvider, I: Send + 'static> AuthDriver<P, I> {
                 identity,
             }) => {
                 client.set_state(PgWireConnectionState::AuthenticationInProgress);
-                store_completion(client, final_message);
-                Ok(AuthOutcome::Authenticated(identity))
+                Ok(AuthOutcome::Authenticated {
+                    identity,
+                    final_message,
+                })
             }
             Ok(AuthState::Failed(error)) | Err(error) => Err(error),
         }
     }
 
-    /// Completes the startup protocol, finishing an authentication
-    /// handshake if one is waiting:
-    ///
-    /// - sends the mechanism's final message (for example SCRAM's
-    ///   `SASLFinal`) when called after [`AuthOutcome::Authenticated`],
-    /// - generates the pid/secret key, registers the connection and sends
-    ///   `AuthenticationOk`, server parameters, `BackendKeyData` and
-    ///   `ReadyForQuery`.
+    /// Completes the startup protocol: sends `final_message` (the one
+    /// carried by [`AuthOutcome::Authenticated`], if any), generates the
+    /// pid/secret key, registers the connection and sends
+    /// `AuthenticationOk`, server parameters, `BackendKeyData` and
+    /// `ReadyForQuery`.
     ///
     /// Called after [`AuthOutcome::Authenticated`], this is the point of
-    /// no return decided by the startup handler; without a mechanism it
-    /// completes the startup for connections that skip authentication.
-    pub async fn complete_authentication<C>(&self, client: &mut C) -> PgWireResult<()>
+    /// no return decided by the startup handler; without a handshake,
+    /// `final_message` is `None` and the startup is completed for
+    /// connections that skip authentication.
+    pub async fn complete_authentication<C>(
+        &self,
+        client: &mut C,
+        final_message: Option<Authentication>,
+    ) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
-        if let Some(message) = take_completion(client) {
+        if let Some(message) = final_message {
             client
                 .send(PgWireBackendMessage::Authentication(message))
                 .await?;
@@ -382,34 +398,6 @@ fn take_mechanism<I: 'static>(client: &impl ClientInfo) -> Option<Box<dyn AuthMe
         .lock()
         .unwrap()
         .take()
-}
-
-/// Per-connection storage for the final message of a verified mechanism,
-/// waiting for [`AuthDriver::complete_authentication`].
-#[derive(Default)]
-struct CompletionSlot {
-    final_message: std::sync::Mutex<Option<Authentication>>,
-}
-
-fn take_completion(client: &impl ClientInfo) -> Option<Authentication> {
-    client
-        .session_extensions()
-        .get_or_insert_with(CompletionSlot::default)
-        .final_message
-        .lock()
-        .unwrap()
-        .take()
-}
-
-fn store_completion(client: &impl ClientInfo, final_message: Option<Authentication>) {
-    if let Some(message) = final_message {
-        *client
-            .session_extensions()
-            .get_or_insert_with(CompletionSlot::default)
-            .final_message
-            .lock()
-            .unwrap() = Some(message);
-    }
 }
 
 fn store_mechanism<I: 'static>(client: &impl ClientInfo, mechanism: Box<dyn AuthMechanism<I>>) {
@@ -538,16 +526,20 @@ mod tests {
             ))
         ));
 
-        assert!(matches!(
-            driver
-                .advance_authentication(
-                    &mut client,
-                    PasswordMessageFamily::Password(PasswordMessage::new("secret".to_owned())),
-                )
-                .await
-                .unwrap(),
-            AuthOutcome::Authenticated(None)
-        ));
+        let outcome = driver
+            .advance_authentication(
+                &mut client,
+                PasswordMessageFamily::Password(PasswordMessage::new("secret".to_owned())),
+            )
+            .await
+            .unwrap();
+        let AuthOutcome::Authenticated {
+            identity: None,
+            final_message: None,
+        } = outcome
+        else {
+            panic!("expected Authenticated without identity, got {outcome:?}")
+        };
         // nothing terminal sent yet: the veto window
         assert!(matches!(
             client.state(),
@@ -560,7 +552,10 @@ mod tests {
             )
         }));
 
-        driver.complete_authentication(&mut client).await.unwrap();
+        driver
+            .complete_authentication(&mut client, None)
+            .await
+            .unwrap();
 
         assert!(matches!(
             client.state(),
@@ -642,7 +637,11 @@ mod tests {
             .await
             .unwrap();
 
-        let AuthOutcome::Authenticated(Some(user)) = outcome else {
+        let AuthOutcome::Authenticated {
+            identity: Some(user),
+            final_message,
+        } = outcome
+        else {
             panic!("expected Authenticated with identity, got {outcome:?}")
         };
         assert_eq!(user.name, "alice");
@@ -651,7 +650,10 @@ mod tests {
             client.state(),
             PgWireConnectionState::AuthenticationInProgress
         ));
-        driver.complete_authentication(&mut client).await.unwrap();
+        driver
+            .complete_authentication(&mut client, final_message)
+            .await
+            .unwrap();
         assert!(matches!(
             client.state(),
             PgWireConnectionState::ReadyForQuery
@@ -663,15 +665,18 @@ mod tests {
         let driver = AuthDriver::new(DefaultServerParameterProvider::default());
         let mut client = TestClient::new(None);
 
-        assert!(matches!(
-            driver
-                .begin_authentication(&mut client, Box::new(TrustMechanism))
-                .await
-                .unwrap(),
-            AuthOutcome::Authenticated(None)
-        ));
+        let outcome = driver
+            .begin_authentication(&mut client, Box::new(TrustMechanism))
+            .await
+            .unwrap();
+        let AuthOutcome::Authenticated { final_message, .. } = outcome else {
+            panic!("expected Authenticated, got {outcome:?}")
+        };
 
-        driver.complete_authentication(&mut client).await.unwrap();
+        driver
+            .complete_authentication(&mut client, final_message)
+            .await
+            .unwrap();
 
         assert!(matches!(
             client.state(),
@@ -692,7 +697,7 @@ mod tests {
             .begin_authentication(&mut client, Box::new(TrustMechanismWithIdentity))
             .await
             .unwrap();
-        let AuthOutcome::Authenticated(_) = outcome else {
+        let AuthOutcome::Authenticated { .. } = outcome else {
             panic!("expected Authenticated, got {outcome:?}")
         };
 
@@ -781,16 +786,20 @@ mod tests {
                     };
                     match self.driver.begin_authentication(client, mechanism).await? {
                         AuthOutcome::InProgress => Ok(()),
-                        AuthOutcome::Authenticated(_) => {
-                            self.driver.complete_authentication(client).await
+                        AuthOutcome::Authenticated { final_message, .. } => {
+                            self.driver
+                                .complete_authentication(client, final_message)
+                                .await
                         }
                     }
                 }
                 PgWireFrontendMessage::PasswordMessageFamily(message) => {
                     match self.driver.advance_authentication(client, message).await? {
                         AuthOutcome::InProgress => Ok(()),
-                        AuthOutcome::Authenticated(_) => {
-                            self.driver.complete_authentication(client).await
+                        AuthOutcome::Authenticated { final_message, .. } => {
+                            self.driver
+                                .complete_authentication(client, final_message)
+                                .await
                         }
                     }
                 }
@@ -936,14 +945,24 @@ mod tests {
             };
             let (client_final, scram_client) =
                 scram_client.build_client_final(&server_first).unwrap();
-            driver
+            let outcome = driver
                 .advance_authentication(
                     &mut client,
                     PasswordMessageFamily::SASLResponse(SASLResponse::new(client_final.into())),
                 )
                 .await
                 .unwrap();
-            driver.complete_authentication(&mut client).await.unwrap();
+            let AuthOutcome::Authenticated {
+                identity: _,
+                final_message,
+            } = outcome
+            else {
+                panic!("expected Authenticated, got {outcome:?}")
+            };
+            driver
+                .complete_authentication(&mut client, final_message)
+                .await
+                .unwrap();
 
             // step 3: server final -> verified, connection ready
             let server_final = client
@@ -1039,8 +1058,12 @@ mod tests {
                 .await
                 .unwrap();
 
-            let AuthOutcome::Authenticated(Some(user)) = outcome else {
-                panic!("expected Completed with identity, got {outcome:?}")
+            let AuthOutcome::Authenticated {
+                identity: Some(user),
+                ..
+            } = outcome
+            else {
+                panic!("expected Authenticated with identity, got {outcome:?}")
             };
             assert_eq!(user.name, "alice");
             drop(source);
@@ -1097,11 +1120,18 @@ mod tests {
                 .await
                 .unwrap();
 
-            let AuthOutcome::Authenticated(Some(user)) = outcome else {
+            let AuthOutcome::Authenticated {
+                identity: Some(user),
+                final_message,
+            } = outcome
+            else {
                 panic!("expected Authenticated with identity, got {outcome:?}")
             };
             assert_eq!(user.name, "alice");
-            driver.complete_authentication(&mut client).await.unwrap();
+            driver
+                .complete_authentication(&mut client, final_message)
+                .await
+                .unwrap();
         }
 
         #[tokio::test]
