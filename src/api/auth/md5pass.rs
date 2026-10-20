@@ -4,6 +4,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::sink::Sink;
 
+use super::driver::AuthOutcome;
 use super::{
     AuthDriver, AuthSource, ClientInfo, LoginInfo, ServerParameterProvider, StartupHandler,
     mechanism::AuthMechanism, mechanism::AuthMechanismFactory, mechanism::AuthState,
@@ -155,12 +156,24 @@ where
                 super::save_startup_parameters_to_metadata(client, startup);
 
                 let mechanism = self.factory.create();
-                self.driver.begin_authentication(client, mechanism).await?;
-                Ok(())
+                match self.driver.begin_authentication(client, mechanism).await? {
+                    AuthOutcome::InProgress => Ok(()),
+                    AuthOutcome::Authenticated { final_message, .. } => {
+                        self.driver
+                            .complete_authentication(client, final_message)
+                            .await
+                    }
+                }
             }
             PgWireFrontendMessage::PasswordMessageFamily(message) => {
-                self.driver.advance_authentication(client, message).await?;
-                Ok(())
+                match self.driver.advance_authentication(client, message).await? {
+                    AuthOutcome::InProgress => Ok(()),
+                    AuthOutcome::Authenticated { final_message, .. } => {
+                        self.driver
+                            .complete_authentication(client, final_message)
+                            .await
+                    }
+                }
             }
             _ => Ok(()),
         }

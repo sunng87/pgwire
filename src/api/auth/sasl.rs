@@ -12,6 +12,7 @@ use crate::messages::{PgWireBackendMessage, PgWireFrontendMessage};
 use super::AuthDriver;
 use super::ServerParameterProvider;
 use super::StartupHandler;
+use super::driver::AuthOutcome;
 use super::mechanism::AuthMechanism;
 use super::mechanism::AuthMechanismFactory;
 use super::mechanism::AuthState;
@@ -225,12 +226,24 @@ where
                 super::save_startup_parameters_to_metadata(client, startup);
 
                 let mechanism = self.mechanisms.create();
-                self.driver.begin_authentication(client, mechanism).await?;
-                Ok(())
+                match self.driver.begin_authentication(client, mechanism).await? {
+                    AuthOutcome::InProgress => Ok(()),
+                    AuthOutcome::Authenticated { final_message, .. } => {
+                        self.driver
+                            .complete_authentication(client, final_message)
+                            .await
+                    }
+                }
             }
             PgWireFrontendMessage::PasswordMessageFamily(message) => {
-                self.driver.advance_authentication(client, message).await?;
-                Ok(())
+                match self.driver.advance_authentication(client, message).await? {
+                    AuthOutcome::InProgress => Ok(()),
+                    AuthOutcome::Authenticated { final_message, .. } => {
+                        self.driver
+                            .complete_authentication(client, final_message)
+                            .await
+                    }
+                }
             }
             _ => Ok(()),
         }
