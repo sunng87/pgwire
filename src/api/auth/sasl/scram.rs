@@ -107,16 +107,26 @@ impl ScramSecret {
 }
 
 /// SCRAM authentication configuration and state.
-#[derive(Debug, Clone)]
-pub struct ScramAuth {
-    auth_db: Arc<dyn AuthSource>,
+#[derive(Debug)]
+pub struct ScramAuth<I = ()> {
+    auth_db: Arc<dyn AuthSource<I>>,
     authenticator: ScramServerAuth,
     supported_mechanisms: Vec<String>,
 }
 
-impl ScramAuth {
+impl<I> Clone for ScramAuth<I> {
+    fn clone(&self) -> Self {
+        Self {
+            auth_db: self.auth_db.clone(),
+            authenticator: self.authenticator.clone(),
+            supported_mechanisms: self.supported_mechanisms.clone(),
+        }
+    }
+}
+
+impl<I> ScramAuth<I> {
     /// Creates a new SCRAM auth instance.
-    pub fn new(auth_db: Arc<dyn AuthSource>) -> ScramAuth {
+    pub fn new(auth_db: Arc<dyn AuthSource<I>>) -> ScramAuth<I> {
         let mut auth = ScramAuth {
             auth_db,
             authenticator: ScramServerAuth::new(),
@@ -164,14 +174,21 @@ impl ScramAuth {
 }
 
 /// Per-connection SCRAM state machine created by [`ScramAuth`].
-struct ScramMechanism {
-    auth: ScramAuth,
+struct ScramMechanism<I> {
+    auth: ScramAuth<I>,
     state: SASLState,
+    identity: Option<I>,
 }
 
 #[async_trait]
-impl AuthMechanism for ScramMechanism {
-    async fn begin(&mut self, _client: &(dyn ClientInfo + Send + Sync)) -> PgWireResult<AuthState> {
+impl<I> AuthMechanism<I> for ScramMechanism<I>
+where
+    I: Send + 'static,
+{
+    async fn begin(
+        &mut self,
+        _client: &(dyn ClientInfo + Send + Sync),
+    ) -> PgWireResult<AuthState<I>> {
         Ok(AuthState::InProgress(Authentication::SASL(
             self.auth.sasl_mechanism_names(),
         )))
@@ -181,34 +198,44 @@ impl AuthMechanism for ScramMechanism {
         &mut self,
         client: &(dyn ClientInfo + Send + Sync),
         message: PasswordMessageFamily,
-    ) -> PgWireResult<AuthState> {
-        let (response, new_state) = self
+    ) -> PgWireResult<AuthState<I>> {
+        let (response, new_state, identity) = self
             .auth
             .process_scram_message(client, message, &self.state)
             .await?;
         self.state = new_state;
+        if let Some(identity) = identity {
+            self.identity = Some(identity);
+        }
 
         match response {
             Authentication::SASLContinue(_) => Ok(AuthState::InProgress(response)),
             Authentication::SASLFinal(_) => Ok(AuthState::Ok {
                 final_message: Some(response),
-                identity: None,
+                identity: self.identity.take(),
             }),
             _ => Err(PgWireError::InvalidSASLState),
         }
     }
 }
 
-impl AuthMechanismFactory for ScramAuth {
-    fn create(&self) -> Box<dyn AuthMechanism> {
+impl<I> AuthMechanismFactory<I> for ScramAuth<I>
+where
+    I: Send + 'static,
+{
+    fn create(&self) -> Box<dyn AuthMechanism<I>> {
         Box::new(ScramMechanism {
             auth: self.clone(),
             state: SASLState::ScramClientFirstReceived,
+            identity: None,
         })
     }
 }
 
-impl SaslMechanismFactory for ScramAuth {
+impl<I> SaslMechanismFactory<I> for ScramAuth<I>
+where
+    I: Send + 'static,
+{
     fn sasl_mechanism_names(&self) -> Vec<String> {
         let mut mechanisms = vec![super::SCRAM_SHA_256_METHOD.to_owned()];
         if self.supports_channel_binding() {
@@ -240,14 +267,19 @@ pub fn random_nonce() -> String {
     STANDARD.encode(rand::random::<[u8; 18]>())
 }
 
-impl ScramAuth {
-    /// Process incoming message and return response, new state
+impl<I> ScramAuth<I>
+where
+    I: Send + 'static,
+{
+    /// Process incoming message and return the response, the new state
+    /// and, on the client-first message, the identity resolved alongside
+    /// the SCRAM credential.
     pub async fn process_scram_message<C>(
         &self,
         client: &C,
         msg: PasswordMessageFamily,
         state: &SASLState,
-    ) -> PgWireResult<(Authentication, SASLState)>
+    ) -> PgWireResult<(Authentication, SASLState, Option<I>)>
     where
         C: ClientInfo + ?Sized,
     {
@@ -271,7 +303,7 @@ impl ScramAuth {
                 })?;
 
                 let login_info = LoginInfo::from_client_info(client);
-                let secret = self.auth_db.get_scram_secret(&login_info).await?;
+                let (secret, identity) = self.auth_db.get_scram_secret(&login_info).await?;
 
                 let (server_first, authenticator) = self
                     .authenticator
@@ -280,6 +312,7 @@ impl ScramAuth {
                 Ok((
                     Authentication::SASLContinue(server_first.into()),
                     SASLState::ScramServerFirstSent(Box::new(authenticator)),
+                    identity,
                 ))
             }
             SASLState::ScramServerFirstSent(authenticator) => {
@@ -289,6 +322,7 @@ impl ScramAuth {
                 Ok((
                     Authentication::SASLFinal(server_final.into()),
                     SASLState::Finished,
+                    None,
                 ))
             }
             _ => Err(PgWireError::InvalidSASLState),

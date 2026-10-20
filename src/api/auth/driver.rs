@@ -784,12 +784,16 @@ mod tests {
             async fn get_scram_secret(
                 &self,
                 _login: &LoginInfo,
-            ) -> PgWireResult<crate::api::auth::sasl::scram::ScramSecret> {
+            ) -> PgWireResult<(crate::api::auth::sasl::scram::ScramSecret, Option<()>)>
+            {
                 let salted_password = gen_salted_password(&self.password, SALT, ITERATIONS);
-                Ok(ScramSecret::verifier_from_salted_password(
-                    SALT.to_vec(),
-                    salted_password,
-                    ITERATIONS,
+                Ok((
+                    ScramSecret::verifier_from_salted_password(
+                        SALT.to_vec(),
+                        salted_password,
+                        ITERATIONS,
+                    ),
+                    None,
                 ))
             }
         }
@@ -866,6 +870,145 @@ mod tests {
                 client.state(),
                 PgWireConnectionState::ReadyForQuery
             ));
+        }
+
+        #[derive(Debug, Clone, PartialEq)]
+        struct ScramUser {
+            name: String,
+        }
+
+        #[derive(Debug, Default)]
+        struct IdentityScramSource;
+
+        #[async_trait]
+        impl AuthSource<ScramUser> for IdentityScramSource {
+            async fn get_password(&self, _login: &LoginInfo) -> PgWireResult<Password> {
+                Err(PgWireError::ApiError("must not be called".into()))
+            }
+
+            async fn get_scram_secret(
+                &self,
+                _login: &LoginInfo,
+            ) -> PgWireResult<(
+                crate::api::auth::sasl::scram::ScramSecret,
+                Option<ScramUser>,
+            )> {
+                let salted_password = gen_salted_password("password", SALT, ITERATIONS);
+                Ok((
+                    ScramSecret::verifier_from_salted_password(
+                        SALT.to_vec(),
+                        salted_password,
+                        ITERATIONS,
+                    ),
+                    Some(ScramUser {
+                        name: "alice".to_owned(),
+                    }),
+                ))
+            }
+        }
+
+        #[tokio::test]
+        async fn test_driver_scram_identity() {
+            let source = Arc::new(IdentityScramSource);
+            let scram = ScramAuth::new(source.clone());
+            let driver = AuthDriver::new(DefaultServerParameterProvider::default());
+            let mut client = TestClient::new(Some("alice"));
+
+            let scram_client = ScramClientAuth::new("alice".to_owned(), "password".to_owned());
+
+            driver
+                .begin_authentication(&mut client, scram.create())
+                .await
+                .unwrap();
+
+            let (client_first, scram_client) = scram_client.build_client_first().unwrap();
+            driver
+                .advance_authentication(
+                    &mut client,
+                    PasswordMessageFamily::SASLInitialResponse(SASLInitialResponse::new(
+                        "SCRAM-SHA-256".to_owned(),
+                        Some(client_first.into()),
+                    )),
+                )
+                .await
+                .unwrap();
+            let server_first = match client.sent.last() {
+                Some(PgWireBackendMessage::Authentication(Authentication::SASLContinue(data))) => {
+                    data.clone()
+                }
+                other => panic!("unexpected message: {other:?}"),
+            };
+            let (client_final, _) = scram_client.build_client_final(&server_first).unwrap();
+            let outcome = driver
+                .advance_authentication(
+                    &mut client,
+                    PasswordMessageFamily::SASLResponse(SASLResponse::new(client_final.into())),
+                )
+                .await
+                .unwrap();
+
+            let AuthOutcome::Completed(Some(user)) = outcome else {
+                panic!("expected Completed with identity, got {outcome:?}")
+            };
+            assert_eq!(user.name, "alice");
+            drop(source);
+        }
+
+        #[tokio::test]
+        async fn test_driver_cleartext_identity() {
+            use crate::api::auth::cleartext::CleartextPasswordAuth;
+
+            #[derive(Debug, Clone, PartialEq)]
+            struct ClearUser {
+                name: String,
+            }
+
+            #[derive(Debug, Default)]
+            struct VerifyingSource;
+            #[async_trait]
+            impl AuthSource<ClearUser> for VerifyingSource {
+                async fn get_password(&self, _login: &LoginInfo) -> PgWireResult<Password> {
+                    Err(PgWireError::ApiError("must not be called".into()))
+                }
+
+                async fn verify_password(
+                    &self,
+                    login: &LoginInfo,
+                    presented_password: &[u8],
+                ) -> PgWireResult<Option<ClearUser>> {
+                    if presented_password == b"pencil" {
+                        Ok(Some(ClearUser {
+                            name: login.user().unwrap_or_default().to_owned(),
+                        }))
+                    } else {
+                        Err(PgWireError::InvalidPassword(
+                            login.user().unwrap_or_default().to_owned(),
+                        ))
+                    }
+                }
+            }
+
+            let source = Arc::new(VerifyingSource);
+            let factory = CleartextPasswordAuth::new(source.clone());
+            let driver = AuthDriver::new(DefaultServerParameterProvider::default());
+            let mut client = TestClient::new(Some("alice"));
+
+            driver
+                .begin_authentication(&mut client, factory.create())
+                .await
+                .unwrap();
+            let outcome = driver
+                .advance_authentication(
+                    &mut client,
+                    PasswordMessageFamily::Password(PasswordMessage::new("pencil".to_owned())),
+                )
+                .await
+                .unwrap();
+
+            let AuthOutcome::Completed(Some(user)) = outcome else {
+                panic!("expected Completed with identity, got {outcome:?}")
+            };
+            assert_eq!(user.name, "alice");
         }
 
         #[tokio::test]
