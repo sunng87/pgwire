@@ -146,12 +146,13 @@ impl StartupHandler for DynamicAuthHandler {
             }
             PgWireFrontendMessage::PasswordMessageFamily(message) => {
                 match self.driver.advance_authentication(client, message).await {
-                    Ok(AuthOutcome::Completed(_)) => {
-                        // authentication succeeded and the startup protocol
-                        // is complete; the user is already in the client
-                        // metadata. Run any post-authentication logic here
-                        // (metrics, session binding, ...)
+                    Ok(AuthOutcome::Authenticated(_)) => {
+                        // authentication succeeded; nothing terminal has
+                        // been sent yet. Run any post-verification logic
+                        // here (authorization, metrics, session binding),
+                        // then finish the startup:
                         println!("user {:?} authenticated", client.metadata().get("user"));
+                        self.driver.complete_authentication(client).await?;
                     }
                     Ok(AuthOutcome::InProgress) => {}
                     // auth failures surface as Err; handle them your way

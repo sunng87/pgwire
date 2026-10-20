@@ -8,6 +8,30 @@ Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased] - ReleaseDate
 
+### Changed
+
+- `AuthDriver` no longer completes the startup protocol automatically
+  when a mechanism succeeds: `begin_authentication` and
+  `advance_authentication` report `AuthOutcome::Authenticated` with the
+  identity, leaving a window for post-verification logic (authorization,
+  session binding) before the handler calls the new public
+  `AuthDriver::complete_authentication` to finish, or returns an error
+  to fail the authentication. Nothing terminal is sent until
+  `complete_authentication`; calling it without a handshake completes
+  the startup for connections that skip authentication
+
+### Changed
+
+-  no longer completes the startup protocol automatically
+  when a mechanism succeeds:  and
+   report  with the
+  identity, leaving a window for post-verification logic (authorization,
+  session binding) before the handler calls the new public
+   to finish, or returns an error
+  to fail the authentication. Nothing terminal is sent until
+  ; calling it without a handshake completes
+  the startup for connections that skip authentication
+
 ### Added
 
 - Composable startup authentication API. [#469]

@@ -71,10 +71,13 @@
 //!             }
 //!             PgWireFrontendMessage::PasswordMessageFamily(message) => {
 //!                 match self.driver.advance_authentication(client, message).await {
-//!                     Ok(AuthOutcome::Completed(identity)) => {
-//!                         // authentication succeeded and the startup is
-//!                         // complete; bind the identity (typed as your
-//!                         // driver's identity parameter) to the session here
+//!                     Ok(AuthOutcome::Authenticated(identity)) => {
+//!                         // the mechanism verified the client; nothing
+//!                         // terminal has been sent yet. Bind the identity
+//!                         // (typed as your driver's identity parameter) to
+//!                         // the session, run authorization, then finish:
+//!                         let _ = identity;
+//!                         self.driver.complete_authentication(client).await?;
 //!                     }
 //!                     Ok(AuthOutcome::InProgress) => {}
 //!                     // report failures your way, or propagate the error to
@@ -116,10 +119,15 @@
 //!   context through
 //!   [`LoginInfo`](crate::api::auth::LoginInfo).
 //! - **Recording authentication results** (metrics, audit): branch on
-//!   [`AuthOutcome::Completed`] for success; catch the `Err` returned by
+//!   [`AuthOutcome::Authenticated`] for success; catch the `Err` returned by
 //!   [`AuthDriver::begin_authentication`] /
 //!   [`AuthDriver::advance_authentication`] for failures — at that point
 //!   nothing has been sent to the client yet.
+//! - **Failing after successful verification** (authorization): on
+//!   [`AuthOutcome::Authenticated`] nothing terminal has been sent yet;
+//!   run your check and either call
+//!   [`AuthDriver::complete_authentication`] or return an error to
+//!   reject the client.
 //! - **Custom failure responses**: same `Err` handling; send your own
 //!   `ErrorResponse` and close, or propagate the error and let the server
 //!   report it.
@@ -161,12 +169,13 @@ pub enum AuthOutcome<I = ()> {
     /// was sent; feed the next password-family message to
     /// [`AuthDriver::advance_authentication`].
     InProgress,
-    /// Authentication succeeded and the startup protocol is complete:
-    /// `AuthenticationOk`, server parameters, `BackendKeyData` and
-    /// `ReadyForQuery` have been sent, the connection is ready for
-    /// queries. Carries the identity the mechanism reported, if any; bind
-    /// it to your session.
-    Completed(Option<I>),
+    /// The mechanism verified the client; the startup protocol is one
+    /// step from complete and **nothing terminal has been sent yet**.
+    /// Run any post-verification logic now (authorization, binding the
+    /// carried identity to the session, metrics), then either finish the
+    /// startup with [`AuthDriver::complete_authentication`], or fail the
+    /// authentication by returning an error.
+    Authenticated(Option<I>),
 }
 
 /// Reusable authentication driver: runs a per-connection
@@ -183,7 +192,7 @@ pub enum AuthOutcome<I = ()> {
 /// - feed every password-family message to
 ///   [`AuthDriver::advance_authentication`],
 /// - on success the driver completes the startup protocol itself and
-///   reports [`AuthOutcome::Completed`]; failures are returned as `Err`,
+///   reports [`AuthOutcome::Authenticated`]; failures are returned as `Err`,
 ///   before anything has been sent, so you can report them your way.
 ///
 /// Connections that skip authentication can use a mechanism whose `begin`
@@ -307,21 +316,38 @@ impl<P: ServerParameterProvider, I: Send + 'static> AuthDriver<P, I> {
                 final_message,
                 identity,
             }) => {
-                self.finish_with(client, final_message).await?;
-                Ok(AuthOutcome::Completed(identity))
+                client.set_state(PgWireConnectionState::AuthenticationInProgress);
+                store_completion(client, final_message);
+                Ok(AuthOutcome::Authenticated(identity))
             }
             Ok(AuthState::Failed(error)) | Err(error) => Err(error),
         }
     }
 
-    /// Generates the pid/secret key, registers the connection, sends server
-    /// parameters, `BackendKeyData` and `ReadyForQuery`.
-    async fn complete_authentication<C>(&self, client: &mut C) -> PgWireResult<()>
+    /// Completes the startup protocol, finishing an authentication
+    /// handshake if one is waiting:
+    ///
+    /// - sends the mechanism's final message (for example SCRAM's
+    ///   `SASLFinal`) when called after [`AuthOutcome::Authenticated`],
+    /// - generates the pid/secret key, registers the connection and sends
+    ///   `AuthenticationOk`, server parameters, `BackendKeyData` and
+    ///   `ReadyForQuery`.
+    ///
+    /// Called after [`AuthOutcome::Authenticated`], this is the point of
+    /// no return decided by the startup handler; without a mechanism it
+    /// completes the startup for connections that skip authentication.
+    pub async fn complete_authentication<C>(&self, client: &mut C) -> PgWireResult<()>
     where
         C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
         C::Error: Debug,
         PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
+        if let Some(message) = take_completion(client) {
+            client
+                .send(PgWireBackendMessage::Authentication(message))
+                .await?;
+        }
+
         let (pid, secret_key) = self.pid_secret_key_generator.generate(client);
         client.set_pid_and_secret_key(pid, secret_key);
         if let Some(manager) = &self.connection_manager {
@@ -329,26 +355,6 @@ impl<P: ServerParameterProvider, I: Send + 'static> AuthDriver<P, I> {
         }
 
         super::finish_authentication(client, &self.parameter_provider).await
-    }
-
-    /// Sends the mechanism's optional final message (e.g. SCRAM's
-    /// `SASLFinal`), then completes the startup.
-    async fn finish_with<C>(
-        &self,
-        client: &mut C,
-        final_message: Option<Authentication>,
-    ) -> PgWireResult<()>
-    where
-        C: ClientInfo + Sink<PgWireBackendMessage> + Unpin + Send,
-        C::Error: Debug,
-        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
-    {
-        if let Some(message) = final_message {
-            client
-                .send(PgWireBackendMessage::Authentication(message))
-                .await?;
-        }
-        self.complete_authentication(client).await
     }
 }
 
@@ -376,6 +382,34 @@ fn take_mechanism<I: 'static>(client: &impl ClientInfo) -> Option<Box<dyn AuthMe
         .lock()
         .unwrap()
         .take()
+}
+
+/// Per-connection storage for the final message of a verified mechanism,
+/// waiting for [`AuthDriver::complete_authentication`].
+#[derive(Default)]
+struct CompletionSlot {
+    final_message: std::sync::Mutex<Option<Authentication>>,
+}
+
+fn take_completion(client: &impl ClientInfo) -> Option<Authentication> {
+    client
+        .session_extensions()
+        .get_or_insert_with(CompletionSlot::default)
+        .final_message
+        .lock()
+        .unwrap()
+        .take()
+}
+
+fn store_completion(client: &impl ClientInfo, final_message: Option<Authentication>) {
+    if let Some(message) = final_message {
+        *client
+            .session_extensions()
+            .get_or_insert_with(CompletionSlot::default)
+            .final_message
+            .lock()
+            .unwrap() = Some(message);
+    }
 }
 
 fn store_mechanism<I: 'static>(client: &impl ClientInfo, mechanism: Box<dyn AuthMechanism<I>>) {
@@ -512,8 +546,21 @@ mod tests {
                 )
                 .await
                 .unwrap(),
-            AuthOutcome::Completed(None)
+            AuthOutcome::Authenticated(None)
         ));
+        // nothing terminal sent yet: the veto window
+        assert!(matches!(
+            client.state(),
+            PgWireConnectionState::AuthenticationInProgress
+        ));
+        assert!(!client.sent.iter().any(|msg| {
+            matches!(
+                msg,
+                PgWireBackendMessage::Authentication(Authentication::Ok)
+            )
+        }));
+
+        driver.complete_authentication(&mut client).await.unwrap();
 
         assert!(matches!(
             client.state(),
@@ -595,11 +642,16 @@ mod tests {
             .await
             .unwrap();
 
-        let AuthOutcome::Completed(Some(user)) = outcome else {
-            panic!("expected Completed with identity, got {outcome:?}")
+        let AuthOutcome::Authenticated(Some(user)) = outcome else {
+            panic!("expected Authenticated with identity, got {outcome:?}")
         };
         assert_eq!(user.name, "alice");
 
+        assert!(matches!(
+            client.state(),
+            PgWireConnectionState::AuthenticationInProgress
+        ));
+        driver.complete_authentication(&mut client).await.unwrap();
         assert!(matches!(
             client.state(),
             PgWireConnectionState::ReadyForQuery
@@ -616,8 +668,10 @@ mod tests {
                 .begin_authentication(&mut client, Box::new(TrustMechanism))
                 .await
                 .unwrap(),
-            AuthOutcome::Completed(None)
+            AuthOutcome::Authenticated(None)
         ));
+
+        driver.complete_authentication(&mut client).await.unwrap();
 
         assert!(matches!(
             client.state(),
@@ -627,6 +681,35 @@ mod tests {
             client.sent.first(),
             Some(PgWireBackendMessage::Authentication(Authentication::Ok))
         ));
+    }
+
+    #[tokio::test]
+    async fn test_driver_veto_after_authenticated() {
+        let driver = AuthDriver::new(DefaultServerParameterProvider::default());
+        let mut client = TestClient::new(Some("mallory"));
+
+        let outcome = driver
+            .begin_authentication(&mut client, Box::new(TrustMechanismWithIdentity))
+            .await
+            .unwrap();
+        let AuthOutcome::Authenticated(_) = outcome else {
+            panic!("expected Authenticated, got {outcome:?}")
+        };
+
+        // the handler vetoes: no complete_authentication, return an error
+        // instead. Nothing terminal has been sent; the connection stays in
+        // the authentication phase for the server's error handling.
+        assert!(matches!(
+            client.state(),
+            PgWireConnectionState::AuthenticationInProgress
+        ));
+        assert!(!client.sent.iter().any(|msg| {
+            matches!(
+                msg,
+                PgWireBackendMessage::Authentication(Authentication::Ok)
+                    | PgWireBackendMessage::ReadyForQuery(_)
+            )
+        }));
     }
 
     #[tokio::test]
@@ -696,12 +779,20 @@ mod tests {
                     } else {
                         self.cleartext.create()
                     };
-                    self.driver.begin_authentication(client, mechanism).await?;
-                    Ok(())
+                    match self.driver.begin_authentication(client, mechanism).await? {
+                        AuthOutcome::InProgress => Ok(()),
+                        AuthOutcome::Authenticated(_) => {
+                            self.driver.complete_authentication(client).await
+                        }
+                    }
                 }
                 PgWireFrontendMessage::PasswordMessageFamily(message) => {
-                    self.driver.advance_authentication(client, message).await?;
-                    Ok(())
+                    match self.driver.advance_authentication(client, message).await? {
+                        AuthOutcome::InProgress => Ok(()),
+                        AuthOutcome::Authenticated(_) => {
+                            self.driver.complete_authentication(client).await
+                        }
+                    }
                 }
                 _ => Ok(()),
             }
@@ -852,6 +943,7 @@ mod tests {
                 )
                 .await
                 .unwrap();
+            driver.complete_authentication(&mut client).await.unwrap();
 
             // step 3: server final -> verified, connection ready
             let server_final = client
@@ -947,7 +1039,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            let AuthOutcome::Completed(Some(user)) = outcome else {
+            let AuthOutcome::Authenticated(Some(user)) = outcome else {
                 panic!("expected Completed with identity, got {outcome:?}")
             };
             assert_eq!(user.name, "alice");
@@ -1005,10 +1097,11 @@ mod tests {
                 .await
                 .unwrap();
 
-            let AuthOutcome::Completed(Some(user)) = outcome else {
-                panic!("expected Completed with identity, got {outcome:?}")
+            let AuthOutcome::Authenticated(Some(user)) = outcome else {
+                panic!("expected Authenticated with identity, got {outcome:?}")
             };
             assert_eq!(user.name, "alice");
+            driver.complete_authentication(&mut client).await.unwrap();
         }
 
         #[tokio::test]
