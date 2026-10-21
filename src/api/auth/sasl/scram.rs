@@ -411,6 +411,36 @@ impl ScramServerAuth {
     ) -> PgWireResult<(String, ScramServerAuthWaitingForClientFinal)> {
         let client_first = ClientFirst::from_str(decode_str(client_first_message)?)?;
 
+        // RFC 5802 section 6: upon receipt of the client-first message,
+        // the server checks the gs2 channel binding flag:
+        //
+        // - a "p" flag must name a channel binding type the server
+        //   supports (only `tls-server-end-point`, and only when a server
+        //   certificate is configured), otherwise authentication MUST
+        //   fail;
+        // - a "y" flag means the client believed the server does not
+        //   support channel binding: if the server does support it (the
+        //   -PLUS mechanism was advertised), this indicates a downgrade
+        //   attack and authentication MUST fail.
+        match (&client_first.gs2header.c_bind_flag, &self.server_cert_sig) {
+            (CBindFlag::CbName(_), None) => {
+                return Err(PgWireError::InvalidScramMessage(
+                    "Channel binding requested but not supported by server".to_owned(),
+                ));
+            }
+            (CBindFlag::CbName(name), Some(_)) if name != "tls-server-end-point" => {
+                return Err(PgWireError::InvalidScramMessage(format!(
+                    "Unsupported channel binding type: {name}"
+                )));
+            }
+            (CBindFlag::Y, Some(_)) => {
+                return Err(PgWireError::InvalidScramMessage(
+                    "Channel binding downgrade detected: server supports channel binding but client sent \"y\" gs2-cbind-flag".to_owned(),
+                ));
+            }
+            _ => {}
+        }
+
         // create server_first and send
         let mut new_nonce = client_first.bare.nonce.clone();
         new_nonce.push_str(random_nonce().as_str());
@@ -506,6 +536,16 @@ impl ScramServerAuthWaitingForClientFinal {
                 let client_proof = STANDARD
                     .decode(&client_final.proof)
                     .map_err(|e| PgWireError::InvalidScramMessage(e.to_string()))?;
+                // ClientProof is exactly one hash output long (32 bytes
+                // for SHA-256): reject short or overlong proofs instead
+                // of letting `xor` silently truncate them.
+                if client_proof.len() != stored_key.len() {
+                    return Err(PgWireError::InvalidScramMessage(format!(
+                        "Invalid client proof length: expected {}, got {}",
+                        stored_key.len(),
+                        client_proof.len()
+                    )));
+                }
 
                 // ClientKey = ClientProof XOR ClientSignature where
                 // ClientSignature = HMAC(StoredKey, AuthMessage)
@@ -1570,5 +1610,182 @@ mod tests {
             .process_scram_message(&client, plus(), &SASLState::ScramClientFirstReceived)
             .await
             .unwrap();
+    }
+
+    fn configured_scram_server_auth() -> ScramServerAuth {
+        let mut server = ScramServerAuth::new();
+        let cert = std::fs::read("examples/ssl/server.crt").unwrap();
+        server.configure_certificate(&cert).unwrap();
+        server
+    }
+
+    fn scram_password() -> Password {
+        Password::new(
+            Some(b"bar".to_vec()),
+            gen_salted_password("pencil", b"bar", 12),
+        )
+    }
+
+    #[test]
+    fn test_channel_binding_rejected_when_not_configured() {
+        // RFC 5802 section 6: a "p" gs2-cbind-flag must fail when the
+        // server does not support the requested channel binding type.
+        // Without a server certificate no binding is supported at all,
+        // so every "p" client-first must be rejected.
+        let server = ScramServerAuth::new();
+        for client_first in [
+            "p=tls-server-end-point,,n=user,r=clientnonce",
+            "p=tls-unique,,n=user,r=clientnonce",
+            "p=tls-exporter,,n=user,r=clientnonce",
+        ] {
+            let error = server
+                .on_client_first_message(client_first.as_bytes(), scram_password())
+                .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("Channel binding requested but not supported by server"),
+                "expected channel binding rejection for {client_first}, got {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_unknown_channel_binding_type_rejected() {
+        // With channel binding configured, only tls-server-end-point is
+        // supported: unknown binding names must be rejected.
+        let server = configured_scram_server_auth();
+        let error = server
+            .on_client_first_message(
+                "p=tls-unique,,n=user,r=clientnonce".as_bytes(),
+                scram_password(),
+            )
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("Unsupported channel binding type"),
+            "expected unsupported channel binding type error, got {error:?}"
+        );
+    }
+
+    #[test]
+    fn test_y_flag_rejected_when_channel_binding_supported() {
+        // RFC 5802 section 6: a "y" gs2-cbind-flag means the client
+        // believed the server does not support channel binding. If the
+        // server does (a certificate is configured and SCRAM-SHA-256-PLUS
+        // is advertised), this is a downgrade indication and the server
+        // MUST fail the authentication.
+        let server = configured_scram_server_auth();
+        let error = server
+            .on_client_first_message(
+                "y,,n=user,r=clientnonce".as_bytes(),
+                scram_password(),
+            )
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("Channel binding downgrade detected"),
+            "expected channel binding downgrade error, got {error:?}"
+        );
+
+        // without a certificate the server indeed does not support
+        // channel binding, so "y" is fine
+        let server = ScramServerAuth::new();
+        server
+            .on_client_first_message("y,,n=user,r=clientnonce".as_bytes(), scram_password())
+            .unwrap();
+    }
+
+    #[test]
+    fn test_n_flag_accepted_with_channel_binding_configured() {
+        // a client that does not support channel binding may still
+        // authenticate with the non-PLUS mechanism
+        let server = configured_scram_server_auth();
+        server
+            .on_client_first_message("n,,n=user,r=clientnonce".as_bytes(), scram_password())
+            .unwrap();
+    }
+
+    fn verifier_secret() -> ScramSecret {
+        let salt = b"bar".as_slice();
+        let iterations = 12;
+        let salted_password = gen_salted_password("pencil", salt, iterations);
+        ScramSecret::verifier_from_salted_password(
+            salt.to_vec(),
+            salted_password,
+            iterations,
+        )
+    }
+
+    /// Runs a full exchange against the verifier-based secret, applying
+    /// `tamper_proof` to the decoded proof bytes, and returns the
+    /// `on_client_final_message` result.
+    fn verifier_exchange_with_tampered_proof(
+        tamper_proof: impl FnOnce(Vec<u8>) -> Vec<u8>,
+    ) -> PgWireResult<String> {
+        let server = ScramServerAuth::new();
+        let client_first = "n,,n=user,r=clientnonce";
+        let (server_first_message, server) =
+            server.on_client_first_message_with_secret(client_first.as_bytes(), verifier_secret())?;
+        let server_first = ServerFirst::from_str(&server_first_message)?;
+
+        let bare_raw = client_first.strip_prefix("n,,").unwrap();
+        let cb = compute_channel_binding(
+            None,
+            &Gs2Header {
+                c_bind_flag: CBindFlag::N,
+                authzid: None,
+            },
+        );
+        let without_proof_raw = format!("c={cb},r={}", server_first.nonce);
+        let client_final_without_proof = without_proof(&without_proof_raw);
+
+        // build a valid proof from the client's salted password, then
+        // apply the tampering function
+        let salted_password = gen_salted_password("pencil", b"bar", 12);
+        let client_key = hmac(&salted_password, b"Client Key");
+        let stored_key = h(&client_key);
+        let auth_message = format!(
+            "{},{},{}",
+            bare(bare_raw),
+            server_first,
+            client_final_without_proof
+        );
+        let client_signature = hmac(&stored_key, auth_message.as_bytes());
+        let proof = tamper_proof(xor(&client_key, &client_signature));
+
+        let client_final = format!("{without_proof_raw},p={}", STANDARD.encode(proof));
+        server.on_client_final_message(client_final.as_bytes())
+    }
+
+    #[test]
+    fn test_verifier_auth_roundtrip() {
+        let server_final = verifier_exchange_with_tampered_proof(|proof| proof).unwrap();
+        assert!(
+            server_final.starts_with("v="),
+            "expected successful server-final verifier, got {server_final}"
+        );
+    }
+
+    #[test]
+    fn test_verifier_rejects_overlong_proof() {
+        // appending junk bytes to a valid proof must not verify: `xor`
+        // used to zip-truncate overlong proofs, accepting them
+        let error = verifier_exchange_with_tampered_proof(|mut proof| {
+            proof.extend_from_slice(&[0xAA, 0xBB, 0xCC]);
+            proof
+        })
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("Invalid client proof length"),
+            "expected proof length error, got {error:?}"
+        );
+    }
+
+    #[test]
+    fn test_verifier_rejects_short_proof() {
+        let error = verifier_exchange_with_tampered_proof(|proof| proof[..31].to_vec()).unwrap_err();
+        assert!(
+            error.to_string().contains("Invalid client proof length"),
+            "expected proof length error, got {error:?}"
+        );
     }
 }
