@@ -1151,7 +1151,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "client-api")]
     fn bare(raw: &str) -> super::ClientFirstBare {
         super::ClientFirstBare {
             raw: raw.to_owned(),
@@ -1160,7 +1159,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "client-api")]
     fn without_proof(raw: &str) -> super::ClientFinalWithoutProof {
         super::ClientFinalWithoutProof {
             raw: raw.to_owned(),
@@ -1662,7 +1660,9 @@ mod tests {
             )
             .unwrap_err();
         assert!(
-            error.to_string().contains("Unsupported channel binding type"),
+            error
+                .to_string()
+                .contains("Unsupported channel binding type"),
             "expected unsupported channel binding type error, got {error:?}"
         );
     }
@@ -1676,13 +1676,12 @@ mod tests {
         // MUST fail the authentication.
         let server = configured_scram_server_auth();
         let error = server
-            .on_client_first_message(
-                "y,,n=user,r=clientnonce".as_bytes(),
-                scram_password(),
-            )
+            .on_client_first_message("y,,n=user,r=clientnonce".as_bytes(), scram_password())
             .unwrap_err();
         assert!(
-            error.to_string().contains("Channel binding downgrade detected"),
+            error
+                .to_string()
+                .contains("Channel binding downgrade detected"),
             "expected channel binding downgrade error, got {error:?}"
         );
 
@@ -1708,11 +1707,7 @@ mod tests {
         let salt = b"bar".as_slice();
         let iterations = 12;
         let salted_password = gen_salted_password("pencil", salt, iterations);
-        ScramSecret::verifier_from_salted_password(
-            salt.to_vec(),
-            salted_password,
-            iterations,
-        )
+        ScramSecret::verifier_from_salted_password(salt.to_vec(), salted_password, iterations)
     }
 
     /// Runs a full exchange against the verifier-based secret, applying
@@ -1723,8 +1718,8 @@ mod tests {
     ) -> PgWireResult<String> {
         let server = ScramServerAuth::new();
         let client_first = "n,,n=user,r=clientnonce";
-        let (server_first_message, server) =
-            server.on_client_first_message_with_secret(client_first.as_bytes(), verifier_secret())?;
+        let (server_first_message, server) = server
+            .on_client_first_message_with_secret(client_first.as_bytes(), verifier_secret())?;
         let server_first = ServerFirst::from_str(&server_first_message)?;
 
         let bare_raw = client_first.strip_prefix("n,,").unwrap();
@@ -1782,7 +1777,8 @@ mod tests {
 
     #[test]
     fn test_verifier_rejects_short_proof() {
-        let error = verifier_exchange_with_tampered_proof(|proof| proof[..31].to_vec()).unwrap_err();
+        let error =
+            verifier_exchange_with_tampered_proof(|proof| proof[..31].to_vec()).unwrap_err();
         assert!(
             error.to_string().contains("Invalid client proof length"),
             "expected proof length error, got {error:?}"
