@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - ReleaseDate
+
+### Fixed
+
+- SCRAM channel binding negotiation and proof validation, aligning with
+  RFC 5802 section 6. [#476]
+  - reject a `p=` gs2 channel binding flag in the client-first message
+    when no server certificate is configured, or when it names a binding
+    type other than `tls-server-end-point`; previously a client could
+    request an unsupported channel binding on the plain `SCRAM-SHA-256`
+    mechanism and still authenticate
+  - reject the `y` gs2 flag when the server supports channel binding,
+    preventing downgrade attacks where a MITM strips the `-PLUS`
+    mechanism from the advertisement
+  - reject overlong or short client proofs on the verifier-based path;
+    the proof must be exactly one hash output long (32 bytes for
+    SHA-256). Previously trailing bytes were silently truncated by the
+    proof verification, so a valid proof with appended junk still
+    authenticated
+
 ## [0.42.0] - 2026-10-20
 
 ### Added
