@@ -12,6 +12,9 @@ use crate::messages::copy::{
 use super::ClientInfo;
 use super::results::{CopyResponse, Tag};
 
+mod decoder;
+pub use decoder::CopyDecoder;
+
 /// handler for copy messages
 #[async_trait]
 pub trait CopyHandler: Send + Sync {

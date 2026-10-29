@@ -208,6 +208,10 @@ name = "client"
 required-features = ["client-api"]
 
 [[test]]
+name = "copy_decoder"
+required-features = ["server-api"]
+
+[[test]]
 name = "copy_in_test"
 required-features = ["server-api"]
 

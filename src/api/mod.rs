@@ -27,6 +27,7 @@ pub mod cancel;
 pub mod client;
 /// COPY protocol handlers.
 pub mod copy;
+pub use copy::CopyDecoder;
 /// Portal management for the extended query protocol.
 pub mod portal;
 /// Simple and extended query handlers.
