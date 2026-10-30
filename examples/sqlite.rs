@@ -89,7 +89,6 @@ fn name_to_type(name: &str) -> PgWireResult<Type> {
 
 fn row_desc_from_stmt(stmt: &Statement, format: &Format) -> PgWireResult<Vec<FieldInfo>> {
     stmt.columns()
-        .iter()
         .enumerate()
         .map(|(idx, col)| {
             let field_type = col
