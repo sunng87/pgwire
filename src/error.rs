@@ -28,6 +28,8 @@ pub enum PgWireError {
     InvalidSecretKey,
     #[error("Invalid message recevied, received {0}")]
     InvalidMessageType(u8),
+    #[error("Invalid message length, expected at least 4, actual: {0}")]
+    InvalidMessageLength(usize),
     #[error("Invalid message length, expected max {0}, actual: {1}")]
     MessageTooLarge(usize, usize),
     #[error("Invalid element count {0}: {1} bytes required, {2} remaining")]
@@ -335,6 +337,7 @@ impl PgWireError {
             | PgWireError::InvalidCancelRequest
             | PgWireError::InvalidMessageType(_)
             | PgWireError::InvalidTargetType(_)
+            | PgWireError::InvalidMessageLength(_)
             | PgWireError::MessageTooLarge(..)
             | PgWireError::InvalidElementCount(..)
             | PgWireError::InvalidTransactionStatus(_)
@@ -382,6 +385,7 @@ impl PgWireError {
             | PgWireError::InvalidCancelRequest
             | PgWireError::InvalidMessageType(_)
             | PgWireError::InvalidTargetType(_)
+            | PgWireError::InvalidMessageLength(_)
             | PgWireError::MessageTooLarge(..)
             | PgWireError::InvalidElementCount(..)
             | PgWireError::InvalidTransactionStatus(_)

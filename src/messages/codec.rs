@@ -83,6 +83,11 @@ where
     F: Fn(&mut BytesMut, usize) -> PgWireResult<T>,
 {
     if let Some(msg_len) = get_length(buf, offset) {
+        // Every framed message includes the four-byte length field. Reject an
+        // invalid length before advancing the buffer or decoding its body.
+        if msg_len < 4 {
+            return Err(PgWireError::InvalidMessageLength(msg_len));
+        }
         if msg_len > max_size {
             return Err(PgWireError::MessageTooLarge(max_size, msg_len));
         }
