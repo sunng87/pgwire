@@ -87,7 +87,6 @@ pub struct DefaultServerParameterProvider {
     pub search_path: String,
     pub is_superuser: bool,
     pub default_transaction_read_only: bool,
-    #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
     pub scram_iterations: usize,
     // format settings
     pub time_zone: String,
@@ -112,7 +111,6 @@ impl Default for DefaultServerParameterProvider {
             search_path: "public".to_owned(),
             is_superuser: true,
             default_transaction_read_only: false,
-            #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
             scram_iterations: sasl::scram::SCRAM_ITERATIONS,
 
             time_zone: format_options.time_zone,
@@ -157,7 +155,6 @@ impl ServerParameterProvider for DefaultServerParameterProvider {
             "default_transaction_read_only".to_owned(),
             bool_to_string(self.default_transaction_read_only),
         );
-        #[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
         params.insert(
             "scram_iterations".to_owned(),
             self.scram_iterations.to_string(),
@@ -467,7 +464,6 @@ pub mod driver;
 pub mod md5pass;
 pub mod mechanism;
 pub mod noop;
-#[cfg(any(feature = "_aws-lc-rs", feature = "_ring"))]
 pub mod sasl;
 pub use driver::{AuthDriver, AuthOutcome};
 #[cfg(feature = "simple-oidc-validator")]
