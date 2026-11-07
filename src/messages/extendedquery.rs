@@ -51,7 +51,10 @@ impl Message for Parse {
     ) -> PgWireResult<Self> {
         let name = codec::get_cstring(buf);
         let query = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
+
+        codec::ensure_remaining(buf, 2)?;
         let type_oid_count = buf.get_u16();
+        codec::ensure_count(type_oid_count as usize, 4, buf)?;
 
         let mut type_oids = Vec::with_capacity(type_oid_count as usize);
         for _ in 0..type_oid_count {
@@ -142,6 +145,7 @@ impl Message for Close {
         _: usize,
         _ctx: &DecodeContext,
     ) -> PgWireResult<Self> {
+        codec::ensure_remaining(buf, 1)?;
         let target_type = buf.get_u8();
         let name = codec::get_cstring(buf);
 
@@ -261,25 +265,31 @@ impl Message for Bind {
         let portal_name = codec::get_cstring(buf);
         let statement_name = codec::get_cstring(buf);
 
+        codec::ensure_remaining(buf, 2)?;
         let parameter_format_code_len = buf.get_u16();
+        codec::ensure_count(parameter_format_code_len as usize, 2, buf)?;
         let mut parameter_format_codes = Vec::with_capacity(parameter_format_code_len as usize);
 
         for _ in 0..parameter_format_code_len {
             parameter_format_codes.push(buf.get_i16());
         }
 
+        codec::ensure_remaining(buf, 2)?;
         let parameter_len = buf.get_u16();
         let mut parameters = Vec::with_capacity(parameter_len as usize);
         for _ in 0..parameter_len {
+            codec::ensure_remaining(buf, 4)?;
             let data_len = buf.get_i32();
 
             if data_len >= 0 {
+                codec::ensure_remaining(buf, data_len as usize)?;
                 parameters.push(Some(buf.split_to(data_len as usize).freeze()));
             } else {
                 parameters.push(None);
             }
         }
 
+        codec::ensure_remaining(buf, 2)?;
         let result_column_format_code_len = buf.get_u16();
         codec::ensure_count(result_column_format_code_len as usize, 2, buf)?;
         let mut result_column_format_codes =
@@ -372,6 +382,7 @@ impl Message for Describe {
         _: usize,
         _ctx: &DecodeContext,
     ) -> PgWireResult<Self> {
+        codec::ensure_remaining(buf, 1)?;
         let target_type = buf.get_u8();
         let name = codec::get_cstring(buf);
 
@@ -412,6 +423,7 @@ impl Message for Execute {
         _ctx: &DecodeContext,
     ) -> PgWireResult<Self> {
         let name = codec::get_cstring(buf);
+        codec::ensure_remaining(buf, 4)?;
         let max_rows = buf.get_i32();
 
         Ok(Execute { name, max_rows })

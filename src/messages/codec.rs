@@ -71,6 +71,21 @@ pub(crate) fn ensure_count(count: usize, elem_size: usize, buf: &BytesMut) -> Pg
     }
 }
 
+/// Ensure the buffer holds at least `size` more bytes, so a following
+/// fixed-width read or slice cannot panic on a truncated message body.
+///
+/// While `codec::decode_packet` validates that the whole packet is buffered,
+/// a packet can still declare a body that is too short for the fields the
+/// message type requires. Those malformed bodies must surface as
+/// [`PgWireError::TruncatedMessage`] rather than a panic.
+pub(crate) fn ensure_remaining(buf: &BytesMut, size: usize) -> PgWireResult<()> {
+    if buf.remaining() >= size {
+        Ok(())
+    } else {
+        Err(PgWireError::TruncatedMessage(size, buf.remaining()))
+    }
+}
+
 /// Check if message_length matches and move the cursor to right position then
 /// call the `decode_fn` for the body
 pub(crate) fn decode_packet<T, F>(

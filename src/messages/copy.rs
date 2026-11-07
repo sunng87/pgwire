@@ -134,6 +134,7 @@ impl Message for CopyInResponse {
     }
 
     fn decode_body(buf: &mut BytesMut, _len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
+        codec::ensure_remaining(buf, 3)?;
         let format = buf.get_i8();
         let columns = buf.get_i16();
         codec::ensure_count(columns as usize, 2, buf)?;
@@ -183,6 +184,7 @@ impl Message for CopyOutResponse {
     }
 
     fn decode_body(buf: &mut BytesMut, _len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
+        codec::ensure_remaining(buf, 3)?;
         let format = buf.get_i8();
         let columns = buf.get_i16();
         codec::ensure_count(columns as usize, 2, buf)?;
@@ -232,6 +234,7 @@ impl Message for CopyBothResponse {
     }
 
     fn decode_body(buf: &mut BytesMut, _len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
+        codec::ensure_remaining(buf, 3)?;
         let format = buf.get_i8();
         let columns = buf.get_i16();
         codec::ensure_count(columns as usize, 2, buf)?;

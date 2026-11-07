@@ -1,7 +1,7 @@
 use bytes::{Buf, BufMut, BytesMut};
 
 use super::{DecodeContext, Message, codec};
-use crate::error::PgWireResult;
+use crate::error::{PgWireError, PgWireResult};
 
 /// Format code for text representation
 pub const FORMAT_CODE_TEXT: i16 = 0;
@@ -75,14 +75,19 @@ impl Message for RowDescription {
     }
 
     fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
+        codec::ensure_remaining(buf, 2)?;
         let fields_len = buf.get_i16();
         // Each field: C-string name (>= 1 byte) + 18 fixed bytes.
         codec::ensure_count(fields_len as usize, 19, buf)?;
         let mut fields = Vec::with_capacity(fields_len as usize);
 
         for _ in 0..fields_len {
+            let name = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
+            // the 18 bytes of fixed-width fields after the name: table_id,
+            // column_id, type_id, type_size, type_modifier and format_code
+            codec::ensure_remaining(buf, 18)?;
             let field = FieldDescription {
-                name: codec::get_cstring(buf).unwrap_or_else(|| "".to_owned()),
+                name,
                 table_id: buf.get_i32(),
                 column_id: buf.get_i16(),
                 type_id: buf.get_u32(),
@@ -135,7 +140,9 @@ impl Message for ParameterDescription {
     }
 
     fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
+        codec::ensure_remaining(buf, 2)?;
         let types_len = buf.get_u16();
+        codec::ensure_count(types_len as usize, 4, buf)?;
         let mut types = Vec::with_capacity(types_len as usize);
 
         for _ in 0..types_len {
@@ -186,9 +193,13 @@ impl Message for DataRow {
     }
 
     fn decode_body(buf: &mut BytesMut, msg_len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
+        codec::ensure_remaining(buf, 2)?;
         let field_count = buf.get_i16();
-        // get body size from packet
-        let data = buf.split_to(msg_len - 4 - 2);
+        // get body size from packet: msg_len - length field(4) - field count(2)
+        let body_len = msg_len
+            .checked_sub(6)
+            .ok_or(PgWireError::TruncatedMessage(6, msg_len))?;
+        let data = buf.split_to(body_len);
 
         Ok(DataRow { data, field_count })
     }
