@@ -193,6 +193,7 @@ impl Message for Authentication {
     }
 
     fn decode_body(buf: &mut BytesMut, msg_len: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
+        codec::ensure_remaining(buf, 4)?;
         let code = buf.get_i32();
         let msg = match code {
             0 => Authentication::Ok,
@@ -200,6 +201,7 @@ impl Message for Authentication {
             2 => Authentication::KerberosV5,
             3 => Authentication::CleartextPassword,
             5 => {
+                codec::ensure_remaining(buf, 4)?;
                 let mut salt_vec = vec![0; 4];
                 buf.copy_to_slice(&mut salt_vec);
                 Authentication::MD5Password(salt_vec)
@@ -211,8 +213,18 @@ impl Message for Authentication {
                 }
                 Authentication::SASL(methods)
             }
-            11 => Authentication::SASLContinue(buf.split_to(msg_len - 8).freeze()),
-            12 => Authentication::SASLFinal(buf.split_to(msg_len - 8).freeze()),
+            11 | 12 => {
+                // message length must cover the code and the SASL data
+                let data_len = msg_len
+                    .checked_sub(8)
+                    .ok_or(PgWireError::TruncatedMessage(8, msg_len))?;
+                let data = buf.split_to(data_len).freeze();
+                if code == 11 {
+                    Authentication::SASLContinue(data)
+                } else {
+                    Authentication::SASLFinal(data)
+                }
+            }
             _ => {
                 return Err(PgWireError::InvalidAuthenticationMessageCode(code));
             }
@@ -549,9 +561,13 @@ impl Message for BackendKeyData {
     }
 
     fn decode_body(buf: &mut BytesMut, msg_len: usize, ctx: &DecodeContext) -> PgWireResult<Self> {
+        codec::ensure_remaining(buf, 4)?;
         let pid = buf.get_i32();
         // data_len = msg_len - msg_len(4) - pid(4)
-        let secret_key = SecretKey::decode(buf, msg_len - 8, ctx)?;
+        let data_len = msg_len
+            .checked_sub(8)
+            .ok_or(PgWireError::TruncatedMessage(8, msg_len))?;
+        let secret_key = SecretKey::decode(buf, data_len, ctx)?;
 
         Ok(BackendKeyData { pid, secret_key })
     }
@@ -730,10 +746,12 @@ impl Message for SASLInitialResponse {
         _ctx: &DecodeContext,
     ) -> PgWireResult<Self> {
         let auth_method = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
+        codec::ensure_remaining(buf, 4)?;
         let data_len = buf.get_i32();
         let data = if data_len == -1 {
             None
         } else {
+            codec::ensure_remaining(buf, data_len as usize)?;
             Some(buf.split_to(data_len as usize).freeze())
         };
 
@@ -828,6 +846,7 @@ impl Message for NegotiateProtocolVersion {
         _full_len: usize,
         _ctx: &DecodeContext,
     ) -> PgWireResult<Self> {
+        codec::ensure_remaining(buf, 8)?;
         let version = buf.get_i32();
         let option_count = buf.get_i32();
         codec::ensure_count(option_count as usize, 1, buf)?;
