@@ -976,7 +976,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl crate::api::query::SimpleQueryHandler for RecordingHandlers {
-        async fn do_query<C>(&self, client: &mut C, query: &str) -> crate::error::PgWireResult<Vec<crate::api::results::Response>>
+        async fn do_query<C>(
+            &self,
+            client: &mut C,
+            query: &str,
+        ) -> crate::error::PgWireResult<Vec<crate::api::results::Response>>
         where
             C: crate::api::ClientInfo + crate::api::ClientPortalStore + Unpin + Send + Sync,
             C::PortalStore: crate::api::store::PortalStore,
@@ -1019,8 +1023,7 @@ mod tests {
 
     const SSL_REQUEST_BYTES: &[u8] = &[0x00, 0x00, 0x00, 0x08, 0x04, 0xD2, 0x16, 0x2F];
     // Startup 3.0, no parameters
-    const PLAINTEXT_STARTUP_BYTES: &[u8] =
-        &[0x00, 0x00, 0x00, 0x09, 0x00, 0x03, 0x00, 0x00, 0x00];
+    const PLAINTEXT_STARTUP_BYTES: &[u8] = &[0x00, 0x00, 0x00, 0x09, 0x00, 0x03, 0x00, 0x00, 0x00];
 
     fn plaintext_query_bytes(sql: &str) -> Vec<u8> {
         let mut v = vec![b'Q'];
@@ -1042,7 +1045,9 @@ mod tests {
             loop {
                 let (tcp, _) = listener.accept().await.expect("accept");
                 let acceptor = acceptor.clone();
-                let handlers = RecordingHandlers { queries: queries.clone() };
+                let handlers = RecordingHandlers {
+                    queries: queries.clone(),
+                };
                 tokio::spawn(async move {
                     let _ = process_socket(tcp, Some(acceptor), handlers).await;
                 });
@@ -1086,7 +1091,10 @@ mod tests {
         let connector = make_test_client_connector().expect("connector");
         let server_name = rustls_pki_types::ServerName::try_from("localhost").unwrap();
         let result = connector.connect(server_name, tcp).await;
-        assert!(result.is_err(), "connection must be refused, got {result:?}");
+        assert!(
+            result.is_err(),
+            "connection must be refused, got {result:?}"
+        );
 
         // No query may have been executed
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1133,7 +1141,10 @@ mod tests {
         let mut buf = [0u8; 4096];
         let n = tls.read(&mut buf).await.expect("read inside tls");
         received.extend_from_slice(&buf[..n]);
-        assert!(received.contains(&b'T'), "expected RowDescription, got {received:?}");
+        assert!(
+            received.contains(&b'T'),
+            "expected RowDescription, got {received:?}"
+        );
 
         let recorded = queries.lock().unwrap().clone();
         assert_eq!(recorded, vec![("SELECT 2".to_owned(), true)]);
