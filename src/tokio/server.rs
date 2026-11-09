@@ -529,6 +529,22 @@ pub async fn negotiate_tls<S>(
     }
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     if let Some(tls_acceptor) = tls_acceptor {
+        // Any bytes already buffered here arrived as plaintext *before* the TLS
+        // handshake. In a well-formed session the buffer is always empty at
+        // this point: after an SSLRequest is answered with `S`, a client sends
+        // only the TLS handshake, which the acceptor reads directly from the
+        // raw socket, never through this codec. A non-empty buffer therefore
+        // means cleartext data was injected alongside the SSLRequest, and
+        // carrying it into the TLS session (as this code used to do) would
+        // make it look like traffic of the authenticated TLS client. Mirror
+        // PostgreSQL's fix for CVE-2021-23214 and refuse the connection.
+        if !old_parts.read_buf.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "received unencrypted data after SSL request",
+            ));
+        }
+
         // mention the use of ssl
         let mut client_info = DefaultClient::new(addr, true);
 
@@ -933,6 +949,182 @@ mod tests {
             ci.sni_server_name = Some(s);
         }
         assert_eq!(ci.sni_server_name(), Some("localhost"));
+    }
+
+    /// A handler factory that records every executed query together with the
+    /// value of `is_secure()` at execution time. `NoopStartupHandler` (trust
+    /// auth) is used, mirroring `examples/secure_server.rs`.
+    #[derive(Default)]
+    struct RecordingHandlers {
+        queries: std::sync::Arc<std::sync::Mutex<Vec<(String, bool)>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::api::auth::noop::NoopStartupHandler for RecordingHandlers {}
+
+    #[async_trait::async_trait]
+    impl crate::api::query::SimpleQueryHandler for RecordingHandlers {
+        async fn do_query<C>(&self, client: &mut C, query: &str) -> crate::error::PgWireResult<Vec<crate::api::results::Response>>
+        where
+            C: crate::api::ClientInfo + crate::api::ClientPortalStore + Unpin + Send + Sync,
+            C::PortalStore: crate::api::store::PortalStore,
+        {
+            self.queries
+                .lock()
+                .unwrap()
+                .push((query.to_owned(), client.is_secure()));
+
+            let f1 = crate::api::results::FieldInfo::new(
+                "id".into(),
+                None,
+                None,
+                crate::api::Type::INT4,
+                crate::api::results::FieldFormat::Text,
+            );
+            let schema = Arc::new(vec![f1]);
+            let mut encoder = crate::api::results::DataRowEncoder::new(schema.clone());
+            encoder.encode_field(&Some(1))?;
+            let row = futures::stream::iter(vec![Ok(encoder.take_row())]);
+            Ok(vec![crate::api::results::Response::Query(
+                crate::api::results::QueryResponse::new(schema, Box::pin(row)),
+            )])
+        }
+    }
+
+    impl crate::api::PgWireServerHandlers for RecordingHandlers {
+        fn simple_query_handler(&self) -> Arc<impl crate::api::query::SimpleQueryHandler> {
+            Arc::new(Self {
+                queries: self.queries.clone(),
+            })
+        }
+
+        fn startup_handler(&self) -> Arc<impl crate::api::auth::StartupHandler> {
+            Arc::new(Self {
+                queries: self.queries.clone(),
+            })
+        }
+    }
+
+    const SSL_REQUEST_BYTES: &[u8] = &[0x00, 0x00, 0x00, 0x08, 0x04, 0xD2, 0x16, 0x2F];
+    // Startup 3.0, no parameters
+    const PLAINTEXT_STARTUP_BYTES: &[u8] =
+        &[0x00, 0x00, 0x00, 0x09, 0x00, 0x03, 0x00, 0x00, 0x00];
+
+    fn plaintext_query_bytes(sql: &str) -> Vec<u8> {
+        let mut v = vec![b'Q'];
+        v.extend_from_slice(&(sql.len() as i32 + 5).to_be_bytes());
+        v.extend_from_slice(sql.as_bytes());
+        v.push(0);
+        v
+    }
+
+    async fn spawn_recording_server(
+        queries: std::sync::Arc<std::sync::Mutex<Vec<(String, bool)>>>,
+    ) -> std::net::SocketAddr {
+        use tokio::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("local addr");
+        let server_cfg = Arc::new(load_test_server_config().expect("server config"));
+        let acceptor = TlsAcceptor::from(server_cfg);
+        tokio::spawn(async move {
+            loop {
+                let (tcp, _) = listener.accept().await.expect("accept");
+                let acceptor = acceptor.clone();
+                let handlers = RecordingHandlers { queries: queries.clone() };
+                tokio::spawn(async move {
+                    let _ = process_socket(tcp, Some(acceptor), handlers).await;
+                });
+            }
+        });
+        addr
+    }
+
+    /// Regression test for the CVE-2021-23214-shaped flaw: cleartext pipelined
+    /// after the SSLRequest must not be executed inside the TLS session once
+    /// the handshake completes; the connection is refused instead.
+    #[tokio::test]
+    async fn pre_tls_plaintext_is_refused_before_the_tls_handshake() {
+        #[cfg(feature = "_aws-lc-rs")]
+        let _ = CryptoProvider::install_default(
+            tokio_rustls::rustls::crypto::aws_lc_rs::default_provider(),
+        );
+        #[cfg(feature = "_ring")]
+        let _ =
+            CryptoProvider::install_default(tokio_rustls::rustls::crypto::ring::default_provider());
+
+        let queries = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let addr = spawn_recording_server(queries.clone()).await;
+
+        // Attacker: one cleartext write containing SSLRequest + Startup + Query
+        let mut tcp = tokio::net::TcpStream::connect(addr).await.expect("connect");
+        let mut injection = SSL_REQUEST_BYTES.to_vec();
+        injection.extend_from_slice(PLAINTEXT_STARTUP_BYTES);
+        injection.extend_from_slice(&plaintext_query_bytes("SELECT 1"));
+        use tokio::io::AsyncWriteExt;
+        tcp.write_all(&injection).await.expect("inject");
+
+        // The server still answers the SSLRequest with 'S'
+        let mut one = [0u8; 1];
+        use tokio::io::AsyncReadExt;
+        tcp.read_exact(&mut one).await.expect("read ssl response");
+        assert_eq!(one[0], b'S');
+
+        // ...but refuses to run the TLS handshake because plaintext data
+        // arrived before it, so the connection is dropped.
+        let connector = make_test_client_connector().expect("connector");
+        let server_name = rustls_pki_types::ServerName::try_from("localhost").unwrap();
+        let result = connector.connect(server_name, tcp).await;
+        assert!(result.is_err(), "connection must be refused, got {result:?}");
+
+        // No query may have been executed
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let recorded = queries.lock().unwrap().clone();
+        assert!(recorded.is_empty(), "no query expected, got {recorded:?}");
+    }
+
+    /// Control: a legitimate TLS client (SSLRequest, handshake, then Startup
+    /// and Query inside TLS) must keep working.
+    #[tokio::test]
+    async fn legit_tls_client_startup_and_query_still_works() {
+        #[cfg(feature = "_aws-lc-rs")]
+        let _ = CryptoProvider::install_default(
+            tokio_rustls::rustls::crypto::aws_lc_rs::default_provider(),
+        );
+        #[cfg(feature = "_ring")]
+        let _ =
+            CryptoProvider::install_default(tokio_rustls::rustls::crypto::ring::default_provider());
+
+        let queries = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let addr = spawn_recording_server(queries.clone()).await;
+
+        let mut tcp = tokio::net::TcpStream::connect(addr).await.expect("connect");
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        tcp.write_all(SSL_REQUEST_BYTES).await.expect("ssl request");
+
+        let mut one = [0u8; 1];
+        tcp.read_exact(&mut one).await.expect("read ssl response");
+        assert_eq!(one[0], b'S');
+
+        let connector = make_test_client_connector().expect("connector");
+        let server_name = rustls_pki_types::ServerName::try_from("localhost").unwrap();
+        let mut tls = connector
+            .connect(server_name, tcp)
+            .await
+            .expect("tls handshake");
+
+        // Startup and Query are sent encrypted, after the handshake
+        let mut payload = PLAINTEXT_STARTUP_BYTES.to_vec();
+        payload.extend_from_slice(&plaintext_query_bytes("SELECT 2"));
+        tls.write_all(&payload).await.expect("send encrypted");
+
+        let mut received = Vec::new();
+        let mut buf = [0u8; 4096];
+        let n = tls.read(&mut buf).await.expect("read inside tls");
+        received.extend_from_slice(&buf[..n]);
+        assert!(received.contains(&b'T'), "expected RowDescription, got {received:?}");
+
+        let recorded = queries.lock().unwrap().clone();
+        assert_eq!(recorded, vec![("SELECT 2".to_owned(), true)]);
     }
 
     #[tokio::test]
