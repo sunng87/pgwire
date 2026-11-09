@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- Server: refuse the connection when plaintext data arrives between the
+  `SSLRequest` and the TLS handshake, instead of decoding it inside the
+  encrypted session after the handshake completes (CVE-2021-23214 shape).
+  [GHSA-95f6-gpr7-g65r]
+  Previously, a client or an on-path attacker could pipeline a plaintext
+  `Startup` and queries right after the `SSLRequest`; those messages were
+  carried across the TLS upgrade and executed as if the authenticated TLS
+  client had sent them, with `is_secure()` reporting `true`. Introduced in
+  0.34.2.
+
 ## [0.42.1] - 2026-10-21
 
 ### Fixed
