@@ -1,5 +1,5 @@
 # Changelog
-
+10;rgb:cdcd/d6d6/f4f4
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
@@ -15,6 +15,20 @@ Versioning](https://semver.org/spec/v2.0.0.html).
   Malformed frontend frames can be sent before authentication completes; with
   `panic = "abort"`, these panics could terminate the entire process. The server
   disconnects on frame-decoding errors without sending an ErrorResponse. [#483]
+
+## [0.42.2] - 2026-11-09
+
+### Fixed
+
+- Server: refuse the connection when plaintext data arrives between the
+  `SSLRequest` and the TLS handshake, instead of decoding it inside the
+  encrypted session after the handshake completes (CVE-2021-23214 shape).
+  [GHSA-95f6-gpr7-g65r]
+  Previously, a client or an on-path attacker could pipeline a plaintext
+  `Startup` and queries right after the `SSLRequest`; those messages were
+  carried across the TLS upgrade and executed as if the authenticated TLS
+  client had sent them, with `is_secure()` reporting `true`. Introduced in
+  0.34.2.
 
 ## [0.42.1] - 2026-10-21
 
