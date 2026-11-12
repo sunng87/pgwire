@@ -125,6 +125,7 @@ impl Message for ReadyForQuery {
     }
 
     fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
+        codec::ensure_remaining(buf, 1)?;
         let status = TransactionStatus::try_from(buf.get_u8())?;
         Ok(ReadyForQuery::new(status))
     }
@@ -181,6 +182,7 @@ impl Message for ErrorResponse {
     fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let mut fields = Vec::new();
         loop {
+            codec::ensure_remaining(buf, 1)?;
             let code = buf.get_u8();
 
             if code == b'\0' {
@@ -232,6 +234,7 @@ impl Message for NoticeResponse {
     fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
         let mut fields = Vec::new();
         loop {
+            codec::ensure_remaining(buf, 1)?;
             let code = buf.get_u8();
 
             if code == b'\0' {
@@ -401,6 +404,7 @@ impl Message for NotificationResponse {
     }
 
     fn decode_body(buf: &mut BytesMut, _: usize, _ctx: &DecodeContext) -> PgWireResult<Self> {
+        codec::ensure_remaining(buf, 4)?;
         let pid = buf.get_i32();
         let channel = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
         let payload = codec::get_cstring(buf).unwrap_or_else(|| "".to_owned());
