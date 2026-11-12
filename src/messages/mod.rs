@@ -152,8 +152,10 @@ pub trait Message: Sized {
     /// Default implementation for decoding message.
     ///
     /// Message type and length are decoded in this implementation and it calls
-    /// `decode_body` for remaining parts. Return `None` if the packet is not
-    /// complete for parsing.
+    /// `decode_body` with only the current frame's body, never subsequent
+    /// buffered frames. A complete frame is consumed even if body decoding
+    /// fails or leaves bytes unread. Return `None` without consuming any bytes
+    /// if the packet is not complete for parsing.
     fn decode(buf: &mut BytesMut, ctx: &DecodeContext) -> PgWireResult<Option<Self>> {
         let offset = Self::message_type().is_some().into();
 

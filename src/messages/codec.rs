@@ -86,8 +86,12 @@ pub(crate) fn ensure_remaining(buf: &BytesMut, size: usize) -> PgWireResult<()> 
     }
 }
 
-/// Check if message_length matches and move the cursor to right position then
-/// call the `decode_fn` for the body
+/// Wait for a complete frame, then decode only its body.
+///
+/// The body is split from the receive buffer before calling `decode_fn`, so
+/// reads and bounds checks cannot include bytes from subsequent frames. The
+/// entire frame is consumed even if decoding fails or leaves body bytes unread;
+/// incomplete frames and invalid headers leave the receive buffer unchanged.
 pub(crate) fn decode_packet<T, F>(
     buf: &mut BytesMut,
     offset: usize,
@@ -109,7 +113,8 @@ where
 
         if buf.remaining() >= msg_len + offset {
             buf.advance(offset + 4);
-            return decode_fn(buf, msg_len).map(|r| Some(r));
+            let mut body = buf.split_to(msg_len - 4);
+            return decode_fn(&mut body, msg_len).map(Some);
         }
     }
 
