@@ -45,7 +45,7 @@ x509-certificate = { version = "0.25", optional = true }
 
 ## oauth
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"], optional = true }
-rsa = { version = "0.9", optional = true }
+rsa = { version = "0.10", optional = true }
 reqwest = { version = "0.13", features = ["json", "rustls-no-provider"], optional = true }
 
 ## types
@@ -141,7 +141,7 @@ gluesql = { version = "0.20", default-features = false, features = [
 
 ## oauth
 jsonwebtoken = { version = "11", features = ["aws_lc_rs"] }
-rsa = { version = "0.9" }
+rsa = { version = "0.10" }
 reqwest = { version = "0.13", features = ["json"] }
 
 [patch.crates-io]

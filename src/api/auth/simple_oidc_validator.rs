@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use base64::{Engine, prelude::BASE64_URL_SAFE_NO_PAD};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
 use rsa::{
-    BigUint, RsaPublicKey,
+    BoxedUint, PublicKey,
     pkcs8::{EncodePublicKey, LineEnding},
 };
 use serde::Deserialize;
@@ -127,9 +127,9 @@ impl SimpleOidcValidator {
             .decode(e)
             .map_err(|e| PgWireError::OAuthValidationError(e.to_string()))?;
 
-        let public_key = RsaPublicKey::new(
-            BigUint::from_bytes_be(&n_bytes),
-            BigUint::from_bytes_be(&e_bytes),
+        let public_key = PublicKey::new(
+            BoxedUint::from_be_slice_vartime(&n_bytes),
+            BoxedUint::from_be_slice_vartime(&e_bytes),
         )
         .map_err(|e| PgWireError::OAuthValidationError(e.to_string()))?;
 
