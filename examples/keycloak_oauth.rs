@@ -132,13 +132,12 @@ impl KeyCloakValidator {
         let n_bytes = BASE64_URL_SAFE_NO_PAD.decode(&jwk.n)?;
         let e_bytes = BASE64_URL_SAFE_NO_PAD.decode(&jwk.e)?;
 
-        use rsa::BigUint;
-        use rsa::RsaPublicKey;
+        use rsa::{BoxedUint, PublicKey};
 
-        let n = BigUint::from_bytes_be(&n_bytes);
-        let e = BigUint::from_bytes_be(&e_bytes);
+        let n = BoxedUint::from_be_slice_vartime(&n_bytes);
+        let e = BoxedUint::from_be_slice_vartime(&e_bytes);
 
-        let public_key = RsaPublicKey::new(n, e)?;
+        let public_key = PublicKey::new(n, e)?;
 
         use rsa::pkcs8::EncodePublicKey;
         let pem = public_key.to_public_key_pem(rsa::pkcs8::LineEnding::LF)?;
