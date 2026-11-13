@@ -6,15 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased] - ReleaseDate
 
 ### Fixed
 
-- Return decoding errors instead of panicking on truncated frontend and backend
-  message bodies, including extended-query messages and SASL initial responses.
-  Malformed frontend frames can be sent before authentication completes; with
-  `panic = "abort"`, these panics could terminate the entire process. The server
-  disconnects on frame-decoding errors without sending an ErrorResponse. [#483]
+- Return errors instead of panicking on truncated frontend and backend message
+  bodies. [#483]
+- Isolate message bodies during decoding so malformed frames cannot consume bytes
+  from subsequent frames. [#484]
 
 ## [0.42.2] - 2026-11-09
 
