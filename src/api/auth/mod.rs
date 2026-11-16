@@ -354,30 +354,57 @@ where
     C::Error: Debug,
     PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
 {
-    if let Some(protocol_version) = ProtocolVersion::from_version_number(
+    // Any startup parameter beginning with `_pq_.` is reserved for
+    // protocol-level options. pgwire supports none of them, so all must be
+    // reported back as unrecognized in NegotiateProtocolVersion.
+    let unsupported_options = unsupported_protocol_options(startup_message);
+
+    let protocol_version = if let Some(protocol_version) = ProtocolVersion::from_version_number(
         startup_message.protocol_number_major,
         startup_message.protocol_number_minor,
     ) {
-        client.set_protocol_version(protocol_version);
-        Ok(())
+        protocol_version
     } else {
         let newest_server_version = ProtocolVersion::default();
         let (newest_major_version, _newest_minor_version) = newest_server_version.version_number();
-        if newest_major_version == startup_message.protocol_number_major {
-            client
-                .send(PgWireBackendMessage::NegotiateProtocolVersion(
-                    NegotiateProtocolVersion::new(newest_server_version.into(), vec![]),
-                ))
-                .await?;
-            client.set_protocol_version(newest_server_version);
-            Ok(())
-        } else {
-            Err(PgWireError::UnsupportedProtocolVersion(
+        if newest_major_version != startup_message.protocol_number_major {
+            return Err(PgWireError::UnsupportedProtocolVersion(
                 startup_message.protocol_number_major,
                 startup_message.protocol_number_minor,
-            ))
+            ));
         }
+        // client requested a newer minor version than we support, a
+        // negotiation message is always required
+        client
+            .send(PgWireBackendMessage::NegotiateProtocolVersion(
+                NegotiateProtocolVersion::new(newest_server_version.into(), unsupported_options),
+            ))
+            .await?;
+        client.set_protocol_version(newest_server_version);
+        return Ok(());
+    };
+
+    // known version: only send a negotiation message when there are
+    // unrecognized protocol options to report
+    if !unsupported_options.is_empty() {
+        client
+            .send(PgWireBackendMessage::NegotiateProtocolVersion(
+                NegotiateProtocolVersion::new(protocol_version.into(), unsupported_options),
+            ))
+            .await?;
     }
+    client.set_protocol_version(protocol_version);
+    Ok(())
+}
+
+/// Collects `_pq_.`-prefixed protocol option names from the startup message.
+fn unsupported_protocol_options(startup_message: &Startup) -> Vec<String> {
+    startup_message
+        .parameters
+        .keys()
+        .filter(|name| name.starts_with("_pq_."))
+        .cloned()
+        .collect()
 }
 
 /// Saves startup message parameters into client metadata.
@@ -503,5 +530,91 @@ mod login_info_tests {
         assert_eq!(login.database(), Some("db"));
         #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
         assert_eq!(login.sni_server_name(), None);
+    }
+}
+
+#[cfg(test)]
+mod protocol_negotiation_tests {
+    use super::*;
+    use crate::api::auth::test_util::TestClient;
+
+    fn startup(major: u16, minor: u16, params: &[(&str, &str)]) -> Startup {
+        let mut startup = Startup::new();
+        startup.protocol_number_major = major;
+        startup.protocol_number_minor = minor;
+        for (k, v) in params {
+            startup.parameters.insert((*k).to_owned(), (*v).to_owned());
+        }
+        startup
+    }
+
+    fn negotiate_messages(client: &TestClient) -> Vec<&NegotiateProtocolVersion> {
+        client
+            .sent
+            .iter()
+            .filter_map(|m| match m {
+                PgWireBackendMessage::NegotiateProtocolVersion(n) => Some(n),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn known_version_without_options_sends_nothing() {
+        let mut client = TestClient::new(Some("alice"));
+        let startup = startup(3, 0, &[("user", "alice")]);
+        protocol_negotiation(&mut client, &startup).await.unwrap();
+
+        assert!(negotiate_messages(&client).is_empty());
+        assert_eq!(client.protocol_version(), ProtocolVersion::PROTOCOL3_0);
+    }
+
+    #[tokio::test]
+    async fn known_version_reports_pq_options() {
+        let mut client = TestClient::new(Some("alice"));
+        let startup = startup(3, 2, &[("user", "alice"), ("_pq_.some_option", "on")]);
+        protocol_negotiation(&mut client, &startup).await.unwrap();
+
+        let msgs = negotiate_messages(&client);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(
+            msgs[0].newest_minor_protocol,
+            i32::from(ProtocolVersion::PROTOCOL3_2)
+        );
+        assert_eq!(msgs[0].unsupported_options, vec!["_pq_.some_option"]);
+        assert_eq!(client.protocol_version(), ProtocolVersion::PROTOCOL3_2);
+    }
+
+    #[tokio::test]
+    async fn grease_version_reports_pq_options() {
+        // PostgreSQL 19beta libpq sends 3.9999 with
+        // `_pq_.test_protocol_negotiation`
+        let mut client = TestClient::new(Some("alice"));
+        let startup = startup(
+            3,
+            9999,
+            &[("user", "alice"), ("_pq_.test_protocol_negotiation", "")],
+        );
+        protocol_negotiation(&mut client, &startup).await.unwrap();
+
+        let msgs = negotiate_messages(&client);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(
+            msgs[0].newest_minor_protocol,
+            i32::from(ProtocolVersion::default())
+        );
+        assert_eq!(
+            msgs[0].unsupported_options,
+            vec!["_pq_.test_protocol_negotiation"]
+        );
+        assert_eq!(client.protocol_version(), ProtocolVersion::default());
+    }
+
+    #[tokio::test]
+    async fn unsupported_major_version_errors() {
+        let mut client = TestClient::new(Some("alice"));
+        let startup = startup(4, 0, &[]);
+        assert!(protocol_negotiation(&mut client, &startup).await.is_err());
+        assert!(negotiate_messages(&client).is_empty());
     }
 }
