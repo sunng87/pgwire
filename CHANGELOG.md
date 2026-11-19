@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic
 Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Add optional Jiff 1.0 support for PostgreSQL date and time types via `pg-type-jiff`.
+
+### Changed
+
+- Chrono type support is no longer enabled by default. Enable `pg-type-chrono`
+  to keep using Chrono types with pgwire.
+
 ## [0.42.3] - 2026-11-13
 
 ### Fixed
