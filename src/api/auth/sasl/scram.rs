@@ -111,7 +111,6 @@ impl ScramSecret {
 pub struct ScramAuth<I = ()> {
     auth_db: Arc<dyn AuthSource<I>>,
     authenticator: ScramServerAuth,
-    supported_mechanisms: Vec<String>,
 }
 
 impl<I> Clone for ScramAuth<I> {
@@ -119,7 +118,6 @@ impl<I> Clone for ScramAuth<I> {
         Self {
             auth_db: self.auth_db.clone(),
             authenticator: self.authenticator.clone(),
-            supported_mechanisms: self.supported_mechanisms.clone(),
         }
     }
 }
@@ -127,13 +125,10 @@ impl<I> Clone for ScramAuth<I> {
 impl<I> ScramAuth<I> {
     /// Creates a new SCRAM auth instance.
     pub fn new(auth_db: Arc<dyn AuthSource<I>>) -> ScramAuth<I> {
-        let mut auth = ScramAuth {
+        ScramAuth {
             auth_db,
             authenticator: ScramServerAuth::new(),
-            supported_mechanisms: vec![],
-        };
-        auth.rebuild_supported_mechanisms();
-        auth
+        }
     }
 
     /// enable channel binding (SCRAM-SHA-256-PLUS) by configuring server
@@ -143,7 +138,6 @@ impl<I> ScramAuth<I> {
     /// certificate as server certificate.
     pub fn configure_certificate(&mut self, certs_pem: &[u8]) -> PgWireResult<()> {
         self.authenticator.configure_certificate(certs_pem)?;
-        self.rebuild_supported_mechanisms();
         Ok(())
     }
 
@@ -161,15 +155,15 @@ impl<I> ScramAuth<I> {
 
     /// Returns `true` if channel binding is configured.
     pub fn supports_channel_binding(&self) -> bool {
-        self.authenticator.server_cert_sig.is_some()
+        self.authenticator.supports_channel_binding()
     }
 
-    fn rebuild_supported_mechanisms(&mut self) {
+    fn mechanism_names_for_secure(&self, is_secure: bool) -> Vec<String> {
         let mut mechanisms = vec![super::SCRAM_SHA_256_METHOD.to_owned()];
-        if self.supports_channel_binding() {
+        if is_secure && self.supports_channel_binding() {
             mechanisms.push(super::SCRAM_SHA_256_PLUS_METHOD.to_owned());
         }
-        self.supported_mechanisms = mechanisms;
+        mechanisms
     }
 }
 
@@ -187,10 +181,10 @@ where
 {
     async fn begin(
         &mut self,
-        _client: &(dyn ClientInfo + Send + Sync),
+        client: &(dyn ClientInfo + Send + Sync),
     ) -> PgWireResult<AuthState<I>> {
         Ok(AuthState::InProgress(Authentication::SASL(
-            self.auth.sasl_mechanism_names(),
+            self.auth.sasl_mechanism_names_for(client),
         )))
     }
 
@@ -237,11 +231,11 @@ where
     I: Send + 'static,
 {
     fn sasl_mechanism_names(&self) -> Vec<String> {
-        let mut mechanisms = vec![super::SCRAM_SHA_256_METHOD.to_owned()];
-        if self.supports_channel_binding() {
-            mechanisms.push(super::SCRAM_SHA_256_PLUS_METHOD.to_owned());
-        }
-        mechanisms
+        self.mechanism_names_for_secure(true)
+    }
+
+    fn sasl_mechanism_names_for(&self, client: &dyn ClientInfo) -> Vec<String> {
+        self.mechanism_names_for_secure(client.is_secure())
     }
 }
 
@@ -289,7 +283,7 @@ where
                 let msg = msg.into_sasl_initial_response()?;
 
                 if !self
-                    .supported_mechanisms
+                    .mechanism_names_for_secure(client.is_secure())
                     .iter()
                     .any(|m| m == &msg.auth_method)
                 {
@@ -305,9 +299,10 @@ where
                 let login_info = LoginInfo::from_client_info(client);
                 let (secret, identity) = self.auth_db.get_scram_secret(&login_info).await?;
 
-                let (server_first, authenticator) = self
-                    .authenticator
-                    .on_client_first_message_with_secret(resp, secret)?;
+                let mut authenticator = self.authenticator.clone();
+                authenticator.set_channel_binding_supported(client.is_secure());
+                let (server_first, authenticator) =
+                    authenticator.on_client_first_message_with_secret(resp, secret)?;
 
                 Ok((
                     Authentication::SASLContinue(server_first.into()),
@@ -319,6 +314,7 @@ where
                 // second response, client_final
                 let resp = msg.into_sasl_response()?;
                 let server_final = authenticator.on_client_final_message(&resp.data)?;
+
                 Ok((
                     Authentication::SASLFinal(server_final.into()),
                     SASLState::Finished,
@@ -330,11 +326,20 @@ where
     }
 }
 
-/// State machine for SCRAM server-side authentication
+/// State machine for SCRAM server-side authentication.
+///
+/// When a server certificate is configured via
+/// [`Self::configure_certificate`], channel binding (`tls-server-end-point`) is
+/// considered supported by default so low-level callers get strict RFC 5802
+/// downgrade protection out of the box. Call
+/// [`Self::set_channel_binding_supported`] on a per-connection clone to disable
+/// channel binding on non-TLS connections.
 #[derive(Debug, Clone)]
 pub struct ScramServerAuth {
     /// base64 encoded certificate signature for tls-server-end-point channel binding
     server_cert_sig: Option<Arc<String>>,
+    /// whether the current connection supports channel binding (e.g. TLS is active)
+    channel_binding_supported: bool,
     /// iterations
     iterations: usize,
 }
@@ -350,6 +355,7 @@ impl ScramServerAuth {
     pub fn new() -> Self {
         Self {
             server_cert_sig: None,
+            channel_binding_supported: true,
             iterations: SCRAM_ITERATIONS,
         }
     }
@@ -366,6 +372,17 @@ impl ScramServerAuth {
         Ok(())
     }
 
+    /// Sets whether the current connection supports channel binding (for
+    /// example, `true` on TLS connections and `false` on plaintext connections).
+    ///
+    /// Channel binding is active only when both a server certificate is
+    /// configured ([`Self::configure_certificate`]) and this flag is `true`.
+    /// Defaults to `true` so low-level [`ScramServerAuth`] callers remain strict
+    /// whenever a certificate is configured.
+    pub fn set_channel_binding_supported(&mut self, supported: bool) {
+        self.channel_binding_supported = supported;
+    }
+
     /// Set password hash iteration count, according to SCRAM RFC, a minimal of
     /// 4096 is required.
     ///
@@ -378,9 +395,10 @@ impl ScramServerAuth {
         self.iterations = iterations;
     }
 
-    /// Returns `true` if channel binding is configured.
+    /// Returns `true` if channel binding is active (a server certificate is
+    /// configured and channel binding is supported on the connection).
     pub fn supports_channel_binding(&self) -> bool {
-        self.server_cert_sig.is_some()
+        self.channel_binding_supported && self.server_cert_sig.is_some()
     }
 
     /// Client first message with expected username (optional) and expected password
@@ -416,24 +434,28 @@ impl ScramServerAuth {
         //
         // - a "p" flag must name a channel binding type the server
         //   supports (only `tls-server-end-point`, and only when a server
-        //   certificate is configured), otherwise authentication MUST
-        //   fail;
+        //   certificate is configured and the connection is over TLS),
+        //   otherwise authentication MUST fail;
         // - a "y" flag means the client believed the server does not
-        //   support channel binding: if the server does support it (the
-        //   -PLUS mechanism was advertised), this indicates a downgrade
-        //   attack and authentication MUST fail.
-        match (&client_first.gs2header.c_bind_flag, &self.server_cert_sig) {
-            (CBindFlag::CbName(_), None) => {
+        //   support channel binding: if channel binding is supported on
+        //   this connection (the -PLUS mechanism was advertised), this
+        //   indicates a downgrade attack and authentication MUST fail.
+        let channel_binding_supported = self.supports_channel_binding();
+        match (
+            &client_first.gs2header.c_bind_flag,
+            channel_binding_supported,
+        ) {
+            (CBindFlag::CbName(_), false) => {
                 return Err(PgWireError::InvalidScramMessage(
                     "Channel binding requested but not supported by server".to_owned(),
                 ));
             }
-            (CBindFlag::CbName(name), Some(_)) if name != "tls-server-end-point" => {
+            (CBindFlag::CbName(name), true) if name != "tls-server-end-point" => {
                 return Err(PgWireError::InvalidScramMessage(format!(
                     "Unsupported channel binding type: {name}"
                 )));
             }
-            (CBindFlag::Y, Some(_)) => {
+            (CBindFlag::Y, true) => {
                 return Err(PgWireError::InvalidScramMessage(
                     "Channel binding downgrade detected: server supports channel binding but client sent \"y\" gs2-cbind-flag".to_owned(),
                 ));
@@ -457,7 +479,11 @@ impl ScramServerAuth {
         Ok((
             server_first.to_string(),
             ScramServerAuthWaitingForClientFinal {
-                server_cert_sig: self.server_cert_sig.clone(),
+                server_cert_sig: if channel_binding_supported {
+                    self.server_cert_sig.clone()
+                } else {
+                    None
+                },
                 secret,
                 channel_binding: client_first.gs2header,
                 client_first_message_bare: client_first.bare,
@@ -1519,6 +1545,7 @@ mod tests {
         struct StubClient {
             metadata: HashMap<String, String>,
             extensions: SessionExtensions,
+            secure: bool,
         }
 
         impl ClientInfo for StubClient {
@@ -1526,7 +1553,7 @@ mod tests {
                 "127.0.0.1:5432".parse().unwrap()
             }
             fn is_secure(&self) -> bool {
-                false
+                self.secure
             }
             fn protocol_version(&self) -> crate::messages::ProtocolVersion {
                 crate::messages::ProtocolVersion::PROTOCOL3_0
@@ -1583,9 +1610,15 @@ mod tests {
         }
 
         let mut scram = ScramAuth::new(Arc::new(FixedSource));
-        let client = StubClient {
+        let plain_client = StubClient {
             metadata: HashMap::from([("user".to_owned(), "foo".to_owned())]),
             extensions: SessionExtensions::new(),
+            secure: false,
+        };
+        let tls_client = StubClient {
+            metadata: HashMap::from([("user".to_owned(), "foo".to_owned())]),
+            extensions: SessionExtensions::new(),
+            secure: true,
         };
         let client_first = "n,,n=foo,r=clientnonce";
         let plus = || {
@@ -1596,7 +1629,7 @@ mod tests {
         };
 
         let error = scram
-            .process_scram_message(&client, plus(), &SASLState::ScramClientFirstReceived)
+            .process_scram_message(&tls_client, plus(), &SASLState::ScramClientFirstReceived)
             .await
             .unwrap_err();
         assert!(matches!(error, PgWireError::UnsupportedSASLAuthMethod(_)));
@@ -1604,8 +1637,44 @@ mod tests {
         let cert = std::fs::read("examples/ssl/server.crt").unwrap();
         scram.configure_certificate(&cert).unwrap();
 
+        // Plaintext connection still rejects -PLUS and does not advertise it
+        let error = scram
+            .process_scram_message(&plain_client, plus(), &SASLState::ScramClientFirstReceived)
+            .await
+            .unwrap_err();
+        assert!(matches!(error, PgWireError::UnsupportedSASLAuthMethod(_)));
+        assert_eq!(
+            scram.sasl_mechanism_names_for(&plain_client),
+            vec![crate::api::auth::sasl::SCRAM_SHA_256_METHOD.to_owned()]
+        );
+
+        let mut plain_mech = scram.create();
+        assert!(matches!(
+            plain_mech.begin(&plain_client).await.unwrap(),
+            AuthState::InProgress(Authentication::SASL(methods))
+                if methods == vec![crate::api::auth::sasl::SCRAM_SHA_256_METHOD.to_owned()]
+        ));
+
+        // TLS connection advertises and accepts -PLUS
+        assert_eq!(
+            scram.sasl_mechanism_names_for(&tls_client),
+            vec![
+                crate::api::auth::sasl::SCRAM_SHA_256_METHOD.to_owned(),
+                crate::api::auth::sasl::SCRAM_SHA_256_PLUS_METHOD.to_owned(),
+            ]
+        );
+        let mut tls_mech = scram.create();
+        assert!(matches!(
+            tls_mech.begin(&tls_client).await.unwrap(),
+            AuthState::InProgress(Authentication::SASL(methods))
+                if methods == vec![
+                    crate::api::auth::sasl::SCRAM_SHA_256_METHOD.to_owned(),
+                    crate::api::auth::sasl::SCRAM_SHA_256_PLUS_METHOD.to_owned(),
+                ]
+        ));
+
         scram
-            .process_scram_message(&client, plus(), &SASLState::ScramClientFirstReceived)
+            .process_scram_message(&tls_client, plus(), &SASLState::ScramClientFirstReceived)
             .await
             .unwrap();
     }
@@ -1691,6 +1760,36 @@ mod tests {
         server
             .on_client_first_message("y,,n=user,r=clientnonce".as_bytes(), scram_password())
             .unwrap();
+    }
+
+    #[test]
+    fn test_y_flag_accepted_when_channel_binding_disabled_on_connection() {
+        // When a server certificate is configured on the shared authenticator
+        // but a per-connection clone marks channel binding unsupported (e.g. a
+        // plaintext connection), SCRAM-SHA-256-PLUS was not advertised, so "y"
+        // is legitimate while "p=..." must be rejected.
+        let mut server = configured_scram_server_auth();
+        assert!(server.supports_channel_binding());
+
+        server.set_channel_binding_supported(false);
+        assert!(!server.supports_channel_binding());
+
+        server
+            .on_client_first_message("y,,n=user,r=clientnonce".as_bytes(), scram_password())
+            .unwrap();
+
+        let error = server
+            .on_client_first_message(
+                "p=tls-server-end-point,,n=user,r=clientnonce".as_bytes(),
+                scram_password(),
+            )
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Channel binding requested but not supported by server"),
+            "expected channel binding rejection on non-TLS connection, got {error:?}"
+        );
     }
 
     #[test]
