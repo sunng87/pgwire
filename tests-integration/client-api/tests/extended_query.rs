@@ -357,7 +357,6 @@ async fn parameter_status_during_extended_query_updates_cache() {
         .await
         .expect("SET via extended query failed");
 
-    drop(eqc);
     assert_eq!(
         client.server_parameters().get("application_name"),
         Some(&"eq-renamed".to_owned())
