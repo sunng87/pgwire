@@ -60,6 +60,8 @@ jobs:
       run: cargo test --no-default-features
     - name: Run tests without tls
       run: cargo test --no-default-features --features server-api
+    - name: Run tests with optional date and time types
+      run: cargo test --lib --no-default-features --features server-api,pg-type-chrono,pg-type-jiff
     - name: Run tests on additional ring feature set
       run: cargo test --no-default-features --features server-api-ring
     - name: Run tests for client api

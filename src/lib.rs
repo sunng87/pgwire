@@ -91,9 +91,19 @@
 //!
 //! Data types:
 //!
-//! - `pg-ext-types` *(enabled by default)*: enables `chrono`, `rust_decimal`
-//!   and `serde_json` type support. The finer-grained `pg-type-*` features
-//!   (including `pg-type-postgis`) allow individual control.
+//! - `pg-ext-types` *(enabled by default)*: enables `pg-type-rust-decimal` and
+//!   `pg-type-serde-json`.
+//! - `pg-type-chrono`: enables Chrono 0.4 type support. Enable it explicitly
+//!   if you use Chrono values with pgwire.
+//! - `pg-type-jiff`: enables Jiff 1.0 text and binary support for `civil::Date`
+//!   (`DATE`), `civil::Time` (`TIME`), `civil::DateTime` (`TIMESTAMP`), and
+//!   `Timestamp` (`TIMESTAMPTZ`). Text `TIMESTAMPTZ` output uses UTC; input
+//!   accepts numeric offsets and UTC, not other time zone abbreviations.
+//! - `pg-type-postgis`: enables PostGIS geometry type support.
+//!
+//! Until `postgres-types` releases Jiff 1.0 support, projects depending on
+//! this development branch must copy its `postgres-types` patch into their
+//! workspace root manifest.
 //!
 //! Other:
 //!

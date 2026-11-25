@@ -51,6 +51,7 @@ reqwest = { version = "0.13", features = ["json", "rustls-no-provider"], optiona
 ## types
 postgres-types = { version = "0.2", features = ["array-impls"], optional = true }
 chrono = { version = "0.4", features = ["std"], optional = true }
+jiff = { version = "1.0", default-features = false, features = ["std"], optional = true }
 rust_decimal = { version = "1.35", features = ["db-postgres"], optional = true }
 serde = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
@@ -64,7 +65,7 @@ percent-encoding = { version = "2.0", optional = true }
 
 [features]
 default = ["server-api-aws-lc-rs", "pg-ext-types"]
-pg-ext-types = ["pg-type-chrono", "pg-type-rust-decimal", "pg-type-serde-json"]
+pg-ext-types = ["pg-type-rust-decimal", "pg-type-serde-json"]
 _ring = [
   "dep:ring",
   "tokio-rustls/ring",
@@ -114,6 +115,7 @@ client-api = [
 client-api-ring = ["client-api", "_ring", "dep:rustls-pki-types"]
 client-api-aws-lc-rs = ["client-api", "_aws-lc-rs", "dep:rustls-pki-types"]
 pg-type-chrono = ["dep:chrono", "postgres-types/with-chrono-0_4"]
+pg-type-jiff = ["dep:jiff", "postgres-types/with-jiff-1"]
 pg-type-rust-decimal = ["dep:rust_decimal"]
 pg-type-serde-json = ["dep:serde", "dep:serde_json", "postgres-types/with-serde_json-1"]
 pg-type-postgis = ["dep:postgis"]
@@ -147,6 +149,10 @@ reqwest = { version = "0.13", features = ["json"] }
 [patch.crates-io]
 pgwire = { path = "." }
 
+# Temporary until postgres-types releases with-jiff-1 (rust-postgres PR #1405).
+# Patch the shared dependency so rust_decimal and pgwire use the same SQL traits.
+postgres-types = { git = "https://github.com/rust-postgres/rust-postgres.git", rev = "7fbb21a61df820dc4f8d317b8d794f1982436ef5" }
+
 [workspace]
 members = [
   ".",
@@ -169,7 +175,7 @@ required-features = ["server-api-aws-lc-rs"]
 
 [[example]]
 name = "gluesql"
-required-features = ["server-api-aws-lc-rs"]
+required-features = ["server-api-aws-lc-rs", "pg-type-chrono"]
 
 [[example]]
 name = "sqlite"

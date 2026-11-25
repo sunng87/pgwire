@@ -1,6 +1,8 @@
 /// PostgreSQL text format configuration and helpers.
 pub mod format;
 mod from_sql_text;
+#[cfg(feature = "pg-type-jiff")]
+mod jiff;
 /// PostGIS geometry type text serialization support.
 #[cfg(feature = "pg-type-postgis")]
 pub mod postgis;
