@@ -152,8 +152,7 @@ async fn server_error_is_reported_and_connection_recovers() {
             "SELECT * FROM pgwire_itest_no_such_table",
         )
         .await
-        .err()
-        .expect("querying a missing table must fail");
+        .expect_err("querying a missing table must fail");
 
     match error {
         PgWireClientError::RemoteError(info) => {

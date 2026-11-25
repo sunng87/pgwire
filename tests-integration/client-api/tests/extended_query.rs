@@ -327,8 +327,7 @@ async fn server_error_is_reported_and_connection_recovers() {
     let error = eqc
         .prepare(Some("st_broken"), "SELEC 1", &[])
         .await
-        .err()
-        .expect("preparing a syntax error must fail");
+        .expect_err("preparing a syntax error must fail");
 
     match error {
         PgWireClientError::RemoteError(info) => {
