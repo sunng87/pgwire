@@ -297,8 +297,10 @@ mod tests {
         let datetime: DateTime<Utc> = Utc.from_utc_datetime(&dt);
 
         let mut out = BytesMut::new();
-        let mut format_option = FormatOptions::default();
-        format_option.date_style = "ISO".to_string();
+        let format_option = FormatOptions {
+            date_style: "ISO".to_string(),
+            ..Default::default()
+        };
 
         datetime
             .to_sql_text(&Type::TIMESTAMP, &mut out, &format_option)
@@ -347,8 +349,10 @@ mod tests {
             .unwrap();
 
         let mut out = BytesMut::new();
-        let mut format_options = FormatOptions::default();
-        format_options.date_style = "SQL, DMY".to_string();
+        let format_options = FormatOptions {
+            date_style: "SQL, DMY".to_string(),
+            ..Default::default()
+        };
 
         dt.to_sql_text(&Type::TIMESTAMP, &mut out, &format_options)
             .unwrap();
@@ -387,8 +391,10 @@ mod tests {
 
         let system_time = UNIX_EPOCH + Duration::from_secs(1703514645); // 2023-12-25 14:30:45 UTC
         let mut out = BytesMut::new();
-        let mut format_options = FormatOptions::default();
-        format_options.date_style = "german".to_string();
+        let format_options = FormatOptions {
+            date_style: "german".to_string(),
+            ..Default::default()
+        };
 
         system_time
             .to_sql_text(&Type::TIMESTAMP, &mut out, &format_options)
@@ -406,8 +412,10 @@ mod tests {
 
         let date = NaiveDate::from_ymd_opt(2023, 12, 25).unwrap();
         let mut out = BytesMut::new();
-        let mut format_options = FormatOptions::default();
-        format_options.date_style = "postgres, DMY".to_string();
+        let format_options = FormatOptions {
+            date_style: "postgres, DMY".to_string(),
+            ..Default::default()
+        };
 
         date.to_sql_text(&Type::DATE, &mut out, &format_options)
             .unwrap();
@@ -424,8 +432,10 @@ mod tests {
             .and_hms_opt(14, 30, 45)
             .unwrap();
         let mut out = BytesMut::new();
-        let mut format_options = FormatOptions::default();
-        format_options.date_style = "ISO".to_string();
+        let format_options = FormatOptions {
+            date_style: "ISO".to_string(),
+            ..Default::default()
+        };
 
         let result = dt.to_sql_text(&Type::BOOL, &mut out, &format_options);
         assert!(result.is_err());
@@ -441,8 +451,10 @@ mod tests {
             .and_hms_micro_opt(14, 30, 45, 123456)
             .unwrap();
         let mut out = BytesMut::new();
-        let mut format_options = FormatOptions::default();
-        format_options.date_style = "postgres".to_string();
+        let format_options = FormatOptions {
+            date_style: "postgres".to_string(),
+            ..Default::default()
+        };
 
         dt.to_sql_text(&Type::TIMESTAMP, &mut out, &format_options)
             .unwrap();
@@ -460,8 +472,10 @@ mod tests {
             .and_hms_micro_opt(7, 37, 16, 123000)
             .unwrap();
         let mut out = BytesMut::new();
-        let mut format_options = FormatOptions::default();
-        format_options.date_style = "postgres, DMY".to_string();
+        let format_options = FormatOptions {
+            date_style: "postgres, DMY".to_string(),
+            ..Default::default()
+        };
 
         dt.to_sql_text(&Type::TIMESTAMP, &mut out, &format_options)
             .unwrap();

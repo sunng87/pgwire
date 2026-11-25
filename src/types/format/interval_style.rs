@@ -181,8 +181,10 @@ mod tests {
 
         let duration = Duration::seconds(86400 + 7200 + 120 + 2); // 1 day, 2 hours, 2 minutes, 2 seconds
         let mut out = BytesMut::new();
-        let mut format_options = FormatOptions::default();
-        format_options.interval_style = "postgres_verbose".to_string();
+        let format_options = FormatOptions {
+            interval_style: "postgres_verbose".to_string(),
+            ..Default::default()
+        };
 
         duration
             .to_sql_text(&Type::INTERVAL, &mut out, &format_options)

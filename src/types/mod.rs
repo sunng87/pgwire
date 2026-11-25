@@ -526,8 +526,10 @@ mod roundtrip_tests {
     fn test_roundtrip_interval_iso8601_style() {
         use pg_interval::Interval;
 
-        let mut format_options = FormatOptions::default();
-        format_options.interval_style = "iso_8601".to_string();
+        let format_options = FormatOptions {
+            interval_style: "iso_8601".to_string(),
+            ..Default::default()
+        };
 
         // Test simple time interval
         let interval1 = Interval::new(0, 0, 3661000000i64);
@@ -589,8 +591,10 @@ mod roundtrip_tests {
     fn test_roundtrip_interval_postgres_verbose_style() {
         use pg_interval::Interval;
 
-        let mut format_options = FormatOptions::default();
-        format_options.interval_style = "postgres_verbose".to_string();
+        let format_options = FormatOptions {
+            interval_style: "postgres_verbose".to_string(),
+            ..Default::default()
+        };
 
         // Test interval with months
         let interval1 = Interval::new(6, 0, 0);
@@ -710,8 +714,10 @@ mod roundtrip_tests {
     fn test_roundtrip_interval_negative_values_iso8601() {
         use pg_interval::Interval;
 
-        let mut format_options = FormatOptions::default();
-        format_options.interval_style = "iso_8601".to_string();
+        let format_options = FormatOptions {
+            interval_style: "iso_8601".to_string(),
+            ..Default::default()
+        };
 
         let interval1 = Interval::new(-6, 0, 0);
         let mut buf = BytesMut::new();
@@ -738,8 +744,10 @@ mod roundtrip_tests {
     fn test_roundtrip_interval_negative_values_postgres_verbose() {
         use pg_interval::Interval;
 
-        let mut format_options = FormatOptions::default();
-        format_options.interval_style = "postgres_verbose".to_string();
+        let format_options = FormatOptions {
+            interval_style: "postgres_verbose".to_string(),
+            ..Default::default()
+        };
 
         let interval1 = Interval::new(-6, 0, 0);
         let mut buf = BytesMut::new();
@@ -768,10 +776,12 @@ mod roundtrip_tests {
 
         let interval = Interval::new(12, 15, 1296060000000i64);
 
-        let mut format_options = FormatOptions::default();
+        let mut format_options = FormatOptions {
+            interval_style: "postgres".to_string(),
+            ..Default::default()
+        };
 
         // Test postgres encoding
-        format_options.interval_style = "postgres".to_string();
         let mut buf = BytesMut::new();
         interval
             .to_sql_text(&Type::INTERVAL, &mut buf, &format_options)
