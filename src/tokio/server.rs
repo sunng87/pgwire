@@ -6,7 +6,7 @@ use std::task::{Context, Poll};
 use futures::{SinkExt, StreamExt};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use rustls_pki_types::CertificateDer;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncWrite, Interest};
 use tokio::net::TcpStream;
 #[cfg(unix)]
 use tokio::net::UnixStream;
@@ -583,7 +583,7 @@ pub async fn negotiate_tls<S>(
 ///
 /// This is the common message processing loop shared by both TCP and Unix sockets.
 macro_rules! process_socket_messages {
-    ($socket:expr, $startup_timeout:expr, $handlers:expr) => {{
+    ($socket:expr, $startup_timeout:expr, $handlers:expr, $watched_tcp_socket:expr) => {{
         let startup_handler = $handlers.startup_handler();
         let simple_query_handler = $handlers.simple_query_handler();
         let extended_query_handler = $handlers.extended_query_handler();
@@ -592,6 +592,7 @@ macro_rules! process_socket_messages {
         let error_handler = $handlers.error_handler();
 
         let socket = &mut $socket;
+        let watched_tcp_socket: Option<&TcpStream> = $watched_tcp_socket;
         loop {
             let msg = if matches!(
                 socket.state(),
@@ -618,30 +619,45 @@ macro_rules! process_socket_messages {
                     PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
                     _ => msg.is_extended_query(),
                 };
-                // `process_message` closes a CancelRequest's dedicated connection.
                 let is_cancel_request = matches!(msg, PgWireFrontendMessage::CancelRequest(_));
-                if let Err(mut e) = process_message(
-                    msg,
-                    socket,
-                    startup_handler.clone(),
-                    simple_query_handler.clone(),
-                    extended_query_handler.clone(),
-                    copy_handler.clone(),
-                    cancel_handler.clone(),
-                )
-                .await
-                {
-                    error_handler.on_error(socket, &mut e);
-                    // A FATAL error ends the session, as in PostgreSQL. Closing
-                    // the socket only shuts down its write side, so break to
-                    // drop it rather than wait for the client to hang up.
-                    let is_fatal = e.is_fatal();
-                    process_error(socket, e, is_extended_query).await?;
-                    if is_fatal {
-                        break;
+                let process = async {
+                    if let Err(mut e) = process_message(
+                        msg,
+                        socket,
+                        startup_handler.clone(),
+                        simple_query_handler.clone(),
+                        extended_query_handler.clone(),
+                        copy_handler.clone(),
+                        cancel_handler.clone(),
+                    )
+                    .await
+                    {
+                        error_handler.on_error(socket, &mut e);
+                        // A FATAL error ends the session, as in PostgreSQL. Closing
+                        // the socket only shuts down its write side, so break to
+                        // drop it rather than wait for the client to hang up.
+                        let is_fatal = e.is_fatal();
+                        process_error(socket, e, is_extended_query).await?;
+                        if is_fatal {
+                            return Ok::<_, io::Error>(true);
+                        }
                     }
-                }
-                if is_cancel_request {
+                    Ok(is_cancel_request)
+                };
+                // The connection loop reads until it has a complete message. Watch for
+                // disconnects during dispatch, and let a CancelRequest finish even if its
+                // sender closes the dedicated connection immediately after sending it.
+                let should_close = if let Some(tcp) = watched_tcp_socket
+                    && !is_cancel_request
+                {
+                    tokio::select! {
+                        result = process => result?,
+                        () = disconnected(tcp) => true,
+                    }
+                } else {
+                    process.await?
+                };
+                if should_close {
                     break;
                 }
             } else {
@@ -672,8 +688,21 @@ where
 
     socket.set_state(PgWireConnectionState::AwaitingStartup);
 
-    process_socket_messages!(socket, startup_timeout, handlers);
+    process_socket_messages!(socket, startup_timeout, handlers, None);
     Ok(())
+}
+
+/// Resolves once the client closes `socket`, a clone of its socket, without reading from it.
+async fn disconnected(socket: &TcpStream) {
+    while let Ok(ready) = socket.ready(Interest::READABLE).await {
+        if ready.is_read_closed() {
+            return;
+        }
+        // Leaves the messages of the client to the original socket, and waits for the next event
+        let _ = socket.try_io(Interest::READABLE, || {
+            Err::<(), _>(io::ErrorKind::WouldBlock.into())
+        });
+    }
 }
 
 /// Process a TCP client connection with optional TLS negotiation.
@@ -689,6 +718,8 @@ where
     // within the timeout, it has to be dropped.
     let startup_timeout = sleep(Duration::from_millis(STARTUP_TIMEOUT_MILLIS));
     tokio::pin!(startup_timeout);
+
+    let (tcp_socket, watched_tcp_socket) = clone_socket(tcp_socket)?;
 
     // this function will process postgres ssl negotiation and consume the first
     // SslRequest packet if detected.
@@ -706,8 +737,15 @@ where
         return Ok(());
     };
 
-    process_socket_messages!(socket, startup_timeout, handlers);
+    process_socket_messages!(socket, startup_timeout, handlers, Some(&watched_tcp_socket));
     Ok(())
+}
+
+fn clone_socket(tcp_socket: TcpStream) -> Result<(TcpStream, TcpStream), io::Error> {
+    let tcp_socket = tcp_socket.into_std()?;
+    let cloned_socket = TcpStream::from_std(tcp_socket.try_clone()?)?;
+    let tcp_socket = TcpStream::from_std(tcp_socket)?;
+    Ok((tcp_socket, cloned_socket))
 }
 
 #[cfg(all(test, any(feature = "_ring", feature = "_aws-lc-rs")))]

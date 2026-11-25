@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -11,9 +12,10 @@ use futures::Sink;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 
 use pgwire::api::auth::StartupHandler;
+use pgwire::api::cancel::CancelHandler;
 use pgwire::api::query::SimpleQueryHandler;
 use pgwire::api::results::Response;
 use pgwire::api::{ClientInfo, PgWireServerHandlers};
@@ -94,12 +96,14 @@ async fn connect(processor: RejectingProcessor) -> (TcpStream, JoinHandle<std::i
 }
 
 /// Serves one connection. Returns the client socket and the server task.
-async fn serve(processor: RejectingProcessor) -> (TcpStream, JoinHandle<std::io::Result<()>>) {
+async fn serve(
+    handlers: impl PgWireServerHandlers + Send,
+) -> (TcpStream, JoinHandle<std::io::Result<()>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
-        process_socket(stream, None, processor).await
+        process_socket(stream, None, handlers).await
     });
 
     let client = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
@@ -180,7 +184,7 @@ async fn fatal_query_error_ends_connection_while_client_holds_socket() {
 
 #[tokio::test]
 async fn cancel_request_ends_connection_while_client_holds_socket() {
-    // A CancelRequest never reaches a handler, so the severities are unused.
+    // A CancelRequest uses the default cancel handler.
     let processor = RejectingProcessor {
         startup_severity: SEVERITY_FATAL,
         query_severity: SEVERITY_ERROR,
@@ -190,4 +194,32 @@ async fn cancel_request_ends_connection_while_client_holds_socket() {
 
     // The client neither hangs up nor sends anything else.
     assert_server_ends(server).await;
+}
+
+struct RecordingCancelHandler(Arc<AtomicBool>);
+
+#[async_trait]
+impl CancelHandler for RecordingCancelHandler {
+    async fn on_cancel_request(&self, _: CancelRequest) {
+        // Simulate an asynchronous cancel handler that is still pending at EOF.
+        sleep(Duration::from_millis(25)).await;
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
+impl PgWireServerHandlers for RecordingCancelHandler {
+    fn cancel_handler(&self) -> Arc<impl CancelHandler> {
+        Arc::new(Self(self.0.clone()))
+    }
+}
+
+#[tokio::test]
+async fn cancel_request_completes_after_client_shuts_down_write_half() {
+    let handled = Arc::new(AtomicBool::new(false));
+    let (mut client, server) = serve(RecordingCancelHandler(handled.clone())).await;
+    send(&mut client, &CancelRequest::new(1, SecretKey::I32(1))).await;
+    client.shutdown().await.unwrap();
+
+    assert_server_ends(server).await;
+    assert!(handled.load(Ordering::Relaxed), "CancelRequest was dropped");
 }
