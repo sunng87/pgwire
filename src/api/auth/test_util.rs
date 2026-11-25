@@ -23,7 +23,16 @@ pub(crate) struct TestClient {
 
 impl TestClient {
     pub(crate) fn new(user: Option<&str>) -> Self {
-        let mut inner = DefaultClient::new("127.0.0.1:5432".parse::<SocketAddr>().unwrap(), false);
+        Self::with_tls(user, false)
+    }
+
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    pub(crate) fn new_secure(user: Option<&str>) -> Self {
+        Self::with_tls(user, true)
+    }
+
+    fn with_tls(user: Option<&str>, secure: bool) -> Self {
+        let mut inner = DefaultClient::new("127.0.0.1:5432".parse::<SocketAddr>().unwrap(), secure);
         if let Some(user) = user {
             inner.metadata.insert("user".to_owned(), user.to_owned());
         }

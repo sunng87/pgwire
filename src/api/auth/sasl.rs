@@ -46,13 +46,22 @@ pub enum SASLState {
 /// A SASL-family [`AuthMechanismFactory`] that can be registered in a
 /// [`SaslMechanisms`] registry.
 ///
-/// The names returned by [`SaslMechanismFactory::sasl_mechanism_names`] are
+/// The names returned by [`SaslMechanismFactory::sasl_mechanism_names_for`] are
 /// advertised to the client (as `Authentication::SASL([...])`) and used to
 /// dispatch the mechanism the client selects.
 pub trait SaslMechanismFactory<I = ()>: AuthMechanismFactory<I> {
-    /// The SASL mechanism names offered by this mechanism, for example
+    /// The SASL mechanism names configured on this factory, for example
     /// `["SCRAM-SHA-256", "SCRAM-SHA-256-PLUS"]`.
     fn sasl_mechanism_names(&self) -> Vec<String>;
+
+    /// The SASL mechanism names offered to `client`.
+    ///
+    /// Defaults to [`Self::sasl_mechanism_names`]; mechanisms whose advertised
+    /// list depends on connection state (for example, [`scram::ScramAuth`]
+    /// offering `SCRAM-SHA-256-PLUS` only over TLS) override this method.
+    fn sasl_mechanism_names_for(&self, _client: &dyn ClientInfo) -> Vec<String> {
+        self.sasl_mechanism_names()
+    }
 }
 
 /// A composite SASL mechanism factory: advertises the union of its
@@ -107,14 +116,15 @@ struct SaslMechanism<I> {
 impl<I> AuthMechanism<I> for SaslMechanism<I> {
     async fn begin(
         &mut self,
-        _client: &(dyn ClientInfo + Send + Sync),
+        client: &(dyn ClientInfo + Send + Sync),
     ) -> PgWireResult<AuthState<I>> {
-        // advertise the union of all children's mechanisms; the child's own
-        // `begin` is skipped, its handshake starts at the client's selection
+        // advertise the union of all children's mechanisms for this client;
+        // the child's own `begin` is skipped, its handshake starts at the
+        // client's selection
         Ok(AuthState::InProgress(Authentication::SASL(
             self.children
                 .iter()
-                .flat_map(|child| child.sasl_mechanism_names())
+                .flat_map(|child| child.sasl_mechanism_names_for(client))
                 .collect(),
         )))
     }
@@ -134,7 +144,11 @@ impl<I> AuthMechanism<I> for SaslMechanism<I> {
         let child = self
             .children
             .iter()
-            .find(|child| child.sasl_mechanism_names().contains(&initial.auth_method))
+            .find(|child| {
+                child
+                    .sasl_mechanism_names_for(client)
+                    .contains(&initial.auth_method)
+            })
             .ok_or_else(|| PgWireError::UnsupportedSASLAuthMethod(initial.auth_method.clone()))?;
 
         let mut mechanism = child.create();
@@ -380,5 +394,164 @@ mod tests {
             result,
             Err(PgWireError::UnsupportedSASLAuthMethod(method)) if method == "ANONYMOUS"
         ));
+    }
+}
+
+#[cfg(all(test, any(feature = "_ring", feature = "_aws-lc-rs")))]
+mod tls_scram_tests {
+    use super::*;
+    use crate::api::auth::DefaultServerParameterProvider;
+    use crate::api::auth::sasl::scram::gen_salted_password;
+    use crate::api::auth::sasl::{SCRAM_SHA_256_METHOD, SCRAM_SHA_256_PLUS_METHOD};
+    use crate::api::auth::test_util::{TestClient, startup_message};
+    use crate::api::auth::{AuthSource, LoginInfo, Password};
+    use crate::error::PgWireResult;
+    use crate::messages::startup::{Authentication, PasswordMessageFamily, SASLInitialResponse};
+
+    const SALT: &[u8] = b"0123456789abcdef";
+    const ITERATIONS: usize = 4096;
+
+    #[derive(Debug)]
+    struct SaltedSource;
+
+    #[async_trait]
+    impl AuthSource for SaltedSource {
+        async fn get_password(&self, _login: &LoginInfo) -> PgWireResult<Password> {
+            Ok(Password::new(
+                Some(SALT.to_vec()),
+                gen_salted_password("password", SALT, ITERATIONS),
+            ))
+        }
+    }
+
+    fn configured_handler() -> SASLAuthStartupHandler<DefaultServerParameterProvider> {
+        let mut scram = scram::ScramAuth::new(Arc::new(SaltedSource));
+        let cert = std::fs::read("examples/ssl/server.crt").unwrap();
+        scram.configure_certificate(&cert).unwrap();
+        SASLAuthStartupHandler::new(Arc::new(DefaultServerParameterProvider::default()))
+            .with_scram(scram)
+    }
+
+    #[tokio::test]
+    async fn test_sasl_handler_plaintext_hides_and_rejects_plus_and_allows_y_flag() {
+        let handler = configured_handler();
+
+        // 1. Plaintext connection advertises only SCRAM-SHA-256 (not -PLUS)
+        //    and rejects explicit SCRAM-SHA-256-PLUS selection.
+        let mut plain_client = TestClient::new(Some("alice"));
+        handler
+            .on_startup(&mut plain_client, startup_message("alice"))
+            .await
+            .unwrap();
+        assert!(matches!(
+            plain_client.sent.last(),
+            Some(PgWireBackendMessage::Authentication(Authentication::SASL(methods)))
+                if methods == &vec![SCRAM_SHA_256_METHOD.to_owned()]
+        ));
+
+        let err = handler
+            .on_startup(
+                &mut plain_client,
+                PgWireFrontendMessage::PasswordMessageFamily(
+                    PasswordMessageFamily::SASLInitialResponse(SASLInitialResponse::new(
+                        SCRAM_SHA_256_PLUS_METHOD.to_owned(),
+                        Some("p=tls-server-end-point,,n=alice,r=clientnonce".into()),
+                    )),
+                ),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, PgWireError::UnsupportedSASLAuthMethod(ref m) if m == SCRAM_SHA_256_PLUS_METHOD),
+            "expected UnsupportedSASLAuthMethod on plaintext connection, got {err:?}"
+        );
+
+        // 2. Plaintext connection accepts gs2 "y" flag on SCRAM-SHA-256 when cert is configured.
+        let mut plain_y_client = TestClient::new(Some("alice"));
+        handler
+            .on_startup(&mut plain_y_client, startup_message("alice"))
+            .await
+            .unwrap();
+        handler
+            .on_startup(
+                &mut plain_y_client,
+                PgWireFrontendMessage::PasswordMessageFamily(
+                    PasswordMessageFamily::SASLInitialResponse(SASLInitialResponse::new(
+                        SCRAM_SHA_256_METHOD.to_owned(),
+                        Some("y,,n=alice,r=clientnonce".into()),
+                    )),
+                ),
+            )
+            .await
+            .expect("plaintext SCRAM-SHA-256 should accept gs2 'y' flag");
+        assert!(matches!(
+            plain_y_client.sent.last(),
+            Some(PgWireBackendMessage::Authentication(
+                Authentication::SASLContinue(_)
+            ))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_sasl_handler_tls_advertises_plus_and_rejects_y_downgrade() {
+        let handler = configured_handler();
+
+        // 1. Secure connection advertises both SCRAM-SHA-256 and SCRAM-SHA-256-PLUS
+        //    and accepts SCRAM-SHA-256-PLUS.
+        let mut tls_client = TestClient::new_secure(Some("alice"));
+        handler
+            .on_startup(&mut tls_client, startup_message("alice"))
+            .await
+            .unwrap();
+        assert!(matches!(
+            tls_client.sent.last(),
+            Some(PgWireBackendMessage::Authentication(Authentication::SASL(methods)))
+                if methods
+                    == &vec![
+                        SCRAM_SHA_256_METHOD.to_owned(),
+                        SCRAM_SHA_256_PLUS_METHOD.to_owned(),
+                    ]
+        ));
+        handler
+            .on_startup(
+                &mut tls_client,
+                PgWireFrontendMessage::PasswordMessageFamily(
+                    PasswordMessageFamily::SASLInitialResponse(SASLInitialResponse::new(
+                        SCRAM_SHA_256_PLUS_METHOD.to_owned(),
+                        Some("p=tls-server-end-point,,n=alice,r=clientnonce".into()),
+                    )),
+                ),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            tls_client.sent.last(),
+            Some(PgWireBackendMessage::Authentication(
+                Authentication::SASLContinue(_)
+            ))
+        ));
+
+        // 2. Secure connection still rejects gs2 "y" flag as downgrade when cert is configured.
+        let mut tls_y_client = TestClient::new_secure(Some("alice"));
+        handler
+            .on_startup(&mut tls_y_client, startup_message("alice"))
+            .await
+            .unwrap();
+        let err = handler
+            .on_startup(
+                &mut tls_y_client,
+                PgWireFrontendMessage::PasswordMessageFamily(
+                    PasswordMessageFamily::SASLInitialResponse(SASLInitialResponse::new(
+                        SCRAM_SHA_256_METHOD.to_owned(),
+                        Some("y,,n=alice,r=clientnonce".into()),
+                    )),
+                ),
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, PgWireError::InvalidScramMessage(ref msg) if msg.contains("downgrade")),
+            "expected downgrade InvalidScramMessage on TLS connection, got {err:?}"
+        );
     }
 }
