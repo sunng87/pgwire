@@ -586,6 +586,7 @@ mod tests {
     #[cfg(feature = "pg-type-chrono")]
     use chrono::TimeZone;
 
+    #[cfg(feature = "pg-type-chrono")]
     macro_rules! test_parse_naive_date {
         ($sql_text:expr, $expected:expr) => {
             let result =
@@ -595,6 +596,7 @@ mod tests {
         };
     }
 
+    #[cfg(feature = "pg-type-chrono")]
     macro_rules! test_parse_naive_datetime {
         ($sql_text:expr, $expected:expr) => {
             let result = NaiveDateTime::from_sql_text(
@@ -607,6 +609,7 @@ mod tests {
         };
     }
 
+    #[cfg(feature = "pg-type-chrono")]
     macro_rules! test_parse_datetime_fixed_offset {
         ($sql_text:expr, $expected:expr) => {
             let result = DateTime::<FixedOffset>::from_sql_text(
