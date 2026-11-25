@@ -42,7 +42,7 @@ fn other_frontend_and_backend_messages_reject_short_lengths() {
     ctx.awaiting_frontend_startup = false;
 
     for length in [0, 1, 2, 3] {
-        for message_type in [b'B', b'P', b'Q', b'd'] {
+        for &message_type in b"BPQd" {
             let mut packet = BytesMut::new();
             packet.put_u8(message_type);
             packet.put_i32(length);
@@ -51,7 +51,7 @@ fn other_frontend_and_backend_messages_reject_short_lengths() {
                 Err(PgWireError::InvalidMessageLength(actual)) if actual == length as usize
             ));
         }
-        for message_type in [b'D', b'G', b'R'] {
+        for &message_type in b"DGR" {
             let mut packet = BytesMut::new();
             packet.put_u8(message_type);
             packet.put_i32(length);

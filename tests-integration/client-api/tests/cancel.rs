@@ -125,7 +125,7 @@ async fn cancel_request_message_cancels_from_another_connection() {
     send_cancel_request(pid, secret_key).await;
 
     let result = query.await.expect("query task panicked");
-    match result.err().expect("query should have been cancelled") {
+    match result.expect_err("query should have been cancelled") {
         pgwire::error::PgWireClientError::RemoteError(info) => {
             assert_eq!(info.code, QUERY_CANCELED);
         }
