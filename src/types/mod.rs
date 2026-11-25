@@ -134,11 +134,11 @@ mod roundtrip_tests {
     fn test_roundtrip_floats() {
         test_roundtrip_float!(f32, 0.0, &Type::FLOAT4);
         test_roundtrip_float!(f32, 1.5, &Type::FLOAT4);
-        test_roundtrip_float!(f32, -3.14, &Type::FLOAT4);
+        test_roundtrip_float!(f32, -3.15, &Type::FLOAT4);
 
         test_roundtrip_float!(f64, 0.0, &Type::FLOAT8);
         test_roundtrip_float!(f64, 1.5, &Type::FLOAT8);
-        test_roundtrip_float!(f64, -3.14159265359, &Type::FLOAT8);
+        test_roundtrip_float!(f64, -3.15159265359, &Type::FLOAT8);
     }
 
     #[test]
