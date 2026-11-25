@@ -237,7 +237,10 @@ impl ExtendedQueryHandler for DummyDatabase {
                         // JDBC doesn't provide type information for some cases,
                         // we try to parse them as TIMESTAMP or DATE accordingly
 
-                        if let Err(_) = portal.parameter::<NaiveDateTime>(idx, &Type::TIMESTAMP) {
+                        if portal
+                            .parameter::<NaiveDateTime>(idx, &Type::TIMESTAMP)
+                            .is_err()
+                        {
                             let _ = portal.parameter::<NaiveDate>(idx, &Type::DATE);
                         }
                     }
