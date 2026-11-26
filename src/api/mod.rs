@@ -215,6 +215,9 @@ pub struct DefaultClient<S> {
     /// The TLS SNI server name, if using TLS.
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     pub sni_server_name: Option<String>,
+    /// The client certificate chain captured during TLS negotiation.
+    #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+    pub peer_certificates: Option<Vec<CertificateDer<'static>>>,
     /// In-memory portal and prepared statement store.
     pub portal_store: store::MemPortalStore<S>,
     /// Per-session typed extension store.
@@ -281,7 +284,7 @@ impl<S> ClientInfo for DefaultClient<S> {
 
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     fn client_certificates<'a>(&self) -> Option<&[CertificateDer<'a>]> {
-        None
+        self.peer_certificates.as_deref()
     }
 }
 
@@ -298,6 +301,8 @@ impl<S> DefaultClient<S> {
             metadata: HashMap::new(),
             #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
             sni_server_name: None,
+            #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
+            peer_certificates: None,
             portal_store: store::MemPortalStore::new(),
             session_extensions: SessionExtensions::new(),
         }

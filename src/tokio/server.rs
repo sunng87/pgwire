@@ -1,16 +1,18 @@
 use std::io;
-use std::pin::Pin;
+use std::pin::{Pin, pin};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
+use bytes::BytesMut;
 use futures::{SinkExt, StreamExt};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use rustls_pki_types::CertificateDer;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, ReadHalf};
 use tokio::net::TcpStream;
 #[cfg(unix)]
 use tokio::net::UnixStream;
 use tokio::time::{Duration, sleep};
+use tokio::{join, select};
 #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
 use tokio_rustls::server::TlsStream;
 use tokio_util::codec::{Decoder, Encoder, Framed, FramedParts};
@@ -24,6 +26,7 @@ use crate::api::{
     PgWireServerHandlers,
 };
 use crate::error::{ErrorInfo, PgWireError, PgWireResult, SEVERITY_ERROR};
+use crate::messages::cancel::CancelRequest;
 use crate::messages::response::{GssEncResponse, ReadyForQuery, SslResponse, TransactionStatus};
 use crate::messages::startup::SecretKey;
 use crate::messages::{
@@ -47,7 +50,7 @@ impl<S> Decoder for PgWireMessageServerCodec<S> {
     type Item = PgWireFrontendMessage;
     type Error = PgWireError;
 
-    fn decode(&mut self, src: &mut bytes::BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         self.decode_context.protocol_version = self.client_info.protocol_version;
 
         match self.client_info.state() {
@@ -147,18 +150,7 @@ impl<T: 'static, S> ClientInfo for Framed<T, PgWireMessageServerCodec<S>> {
 
     #[cfg(any(feature = "_ring", feature = "_aws-lc-rs"))]
     fn client_certificates<'a>(&self) -> Option<&[CertificateDer<'a>]> {
-        // `process_socket` wraps the negotiated stream in `MaybeTls`, so the
-        // connection is a `MaybeTls`, not a bare `TlsStream<TcpStream>`.
-        // Downcasting to the latter (as we used to) always failed and panicked
-        // on the `unwrap()`. The `MaybeTls::Tls` arm is the only secure one.
-        let any = self.get_ref() as &dyn std::any::Any;
-        match any.downcast_ref::<MaybeTls>() {
-            Some(MaybeTls::Tls(tls)) => {
-                let (_, tls_session) = tls.get_ref();
-                tls_session.peer_certificates()
-            }
-            _ => None,
-        }
+        self.codec().client_info.client_certificates()
     }
 }
 
@@ -181,7 +173,7 @@ pub async fn process_message<S, A, Q, EQ, C, CR>(
     cancel_handler: Arc<CR>,
 ) -> PgWireResult<()>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
+    S: AsyncWrite + Unpin + Send + Sync + 'static,
     A: StartupHandler,
     Q: SimpleQueryHandler,
     EQ: ExtendedQueryHandler,
@@ -319,7 +311,7 @@ pub async fn process_error<S, ST>(
     wait_for_sync: bool,
 ) -> Result<(), io::Error>
 where
-    S: AsyncRead + AsyncWrite + Unpin + Send + Sync + 'static,
+    S: AsyncWrite + Unpin + Send + Sync + 'static,
 {
     let is_fatal = error.is_fatal();
     let error_info: ErrorInfo = error.into();
@@ -555,15 +547,9 @@ pub async fn negotiate_tls<S>(
             check_alpn_for_direct_ssl(&ssl_socket)?;
         }
 
-        // capture SNI (server name) from the underlying TLS connection
-        let sni = {
-            let (_, conn) = ssl_socket.get_ref();
-            conn.server_name().map(|s| s.to_string())
-        };
-        if let Some(s) = sni {
-            client_info.sni_server_name = Some(s);
-        }
-
+        let (_, conn) = ssl_socket.get_ref();
+        client_info.sni_server_name = conn.server_name().map(str::to_owned);
+        client_info.peer_certificates = conn.peer_certificates().map(<[_]>::to_vec);
         let mut parts = FramedParts::new(
             MaybeTls::Tls(ssl_socket),
             PgWireMessageServerCodec::new(client_info),
@@ -579,11 +565,65 @@ pub async fn negotiate_tls<S>(
     Ok(None)
 }
 
+async fn next_frontend_message<S>(
+    reader: &mut ReadHalf<MaybeTls>,
+    codec: &mut PgWireMessageServerCodec<S>,
+    buffer: &mut BytesMut,
+) -> Option<PgWireFrontendMessage> {
+    loop {
+        if let Some(message) = codec.decode(buffer).ok()? {
+            return Some(message);
+        }
+        if reader.read_buf(buffer).await.ok()? == 0 {
+            return None;
+        }
+    }
+}
+
+/// Checks for EOF or a read error until a frontend byte is available.
+async fn probe_disconnect(reader: &mut (impl AsyncRead + Unpin), buffer: &mut BytesMut) -> bool {
+    if !buffer.is_empty() {
+        return false;
+    }
+    !matches!(reader.read_buf(buffer).await, Ok(1..))
+}
+
+/// Dispatches a message until it completes or the client disconnects.
+/// The cancellation callback and any started dispatch finish before the session closes.
+async fn dispatch_until_disconnect(
+    dispatch_message: impl Future<Output = io::Result<bool>>,
+    probe_is_disconnected: impl Future<Output = bool>,
+    cancel_callback: impl Future<Output = ()>,
+) -> io::Result<bool> {
+    let mut dispatch_message = pin!(dispatch_message);
+    let mut started = false;
+    select! {
+        biased;
+        true = probe_is_disconnected => {}
+        result = async {
+            started = true;
+            dispatch_message.as_mut().await
+        } => return result,
+    }
+
+    if started {
+        let _ = join!(
+            biased;
+            cancel_callback,
+            dispatch_message
+        );
+    } else {
+        // An EOF can arrive before the first poll. Only resume work that started.
+        cancel_callback.await;
+    }
+    Ok(true)
+}
+
 /// Process messages on an already-negotiated socket.
 ///
 /// This is the common message processing loop shared by both TCP and Unix sockets.
 macro_rules! process_socket_messages {
-    ($socket:expr, $startup_timeout:expr, $handlers:expr) => {{
+    ($socket:ident, $startup_timeout:ident, $handlers:ident, $read:expr, $probe:expr) => {{
         let startup_handler = $handlers.startup_handler();
         let simple_query_handler = $handlers.simple_query_handler();
         let extended_query_handler = $handlers.extended_query_handler();
@@ -591,38 +631,41 @@ macro_rules! process_socket_messages {
         let cancel_handler = $handlers.cancel_handler();
         let error_handler = $handlers.error_handler();
 
-        let socket = &mut $socket;
         loop {
-            let msg = if matches!(
-                socket.state(),
+            let starting_up = matches!(
+                $socket.state(),
                 PgWireConnectionState::AwaitingStartup
                     | PgWireConnectionState::AuthenticationInProgress
-            ) {
-                tokio::select! {
+            );
+            let msg = if starting_up {
+                select! {
                     _ = &mut $startup_timeout => None,
-                    msg = socket.next() => msg,
+                    msg = $read => msg,
                 }
             } else {
-                socket.next().await
+                $read.await
             };
 
-            if let Some(Ok(msg)) = msg {
-                // A Terminate ('X') means the client is disconnecting: the backend
-                // must close the connection. Some clients (asyncpg) send Terminate
-                // and then block waiting for the server to drop the socket, so
-                // ignoring it deadlocks the client's close(); break to drop `socket`.
-                if matches!(msg, PgWireFrontendMessage::Terminate(_)) {
-                    break;
-                }
-                let is_extended_query = match socket.state() {
-                    PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
-                    _ => msg.is_extended_query(),
-                };
-                // `process_message` closes a CancelRequest's dedicated connection.
-                let is_cancel_request = matches!(msg, PgWireFrontendMessage::CancelRequest(_));
+            let Some(msg) = msg else {
+                break;
+            };
+            // A Terminate ('X') means the client is disconnecting: the backend
+            // must close the connection. Some clients (asyncpg) send Terminate
+            // and then block waiting for the server to drop the socket, so
+            // ignoring it deadlocks the client's close(); break to drop `socket`.
+            if matches!(msg, PgWireFrontendMessage::Terminate(_)) {
+                break;
+            }
+            let is_extended_query = match $socket.state() {
+                PgWireConnectionState::CopyInProgress(is_extended_query) => is_extended_query,
+                _ => msg.is_extended_query(),
+            };
+            let is_cancel_request = matches!(msg, PgWireFrontendMessage::CancelRequest(_));
+            let (pid, secret_key) = $socket.pid_and_secret_key();
+            let dispatch = async {
                 if let Err(mut e) = process_message(
                     msg,
-                    socket,
+                    &mut $socket,
                     startup_handler.clone(),
                     simple_query_handler.clone(),
                     extended_query_handler.clone(),
@@ -631,21 +674,25 @@ macro_rules! process_socket_messages {
                 )
                 .await
                 {
-                    error_handler.on_error(socket, &mut e);
+                    error_handler.on_error(&$socket, &mut e);
                     // A FATAL error ends the session, as in PostgreSQL. Closing
                     // the socket only shuts down its write side, so break to
                     // drop it rather than wait for the client to hang up.
                     let is_fatal = e.is_fatal();
-                    process_error(socket, e, is_extended_query).await?;
-                    if is_fatal {
-                        break;
-                    }
+                    process_error(&mut $socket, e, is_extended_query).await?;
+                    return Ok::<_, io::Error>(is_fatal);
                 }
-                if is_cancel_request {
+                Ok(false)
+            };
+            if starting_up {
+                if dispatch.await? || is_cancel_request {
                     break;
                 }
             } else {
-                break;
+                let cancel = cancel_handler.on_cancel_request(CancelRequest::new(pid, secret_key));
+                if dispatch_until_disconnect(dispatch, $probe, cancel).await? {
+                    break;
+                }
             }
         }
     }};
@@ -657,8 +704,7 @@ pub async fn process_socket_unix<H>(unix_socket: UnixStream, handlers: H) -> Res
 where
     H: PgWireServerHandlers,
 {
-    let startup_timeout = sleep(Duration::from_millis(STARTUP_TIMEOUT_MILLIS));
-    tokio::pin!(startup_timeout);
+    let mut startup_timeout = pin!(sleep(Duration::from_millis(STARTUP_TIMEOUT_MILLIS)));
 
     // Use a dummy socket address for Unix domain socket connections
     // This is consistent with how PostgreSQL handles Unix socket connections
@@ -672,11 +718,23 @@ where
 
     socket.set_state(PgWireConnectionState::AwaitingStartup);
 
-    process_socket_messages!(socket, startup_timeout, handlers);
+    process_socket_messages!(
+        socket,
+        startup_timeout,
+        handlers,
+        async { socket.next().await.and_then(Result::ok) },
+        std::future::ready(false)
+    );
     Ok(())
 }
 
 /// Process a TCP client connection with optional TLS negotiation.
+///
+/// A read error or EOF, including a write-half shutdown, can cancel in-flight
+/// message processing and end the session. After startup, the server calls the
+/// session's cancel handler and waits for any started dispatch to finish.
+/// Buffered frontend input defers disconnect detection until the buffer is empty.
+/// A dedicated cancel request runs to completion.
 pub async fn process_socket<H>(
     tcp_socket: TcpStream,
     tls_acceptor: Option<crate::tokio::TlsAcceptor>,
@@ -687,12 +745,11 @@ where
 {
     // start a timer for startup process, if the client couldn't finish startup
     // within the timeout, it has to be dropped.
-    let startup_timeout = sleep(Duration::from_millis(STARTUP_TIMEOUT_MILLIS));
-    tokio::pin!(startup_timeout);
+    let mut startup_timeout = pin!(sleep(Duration::from_millis(STARTUP_TIMEOUT_MILLIS)));
 
     // this function will process postgres ssl negotiation and consume the first
     // SslRequest packet if detected.
-    let socket = tokio::select! {
+    let socket = select! {
         _ = &mut startup_timeout => {
             return Ok(())
         },
@@ -700,18 +757,66 @@ where
             socket?
         }
     };
-    let Some(mut socket) = socket else {
+    let Some(socket) = socket else {
         // no tls_acceptor configured. But the client sends direct tls
         // negotiation. this is typically an invalid connection
         return Ok(());
     };
 
-    process_socket_messages!(socket, startup_timeout, handlers);
+    let parts = socket.into_parts();
+    let (mut reader, writer) = tokio::io::split(parts.io);
+    let mut read_buffer = parts.read_buf;
+    let mut write_parts = FramedParts::new(writer, parts.codec);
+    write_parts.write_buf = parts.write_buf;
+    let mut socket = Framed::from_parts(write_parts);
+
+    process_socket_messages!(
+        socket,
+        startup_timeout,
+        handlers,
+        next_frontend_message(&mut reader, socket.codec_mut(), &mut read_buffer),
+        probe_disconnect(&mut reader, &mut read_buffer)
+    );
     Ok(())
 }
 
+#[cfg(test)]
+mod disconnect_tests {
+    use super::*;
+    use tokio::io::{AsyncWriteExt, duplex};
+
+    #[tokio::test]
+    async fn ready_disconnect_does_not_start_dispatch() {
+        let mut canceled = false;
+        let should_close = dispatch_until_disconnect(
+            async { panic!("dispatch started after disconnect") },
+            std::future::ready(true),
+            async { canceled = true },
+        )
+        .await
+        .unwrap();
+
+        assert!(should_close);
+        assert!(canceled);
+    }
+
+    #[tokio::test]
+    async fn disconnect_probe_keeps_read_bytes_and_skips_buffered_input() {
+        let (mut sender, mut reader) = duplex(2);
+        let mut buffer = BytesMut::new();
+        sender.write_all(&[1, 2]).await.unwrap();
+        drop(sender);
+
+        assert!(!probe_disconnect(&mut reader, &mut buffer).await);
+        assert_eq!(&buffer[..], &[1, 2]);
+        assert!(!probe_disconnect(&mut reader, &mut buffer).await);
+        buffer.clear();
+        assert!(probe_disconnect(&mut reader, &mut buffer).await);
+    }
+}
+
 #[cfg(all(test, any(feature = "_ring", feature = "_aws-lc-rs")))]
-mod tests {
+mod tls_tests {
     use super::*;
     use std::fs::File;
     use std::io::{BufReader, Error as IOError};
@@ -963,12 +1068,14 @@ mod tests {
         assert_eq!(ci.sni_server_name(), Some("localhost"));
     }
 
+    type RecordedQueries = Arc<std::sync::Mutex<Vec<(String, bool, Option<String>)>>>;
+
     /// A handler factory that records every executed query together with the
     /// value of `is_secure()` at execution time. `NoopStartupHandler` (trust
     /// auth) is used, mirroring `examples/secure_server.rs`.
     #[derive(Default)]
     struct RecordingHandlers {
-        queries: std::sync::Arc<std::sync::Mutex<Vec<(String, bool)>>>,
+        queries: RecordedQueries,
     }
 
     #[async_trait::async_trait]
@@ -985,10 +1092,11 @@ mod tests {
             C: crate::api::ClientInfo + crate::api::ClientPortalStore + Unpin + Send + Sync,
             C::PortalStore: crate::api::store::PortalStore,
         {
-            self.queries
-                .lock()
-                .unwrap()
-                .push((query.to_owned(), client.is_secure()));
+            self.queries.lock().unwrap().push((
+                query.to_owned(),
+                client.is_secure(),
+                client.sni_server_name().map(str::to_owned),
+            ));
 
             let f1 = crate::api::results::FieldInfo::new(
                 "id".into(),
@@ -1033,9 +1141,7 @@ mod tests {
         v
     }
 
-    async fn spawn_recording_server(
-        queries: std::sync::Arc<std::sync::Mutex<Vec<(String, bool)>>>,
-    ) -> std::net::SocketAddr {
+    async fn spawn_recording_server(queries: RecordedQueries) -> std::net::SocketAddr {
         use tokio::net::TcpListener;
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
         let addr = listener.local_addr().expect("local addr");
@@ -1137,68 +1243,49 @@ mod tests {
         payload.extend_from_slice(&plaintext_query_bytes("SELECT 2"));
         tls.write_all(&payload).await.expect("send encrypted");
 
-        let mut received = Vec::new();
-        let mut buf = [0u8; 4096];
-        let n = tls.read(&mut buf).await.expect("read inside tls");
-        received.extend_from_slice(&buf[..n]);
-        assert!(
-            received.contains(&b'T'),
-            "expected RowDescription, got {received:?}"
-        );
+        let context = DecodeContext {
+            protocol_version: ProtocolVersion::PROTOCOL3_0,
+            ..DecodeContext::default()
+        };
+        let mut received = BytesMut::new();
+        let mut saw_row_description = false;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            // Startup and the pipelined query each have a ReadyForQuery response.
+            let mut ready = 0;
+            while ready < 2 {
+                let message =
+                    PgWireBackendMessage::decode(&mut received, &context).expect("backend frame");
+                match message {
+                    Some(PgWireBackendMessage::RowDescription(_)) => saw_row_description = true,
+                    Some(PgWireBackendMessage::ReadyForQuery(_)) => ready += 1,
+                    Some(PgWireBackendMessage::ErrorResponse(error)) => {
+                        panic!("unexpected backend error: {error:?}");
+                    }
+                    Some(_) => {}
+                    None => assert_ne!(tls.read_buf(&mut received).await.expect("read TLS"), 0),
+                }
+            }
+        })
+        .await
+        .expect("complete TLS query response");
+        assert!(saw_row_description, "expected RowDescription");
 
         let recorded = queries.lock().unwrap().clone();
-        assert_eq!(recorded, vec![("SELECT 2".to_owned(), true)]);
+        assert_eq!(
+            recorded,
+            vec![("SELECT 2".to_owned(), true, Some("localhost".to_owned()))]
+        );
     }
 
-    #[tokio::test]
-    async fn client_certificates_does_not_panic_under_maybe_tls() {
-        use std::net::SocketAddr;
-        use tokio::net::{TcpListener, TcpStream};
+    #[test]
+    fn client_certificates_are_available_through_the_write_half() {
+        let cert = CertificateDer::from(&b"certificate"[..]);
+        let mut client_info = DefaultClient::<()>::new("127.0.0.1:0".parse().unwrap(), true);
+        client_info.peer_certificates = Some(vec![cert.clone()]);
+        let (transport, _) = tokio::io::duplex(1);
+        let (_, writer) = tokio::io::split(transport);
+        let framed = Framed::new(writer, PgWireMessageServerCodec::new(client_info));
 
-        #[cfg(feature = "_aws-lc-rs")]
-        let _ = CryptoProvider::install_default(
-            tokio_rustls::rustls::crypto::aws_lc_rs::default_provider(),
-        );
-        #[cfg(feature = "_ring")]
-        let _ =
-            CryptoProvider::install_default(tokio_rustls::rustls::crypto::ring::default_provider());
-
-        let server_cfg = Arc::new(load_test_server_config().expect("server config"));
-        let acceptor = TlsAcceptor::from(server_cfg);
-        let connector = make_test_client_connector().expect("client connector");
-
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-        let addr = listener.local_addr().expect("local addr");
-
-        // Client drives a real TLS handshake over TCP, presenting no certificate.
-        let client = tokio::spawn(async move {
-            let tcp = TcpStream::connect(addr).await.expect("connect");
-            let server_name = rustls_pki_types::ServerName::try_from("localhost").unwrap();
-            let _tls = connector
-                .connect(server_name, tcp)
-                .await
-                .expect("client tls");
-            // Hold the connection open until the server has inspected certificates.
-            sleep(Duration::from_millis(200)).await;
-        });
-
-        let (tcp, _peer) = listener.accept().await.expect("accept");
-        let tls = acceptor.accept(tcp).await.expect("server tls");
-
-        // Mirror `process_socket`/`negotiate_tls`: the negotiated stream is wrapped
-        // in `MaybeTls`, NOT a bare `TlsStream<TcpStream>`.
-        let peer: SocketAddr = "127.0.0.1:0".parse().unwrap();
-        let ci: DefaultClient<()> = DefaultClient::new(peer, true);
-        let framed = Framed::new(
-            MaybeTls::Tls(Box::new(tls)),
-            PgWireMessageServerCodec::new(ci),
-        );
-
-        // The client sent no certificate, so this must return `None`. Before the fix
-        // it instead downcast the `MaybeTls` to `TlsStream<TcpStream>`, got `None`,
-        // and panicked on the `unwrap()`.
-        assert!(framed.client_certificates().is_none());
-
-        client.await.unwrap();
+        assert_eq!(framed.client_certificates(), Some(&[cert][..]));
     }
 }
