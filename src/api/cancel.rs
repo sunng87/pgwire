@@ -8,7 +8,8 @@ use crate::messages::cancel::CancelRequest;
 /// Handler for Cancel Request
 #[async_trait]
 pub trait CancelHandler: Send + Sync {
-    /// Called when a cancel request is received.
+    /// Called for a cancel request or when a TCP client disconnects during
+    /// message processing after startup.
     async fn on_cancel_request(&self, cancel_request: CancelRequest);
 }
 
